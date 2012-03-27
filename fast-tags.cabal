@@ -1,0 +1,29 @@
+name: fast-tags
+version: 0.0.1
+cabal-version: >= 1.6
+build-type: Simple
+synopsis: Fast incremental vi tags.
+description:
+    This is similar to hasktags only less buggy and will load an existing tags
+    file to merge generated tags.  The intent is to bind it to vim's
+    ButWrite autocommand to automatically keep the tags file up to date.
+    It also works on hsc files.
+category: Editor, Haskell
+license: BSD3
+license-file: LICENSE
+author: Evan Laforge
+maintainer: Evan Laforge <qdunkan@gmail.com>
+stability: experimental
+tested-with: GHC>=7.0.3
+data-files: README
+extra-source-files: src/*.hs
+
+source-repository head
+    type: darcs
+    location: http://ofb.net/~elaforge/darcs/fast-tags/
+
+executable FastTags
+    main-is: Main.hs
+    hs-source-dirs: src
+    build-depends: base >= 3 && < 5, containers, text
+    ghc-options: -Wall -fno-warn-name-shadowing

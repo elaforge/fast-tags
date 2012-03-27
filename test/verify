@@ -1,0 +1,23 @@
+#!/bin/zsh
+# Compare tags output against grep.
+# Grep can't get constructors easily and picks up internal definitions, so
+# a little variation is expected.
+
+tag=$1
+file=$2
+tmp=$(mktemp)
+
+funcs=$(egrep "[a-z][a-zA-Z'_]* :: " $file | wc -l)
+classes=$(egrep '^class ' $file | wc -l)
+types=$(egrep '^(data|newtype|type) ' $file | wc -l)
+constructors='?'
+
+$tag -o $tmp $file
+
+echo $file -- grep vs. FastTag:
+echo functions: $funcs $(grep 'f$' $tmp | wc -l)
+echo classes: $classes $(grep 'c$' $tmp | wc -l)
+echo types: $types $(grep 't$' $tmp | wc -l)
+echo constructors: $constructors $(grep 'C$' $tmp | wc -l)
+
+rm $tmp
