@@ -22,7 +22,7 @@ source-repository head
     type: darcs
     location: http://ofb.net/~elaforge/darcs/fast-tags/
 
-executable FastTags
+executable fast-tags
     main-is: Main.hs
     hs-source-dirs: src
     build-depends: base >= 3 && < 5, containers, text
