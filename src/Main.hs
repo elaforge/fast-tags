@@ -136,8 +136,12 @@ processFile :: FilePath -> IO [Tag]
 processFile fn = fmap (process fn) (Text.IO.readFile fn)
 
 process :: FilePath -> Text -> [Tag]
-process fn = concatMap blockTags . breakBlocks . stripComments
-    . concatMap tokenize . stripCpp . annotate fn
+process fn = dropDups tagText . concatMap blockTags . breakBlocks
+    . stripComments . concatMap tokenize . stripCpp . annotate fn
+    where
+    tagText (Pos _ (Tag text _)) = text
+    tagText (Pos _ (Warning warn)) = T.pack warn
+
 
 -- * tokenize
 
@@ -354,3 +358,8 @@ dropUntil token = drop 1 . dropWhile ((/= Token token) . valOf)
 catchENOENT :: IO a -> IO (Maybe a)
 catchENOENT op = Exception.handleJust (guard . IO.Error.isDoesNotExistError)
     (const (return Nothing)) (fmap Just op)
+
+dropDups :: (Eq k) => (a -> k) -> [a] -> [a]
+dropDups _ [] = []
+dropDups key (x:xs) = x : map snd (filter (not . equal) (zip (x:xs) xs))
+    where equal (x, y) = key x == key y

@@ -8,6 +8,14 @@ import qualified Main as Main
 import Main (Token, TokenVal(..), TagVal(..), Type(..))
 
 
+-- This is kind of annoying without line numbers on equal and automatic
+-- test_* collection...
+main = do
+    test_tokenize
+    test_breakString
+    test_stripComments
+    test_process
+
 test_tokenize = do
     let f = extractTokens . tokenize
     equal (f "a::b->c") ["nl 0", "a", "::", "b", "->", "c"]
@@ -53,8 +61,10 @@ test_process = do
         [Tag "C" Class, Tag "m" Function, Tag "n" Function]
     equal (f "class A a where f :: X\n")
         [Tag "A" Class, Tag "f" Function]
-    equal (f "data X\n")
-        [Tag "X" Type]
+    equal (f "data X\n") [Tag "X" Type]
+
+    -- The extra X is suppressed.
+    equal (f "data X = X Int\n") [Tag "X" Type]
 
     equal (f "f :: A -> B\ng :: C -> D\ndata D = C {\n\tf :: A\n\t}\n")
         [Tag "f" Function, Tag "g" Function, Tag "D" Type,
