@@ -264,7 +264,7 @@ blockTags :: [Token] -> [Tag]
 blockTags tokens = case tokens of
     [] -> []
     Pos _ (Token "module") : Pos pos (Token name) : _ ->
-        [mktag pos name Module]
+        [mktag pos (snd (T.breakOnEnd "." name)) Module]
     -- newtype X * = X *
     Pos _ (Token "newtype") : Pos pos (Token name) : rest ->
         mktag pos name Type : newtypeTags pos rest

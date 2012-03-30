@@ -50,7 +50,7 @@ test_breakBlocks = do
 
 test_process = do
     let f = map Main.valOf . Main.process "fn"
-    equal (f "module Foo where\n") [Tag "Foo" Module]
+    equal (f "module Bar.Foo where\n") [Tag "Foo" Module]
     equal (f "newtype Foo a b =\n\tBar x y z\n")
         [Tag "Foo" Type, Tag "Bar" Constructor]
     equal (f "data Foo a = Bar { field :: Field }")
