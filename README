@@ -1,1 +1,13 @@
-TODO
+See vimrc for an example of how to keep the tags file up to date automatically.
+
+Design decisions:
+
+- Only top-level functions with type declarations are tagged.
+
+Not supported:
+
+- \ continuation in strings is not parsed correctly.
+
+- Literate haskell.
+
+- Infix operators.

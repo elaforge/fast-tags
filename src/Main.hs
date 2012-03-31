@@ -5,18 +5,6 @@
     a SaveBuf action runs tags every time you save a file.
     Or extend lushtags, the question is complete parsing ok?  It means I can't
     do it on save, since I'd have to invoke the build system to de-hsc.
-
-    Design decisions:
-
-    - Only top-level functions with type declarations are tagged.
-
-    Not supported:
-
-    - \ continuation in strings is not parsed correctly.
-
-    - Literate haskell.
-
-    - Infix operators.
 -}
 module Main where
 import qualified Control.Exception as Exception

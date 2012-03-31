@@ -4,11 +4,18 @@ cabal-version: >= 1.6
 build-type: Simple
 synopsis: Fast incremental vi tags.
 description:
-    This is similar to hasktags only less buggy and will load an existing tags
-    file to merge generated tags.  The intent is to bind it to vim's
-    BufWrite autocommand to automatically keep the tags file up to date.
-    It also works on hsc files.
-category: Editor, Haskell
+    Yet another tags program.  Like hasktags, it uses its own parser rather
+    than haskell-src or haskell-src-exts, so it's fast.  It should be even
+    faster than hasktags because it uses Text instead of String.  It also
+    understands hsc files, though not literate haskell.  It's also less buggy
+    than hasktags.
+    .
+    In addition, it will load an existing tags file and merge generated tags.
+    .
+    The intent is to bind it to vim's BufWrite autocommand to automatically
+    keep the tags file up to date.
+
+category: Haskell, Development
 license: BSD3
 license-file: LICENSE
 author: Evan Laforge
