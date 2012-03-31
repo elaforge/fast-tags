@@ -6,7 +6,7 @@ synopsis: Fast incremental vi tags.
 description:
     This is similar to hasktags only less buggy and will load an existing tags
     file to merge generated tags.  The intent is to bind it to vim's
-    ButWrite autocommand to automatically keep the tags file up to date.
+    BufWrite autocommand to automatically keep the tags file up to date.
     It also works on hsc files.
 category: Editor, Haskell
 license: BSD3
