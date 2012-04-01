@@ -14,6 +14,10 @@ description:
     .
     The intent is to bind it to vim's BufWrite autocommand to automatically
     keep the tags file up to date.
+    .
+    Limitations:
+    Functions without type declarations and functions inside 'let' or 'where'
+    aren't detected.
 
 category: Haskell, Development
 license: BSD3
@@ -32,6 +36,7 @@ source-repository head
 executable fast-tags
     main-is: Main.hs
     hs-source-dirs: src
-    -- text 0.11.1.12 has a bug.
-    build-depends: base >= 3 && < 5, containers, text >= 0.11.1.13
+    build-depends: base >= 3 && < 5, containers,
+        -- text 0.11.1.12 has a bug.
+        text (> 0.11.1.12 || < 0.11.1.12)
     ghc-options: -Wall -fno-warn-name-shadowing
