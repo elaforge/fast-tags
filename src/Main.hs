@@ -51,7 +51,7 @@ data Flag = Output FilePath
 
 options :: [GetOpt.OptDescr Flag]
 options =
-    [ GetOpt.Option ['o'] [] (GetOpt.ReqArg Output "blorch")
+    [ GetOpt.Option ['o'] [] (GetOpt.ReqArg Output "filename")
         "output file, defaults to 'tags'"
     ]
 
