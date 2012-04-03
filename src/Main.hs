@@ -240,7 +240,7 @@ breakBlocks :: [Token] -> [[Token]]
 breakBlocks = filter (not . null) . go . filterBlank
     where
     go [] = []
-    go tokens = pre : breakBlocks post
+    go tokens = pre : go post
         where (pre, post) = breakBlock tokens
     -- Blank lines mess up the indentation.
     filterBlank [] = []
