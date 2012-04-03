@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings, PatternGuards, ScopedTypeVariables #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# OPTIONS_GHC -funbox-strict-fields #-}
 {- |
     Annotate lines, strip comments, tokenize, then search for
     It loads the existing tags, and updates it for the given file.  Then
@@ -105,7 +106,6 @@ data TokenVal = Token !Text | Newline !Int
     deriving (Eq, Show)
 
 type Tag = Pos TagVal
-
 type Token = Pos TokenVal
 
 -- | Newlines have to remain in the tokens because 'breakBlocks' relies on
@@ -124,8 +124,8 @@ unstrippedTokensOf (UnstrippedTokens tokens) = tokens
 type Line = Pos Text
 
 data Pos a = Pos {
-    posOf :: SrcPos
-    , valOf :: a
+    posOf :: !SrcPos
+    , valOf :: !a
     }
 
 data SrcPos = SrcPos {
@@ -366,7 +366,7 @@ dataTags prevPos unstripped = case dropUntil "=" (stripNewlines unstripped) of
 -- | * => X where X :: * ...
 classTags :: SrcPos -> UnstrippedTokens -> [Tag]
 classTags prevPos unstripped = case dropContext (stripNewlines unstripped) of
-    Pos pos (Token name) : rest ->
+    Pos pos (Token name) : _ ->
         -- Drop the where and start expecting functions.
         mktag pos name Class : concatMap classBodyTags
             (breakBlocks (mapTokens (dropUntil "where") unstripped))
