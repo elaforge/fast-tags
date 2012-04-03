@@ -17,6 +17,7 @@ import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.Text.IO as Text.IO
 
+import qualified Debug.Trace as Trace
 import qualified System.Console.GetOpt as GetOpt
 import qualified System.Environment as Environment
 import qualified System.Exit
@@ -191,9 +192,6 @@ spanSymbol text
 symbolChar :: Char -> Bool
 symbolChar c = Char.isSymbol c || Char.isPunctuation c
 
-isHaskellSymbol :: Text -> Bool
-isHaskellSymbol = T.all symbolChar
-
 breakChar :: Text -> (Text, Text)
 breakChar text
     | T.null text = ("", "")
@@ -301,14 +299,16 @@ functionTags = go []
 
 functionName :: Text -> Maybe Text
 functionName text
-    | isFunctionName text = Just text
-    | not (T.null stripped) = Just stripped
+    | isFunction text = Just text
+    | isOperator text && not (T.null stripped) = Just stripped
     | otherwise = Nothing
     where
-    stripped = T.drop 1 $ T.take (T.length text - 1) text
-    isFunctionName text = case T.uncons text of
+    isFunction text = case T.uncons text of
         Just (c, cs) -> Char.isLower c && startIdentChar c && T.all identChar cs
         Nothing -> False
+    isOperator text = "(" `T.isPrefixOf` text && ")" `T.isSuffixOf` text
+        && T.all symbolChar stripped
+    stripped = T.drop 1 $ T.take (T.length text - 1) text
 
 mktag :: SrcPos -> Text -> Type -> Pos TagVal
 mktag pos name typ = Pos pos (Tag name typ)
@@ -377,6 +377,9 @@ dropUntil token = drop 1 . dropWhile ((/= Token token) . valOf)
 
 
 -- * misc
+
+tracem :: (Show a) => String -> a -> a
+tracem msg x = Trace.trace (msg ++ ": " ++ show x) x
 
 (<>) :: (Monoid.Monoid a) => a -> a -> a
 (<>) = Monoid.mappend

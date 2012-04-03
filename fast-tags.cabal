@@ -16,7 +16,11 @@ description:
     keep the tags file up to date.
     .
     Limitations:
-    Functions without type declarations and functions inside 'let' or 'where'
+    .
+    - Not using a real haskell parser means there are more likely to be dark
+    corners that don't parse right.
+    .
+    - Functions without type declarations and functions inside 'let' or 'where'
     aren't detected.
 
 category: Haskell, Development

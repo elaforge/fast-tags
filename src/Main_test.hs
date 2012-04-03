@@ -85,6 +85,10 @@ test_data = do
     equal assert (f "data R = R {\n\ta::X\n\t, b::Y\n\t}") ["R", "a", "b"]
     equal assert (f "data R = R {\n\ta,b::X\n\t}") ["R", "a", "b"]
 
+    equal assert (f "data R = R {\n\ta :: !RealTime\n\t, b :: !RealTime\n\t}")
+        ["R", "a", "b"]
+
+
 test_functions = do
     let f = process
     -- Multiple declarations.
