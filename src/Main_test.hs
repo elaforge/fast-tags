@@ -1,13 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main_test where
-import Control.Monad
-import qualified System.IO.Unsafe as Unsafe
-import qualified Data.Text as Text
 import qualified Control.Exception as Exception
+import Control.Monad
+import qualified Data.Monoid as Monoid
+import qualified Data.Text as Text
 import Exception (assert)
+import qualified System.IO.Unsafe as Unsafe
 
 import qualified Main as Main
-import Main (Token, TokenVal(..), TagVal(..), Type(..))
+import Main
+       (Token, UnstrippedTokens, TokenVal(..), TagVal(..), Type(..))
 
 
 -- This is kind of annoying without automatic test_* collection...
@@ -48,7 +50,7 @@ test_stripComments = do
         ["nl 0", "hello", "fred"]
 
 test_breakBlocks = do
-    let f = map extractTokens . map Main.stripNewlines
+    let f = map (extractTokens . Main.UnstrippedTokens . Main.stripNewlines)
             . Main.breakBlocks . tokenize
     equal assert (f "1\n2\n") [["1"], ["2"]]
     equal assert (f "1\n 1\n2\n") [["1", "1"], ["2"]]
@@ -60,7 +62,8 @@ test_breakBlocks = do
     equal assert (f "1\n 11\n 11\n") [["1", "11", "11"]]
     equal assert (f " 11\n 11\n") [["11"], ["11"]]
 
-test_process = test_misc >> test_data >> test_functions >> test_class
+test_process = sequence_
+    [test_misc, test_data, test_families, test_functions, test_class]
 
 test_misc = do
     let f = process
@@ -88,6 +91,12 @@ test_data = do
     equal assert (f "data R = R {\n\ta :: !RealTime\n\t, b :: !RealTime\n\t}")
         ["R", "a", "b"]
 
+test_families = do
+    let f = map untag . process
+    equal assert (f "type family X :: *\n") ["X"]
+    equal assert (f "data family X :: * -> *\n") ["X"]
+    equal assert (f "class C where\n\ttype X y :: *\n") ["C", "X"]
+    equal assert (f "class C where\n\tdata X y :: *\n") ["C", "X"]
 
 test_functions = do
     let f = process
@@ -119,16 +128,17 @@ untag :: TagVal -> String
 untag (Tag name _) = Text.unpack name
 untag (Warning warn) = "warn: " ++ warn
 
-tokenize :: Text.Text -> [Token]
-tokenize = concat . map Main.tokenize . Main.stripCpp . Main.annotate "fn"
+tokenize :: Text.Text -> UnstrippedTokens
+tokenize = Monoid.mconcat . map Main.tokenize . Main.stripCpp
+    . Main.annotate "fn"
 
 plist :: (Show a) => [a] -> IO ()
 plist xs = mapM_ (putStrLn . show) xs >> putChar '\n'
 
-extractTokens :: [Token] -> [Text.Text]
-extractTokens = map $ \token -> case Main.valOf token of
+extractTokens :: UnstrippedTokens -> [Text.Text]
+extractTokens = map (\token -> case Main.valOf token of
     Token name -> name
-    Newline n -> Text.pack ("nl " ++ show n)
+    Newline n -> Text.pack ("nl " ++ show n)) . Main.unstrippedTokensOf
 
 equal :: (Show a, Eq a) => Assert z -> a -> a -> IO ()
 equal srcpos x y = unless (x == y) $

@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings, PatternGuards, ScopedTypeVariables #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {- |
     Annotate lines, strip comments, tokenize, then search for
     It loads the existing tags, and updates it for the given file.  Then
@@ -104,7 +105,22 @@ data TokenVal = Token !Text | Newline !Int
     deriving (Eq, Show)
 
 type Tag = Pos TagVal
+
 type Token = Pos TokenVal
+
+-- | Newlines have to remain in the tokens because 'breakBlocks' relies on
+-- them.  But they make pattern matching on the tokens unreliable because
+-- newlines might be anywhere.  A newtype makes sure that the tokens only get
+-- stripped once and that I don't do any pattern matching on unstripped tokens.
+newtype UnstrippedTokens = UnstrippedTokens [Token]
+    deriving (Show, Monoid.Monoid)
+
+mapTokens :: ([Token] -> [Token]) -> UnstrippedTokens -> UnstrippedTokens
+mapTokens f (UnstrippedTokens tokens) = UnstrippedTokens (f tokens)
+
+unstrippedTokensOf :: UnstrippedTokens -> [Token]
+unstrippedTokensOf (UnstrippedTokens tokens) = tokens
+
 type Line = Pos Text
 
 data Pos a = Pos {
@@ -133,7 +149,7 @@ processFile fn = fmap (process fn) (Text.IO.readFile fn)
 
 process :: FilePath -> Text -> [Tag]
 process fn = dropDups tagText . concatMap blockTags . breakBlocks
-    . stripComments . concatMap tokenize . stripCpp . annotate fn
+    . stripComments . Monoid.mconcat . map tokenize . stripCpp . annotate fn
     where
     tagText (Pos _ (Tag text _)) = text
     tagText (Pos _ (Warning warn)) = T.pack warn
@@ -148,8 +164,8 @@ annotate fn text =
 stripCpp :: [Line] -> [Line]
 stripCpp = filter $ not . ("#" `T.isPrefixOf`) . valOf
 
-tokenize :: Line -> [Token]
-tokenize (Pos pos line) = map (Pos pos) (tokenizeLine line)
+tokenize :: Line -> UnstrippedTokens
+tokenize (Pos pos line) = UnstrippedTokens $ map (Pos pos) (tokenizeLine line)
 
 tokenizeLine :: Text -> [TokenVal]
 tokenizeLine text = Newline nspaces : go line
@@ -223,8 +239,8 @@ breakString text = case T.uncons post of
     where
     (pre, post) = T.break (\c -> c == '\\' || c == '"') text
 
-stripComments :: [Token] -> [Token]
-stripComments = go 0
+stripComments :: UnstrippedTokens -> UnstrippedTokens
+stripComments = mapTokens (go 0)
     where
     go :: Int -> [Token] -> [Token]
     go _ [] = []
@@ -236,8 +252,9 @@ stripComments = go 0
         | otherwise = pos : go nest rest
 
 -- | Break the input up into blocks based on indentation.
-breakBlocks :: [Token] -> [[Token]]
-breakBlocks = filter (not . null) . go . filterBlank
+breakBlocks :: UnstrippedTokens -> [UnstrippedTokens]
+breakBlocks = map UnstrippedTokens . filter (not . null) . go . filterBlank
+    . unstrippedTokensOf
     where
     go [] = []
     go tokens = pre : go post
@@ -265,7 +282,7 @@ breakBlock [] = ([], [])
 -- * extract tags
 
 -- | Get all the tags in one indented block.
-blockTags :: [Token] -> [Tag]
+blockTags :: UnstrippedTokens -> [Tag]
 blockTags tokens = case stripNewlines tokens of
     [] -> []
     Pos _ (Token "module") : Pos pos (Token name) : _ ->
@@ -273,22 +290,28 @@ blockTags tokens = case stripNewlines tokens of
     -- newtype X * = X *
     Pos _ (Token "newtype") : Pos pos (Token name) : rest ->
         mktag pos name Type : newtypeTags pos rest
+    -- type family X ...
+    Pos _ (Token "type") : Pos _ (Token "family") : Pos pos (Token name) : _ ->
+        [mktag pos name Type]
     -- type X * = ...
     Pos _ (Token "type") : Pos pos (Token name) : _ -> [mktag pos name Type]
+    -- data family X ...
+    Pos _ (Token "data") : Pos _ (Token "family") : Pos pos (Token name) : _ ->
+        [mktag pos name Type]
     -- data X * = X { X :: *, X :: * }
     -- data X * where ...
     Pos _ (Token "data") : Pos pos (Token name) : _ ->
-        mktag pos name Type : dataTags pos (drop 2 tokens)
+        mktag pos name Type : dataTags pos (mapTokens (drop 2) tokens)
     -- class * => X where X :: * ...
-    Pos pos (Token "class") : _ -> classTags pos (drop 1 tokens)
+    Pos pos (Token "class") : _ -> classTags pos (mapTokens (drop 1) tokens)
     -- x, y, z :: *
-    _ -> fst $ functionTags tokens
+    stripped -> fst $ functionTags stripped
 
 -- | It's easier to scan for tokens without pesky newlines popping up
 -- everywhere.  But I need to keep the newlines in in case I hit a @where@
 -- and need to call 'breakBlocks' again.
-stripNewlines :: [Token] -> [Token]
-stripNewlines = filter (not . isNewline)
+stripNewlines :: UnstrippedTokens -> [Token]
+stripNewlines = filter (not . isNewline) . (\(UnstrippedTokens t) -> t)
 
 -- | Get tags from a function type declaration: token , token , token ::
 -- Return the tokens left over.
@@ -316,41 +339,22 @@ functionName text
         && T.all symbolChar stripped
     stripped = T.drop 1 $ T.take (T.length text - 1) text
 
-mktag :: SrcPos -> Text -> Type -> Pos TagVal
-mktag pos name typ = Pos pos (Tag name typ)
-
-warning :: SrcPos -> String -> Pos TagVal
-warning pos warn = Pos pos (Warning warn)
-
-unexpected :: SrcPos -> [Token] -> [Token] -> String -> [Tag]
-unexpected prevPos tokens tokensHere declaration =
-    [warning pos ("unexpected " ++ thing ++ " after " ++ declaration)]
-    where
-    thing = if null tokensHere then "end of block"
-        else show (valOf (head tokensHere))
-    pos
-        | not (null tokensHere) = posOf (head tokensHere)
-        | not (null tokens) = posOf (last tokens)
-        | otherwise = prevPos
-
 -- | * = X *
 newtypeTags :: SrcPos -> [Token] -> [Tag]
 newtypeTags prevPos tokens = case dropUntil "=" tokens of
     Pos pos (Token name) : _ -> [mktag pos name Constructor]
-    rest -> unexpected prevPos tokens rest "newtype * ="
+    rest -> unexpected prevPos (UnstrippedTokens tokens) rest "newtype * ="
 
 -- | [] (empty data declaration)
 -- * = X { X :: *, X :: * }
 -- * where X :: * X :: *
 -- * = X | X
-dataTags :: SrcPos -> [Token] -> [Tag]
-dataTags _ [] = [] -- empty data declaration
-dataTags prevPos tokens
-    -- if is gadt then...
-    | otherwise = case dropUntil "=" (stripNewlines tokens) of
-        Pos pos (Token name) : rest ->
-            mktag pos name Constructor : collectRest rest
-        rest -> unexpected prevPos tokens rest "data * ="
+dataTags :: SrcPos -> UnstrippedTokens -> [Tag]
+dataTags prevPos unstripped = case dropUntil "=" (stripNewlines unstripped) of
+    [] -> [] -- empty data declaration
+    Pos pos (Token name) : rest ->
+        mktag pos name Constructor : collectRest rest
+    rest -> unexpected prevPos unstripped rest "data * ="
     where
     collectRest tokens
         | (tags@(_:_), rest) <- functionTags tokens = tags ++ collectRest rest
@@ -360,16 +364,42 @@ dataTags prevPos tokens
     collectRest [] = []
 
 -- | * => X where X :: * ...
-classTags :: SrcPos -> [Token] -> [Tag]
-classTags prevPos unstripped = case tokens of
+classTags :: SrcPos -> UnstrippedTokens -> [Tag]
+classTags prevPos unstripped = case dropContext (stripNewlines unstripped) of
     Pos pos (Token name) : rest ->
-        -- Drop the where and expect functions.
-        mktag pos name Class : concatMap (fst . functionTags)
-            (breakBlocks (dropUntil "where" rest))
-    rest -> unexpected prevPos tokens rest "class * =>"
+        -- Drop the where and start expecting functions.
+        mktag pos name Class : concatMap classBodyTags
+            (breakBlocks (mapTokens (dropUntil "where") unstripped))
+    rest -> unexpected prevPos unstripped rest "class * =>"
     where
-    tokens = if any ((== Token "=>") . valOf) unstripped
-        then dropUntil "=>" unstripped else unstripped
+    dropContext tokens = if any ((== Token "=>") . valOf) tokens
+        then dropUntil "=>" tokens else tokens
+
+classBodyTags :: UnstrippedTokens -> [Tag]
+classBodyTags unstripped = case stripNewlines unstripped of
+    Pos _ (Token typedata) : Pos pos (Token name) : _
+        | typedata `elem` ["type", "data"] -> [mktag pos name Type]
+    tokens -> fst $ functionTags tokens
+
+
+-- * util
+
+mktag :: SrcPos -> Text -> Type -> Pos TagVal
+mktag pos name typ = Pos pos (Tag name typ)
+
+warning :: SrcPos -> String -> Pos TagVal
+warning pos warn = Pos pos (Warning warn)
+
+unexpected :: SrcPos -> UnstrippedTokens -> [Token] -> String -> [Tag]
+unexpected prevPos (UnstrippedTokens tokensBefore) tokensHere declaration =
+    [warning pos ("unexpected " ++ thing ++ " after " ++ declaration)]
+    where
+    thing = if null tokensHere then "end of block"
+        else show (valOf (head tokensHere))
+    pos
+        | not (null tokensHere) = posOf (head tokensHere)
+        | not (null tokensBefore) = posOf (last tokensBefore)
+        | otherwise = prevPos
 
 dropLine :: [Token] -> [Token]
 dropLine = drop 1 . dropWhile (not . isNewline)
