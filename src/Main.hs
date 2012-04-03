@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, PatternGuards #-}
+{-# LANGUAGE OverloadedStrings, PatternGuards, ScopedTypeVariables #-}
 {- |
     Annotate lines, strip comments, tokenize, then search for
     It loads the existing tags, and updates it for the given file.  Then
@@ -124,6 +124,12 @@ instance Show SrcPos where
 
 processFile :: FilePath -> IO [Tag]
 processFile fn = fmap (process fn) (Text.IO.readFile fn)
+    `Exception.catch` \(exc :: Exception.SomeException) -> do
+        -- readFile will crash on files that are not UTF8.  Unfortunately not
+        -- all haskell source file are.
+        IO.hPutStrLn IO.stderr $ "exception reading " ++ show fn ++ ": "
+            ++ show exc
+        return []
 
 process :: FilePath -> Text -> [Tag]
 process fn = dropDups tagText . concatMap blockTags . breakBlocks

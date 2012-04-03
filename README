@@ -7,23 +7,15 @@ Design decisions:
 functions without type declarations are skipped, as are ones inside 'let' or
 'where.
 
+- Doesn't work on non-UTF8 encoded source files.
+
 TODO:
 
-- Apparently a performance problem in some codebases.  Run on ghc, download
-big projects from hackage, etc.
+- Performance problem tagging lots of files at once.
 
 - Type families and associated types.
 
 - GADTs
-
-- better dropDups:
-
-dd _   []     = []
-dd key (x:xs) = go x xs
- where go a []     = [a]
-       go a (b:bs)
-        | key a == key b = go a bs
-        | True           = a : go b bs
 
 - \ continuation in strings is not parsed correctly.
 
