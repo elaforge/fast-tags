@@ -390,6 +390,10 @@ catchENOENT op = Exception.handleJust (guard . IO.Error.isDoesNotExistError)
     (const (return Nothing)) (fmap Just op)
 
 dropDups :: (Eq k) => (a -> k) -> [a] -> [a]
+dropDups key (x:xs) = go x xs
+    where
+    go a [] = [a]
+    go a (b:bs)
+        | key a == key b = go a bs
+        | otherwise = a : go b bs
 dropDups _ [] = []
-dropDups key (x:xs) = x : map snd (filter (not . equal) (zip (x:xs) xs))
-    where equal (x, y) = key x == key y
