@@ -11,10 +11,12 @@
 module Main where
 import qualified Control.Exception as Exception
 import Control.Monad
+
 import qualified Data.Char as Char
 import qualified Data.Either as Either
 import qualified Data.List as List
 import qualified Data.Monoid as Monoid
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.Text.IO as Text.IO
@@ -46,7 +48,7 @@ main = do
 
     -- Turns out GHC will not float out the T.pack and it makes a big
     -- performance difference.
-    let textFns = map (T.pack . ('\t':)) inputs
+    let textFns = Set.fromList $ map (T.pack . ('\t':)) inputs
         filtered = filter (not . isNewTag textFns) oldTags
     write $ T.unlines $ merge (List.sort newTags) filtered
     where
@@ -68,8 +70,9 @@ options =
 vimMagicLine :: Text
 vimMagicLine = "!_TAG_FILE_SORTED\t1\t~"
 
-isNewTag :: [Text] -> Text -> Bool
-isNewTag textFns line = any (`T.isInfixOf` line) textFns
+isNewTag :: Set.Set Text -> Text -> Bool
+isNewTag textFns line = Set.member fn textFns
+    where fn = T.takeWhile (/='\t') $ T.drop 1 $ T.dropWhile (/='\t') line
 
 merge :: [Text] -> [Text] -> [Text]
 merge [] ys = ys
