@@ -1,13 +1,18 @@
-See vimrc for an example of how to keep the tags file up to date automatically.
+See vimrc for an example of how to keep the tags file up to date
+automatically.
 
 Design decisions:
 
-- Only top-level functions with type declarations are tagged.
+- Only top-level functions with type declarations are tagged.  Top-level
+functions without type declarations are skipped, as are ones inside 'let' or
+'where.
 
-Not supported:
+TODO:
 
 - \ continuation in strings is not parsed correctly.
 
+- Type families and associated types.
+
 - Literate haskell.
 
-- Infix operators.
+- Entire module indented.  But who does this?

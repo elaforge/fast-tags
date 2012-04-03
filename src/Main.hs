@@ -73,15 +73,16 @@ merge (x:xs) (y:ys)
     | otherwise = y : merge (x:xs) ys
 
 
--- AbsoluteMark\tCmd/TimeStep.hs 67 ;" f
--- TODO use "file:" for non-exported symbols, this should make vim search for
--- them first within the file.
+-- | Convert a Tag to text, e.g.: AbsoluteMark\tCmd/TimeStep.hs 67 ;" f
 showTag :: Tag -> Either String Text
 showTag (Pos (SrcPos fn lineno) (Tag text typ)) = Right $
     T.concat [text, "\t", T.pack fn, "\t", T.pack (show lineno), " ;\" ",
         T.singleton (showType typ)]
 showTag (Pos pos (Warning text)) = Left $ show pos ++ ": " ++ text
 
+-- | Vim takes this to be the \"kind:\" annotation.  It's just an arbitrary
+-- string and these letters conform to no standard.  Presumably there are some
+-- vim extensions that can make use of it.
 showType :: Type -> Char
 showType typ = case typ of
     Module -> 'm'
@@ -130,7 +131,6 @@ process fn = dropDups tagText . concatMap blockTags . breakBlocks
     tagText (Pos _ (Tag text _)) = text
     tagText (Pos _ (Warning warn)) = T.pack warn
 
-
 -- * tokenize
 
 annotate :: FilePath -> Text -> [Line]
@@ -158,15 +158,41 @@ tokenizeLine text = Newline nspaces : go line
             in Token (T.cons c token) : go rest
         | c == '"' = let (token, rest) = breakString cs
             in Token (T.cons c token) : go rest
-        | Char.isSymbol c || Char.isPunctuation c =
-            Token (T.singleton c) : go cs
-        | otherwise =
-            let (token, rest) = T.span isIdent text in Token token : go rest
+        | (token, rest) <- spanSymbol text, not (T.null token) =
+            Token token : go rest
+        -- This will tokenize differently than haskell should, e.g.
+        -- 9x will be "9x" not "9" "x".  But I just need a wordlike chunk, not
+        -- an actual token.  Otherwise I'd have to tokenize numbers.
+        | otherwise = case T.span identChar text of
+            ("", _) -> Token (T.singleton c) : go cs
+            (token, rest) -> Token token : go rest
         where
         text = T.dropWhile Char.isSpace unstripped
         c = T.head text
         cs = T.tail text
-    isIdent c = Char.isAlphaNum c || c == '.' || c == '\'' || c == '_'
+
+startIdentChar :: Char -> Bool
+startIdentChar c = Char.isAlpha c || c == '_'
+
+identChar :: Char -> Bool
+identChar c = Char.isAlphaNum c || c == '.' || c == '\'' || c == '_'
+
+-- | Span a symbol, making sure to not eat comments.
+spanSymbol :: Text -> (Text, Text)
+spanSymbol text
+    | any (`T.isPrefixOf` post) [",", "--", "-}", "{-"] = (pre, post)
+    | Just (c, cs) <- T.uncons post, c == '-' || c == '{' =
+        let (pre2, post2) = spanSymbol cs
+        in (pre <> T.cons c pre2, post2)
+    | otherwise = (pre, post)
+    where
+    (pre, post) = T.break (\c -> T.any (==c) "-{," || not (symbolChar c)) text
+
+symbolChar :: Char -> Bool
+symbolChar c = Char.isSymbol c || Char.isPunctuation c
+
+isHaskellSymbol :: Text -> Bool
+isHaskellSymbol = T.all symbolChar
 
 breakChar :: Text -> (Text, Text)
 breakChar text
@@ -205,51 +231,38 @@ stripComments = go 0
         | nest > 0 = go nest rest
         | otherwise = pos : go nest rest
 
-
--- | Break the input up into blocks based on indentation and strip out all
--- the newlines.  This way the blockTags doesn't need to worry about newlines.
+-- | Break the input up into blocks based on indentation.
 breakBlocks :: [Token] -> [[Token]]
-breakBlocks =
-    filter (not . null) . map (filter (not . isNewline)) . go . filterBlank
+breakBlocks = filter (not . null) . go . filterBlank
     where
     go [] = []
     go tokens = pre : breakBlocks post
-        -- Start the indent off at 1, this way the next line in the 0th column
-        -- will start a new block.
-        where (pre, post) = breakBlock True 1 tokens
+        where (pre, post) = breakBlock tokens
     -- Blank lines mess up the indentation.
     filterBlank [] = []
     filterBlank (Pos _ (Newline _) : xs@(Pos _ (Newline _) : _)) =
         filterBlank xs
     filterBlank (x:xs) = x : filterBlank xs
 
--- | Take until newline, then take lines until there the indent decreases.
-breakBlock :: Bool -> Int -> [Token] -> ([Token], [Token])
-breakBlock _ _ [] = ([], [])
-breakBlock firstLine indent (t@(Pos _ (Newline lineIndent)) : ts)
-    -- An indent less than the established block indent means I'm done.
-    | lineIndent < indent = ([t], ts)
-    | otherwise =
-        let (pre, post) = breakBlock False blockIndent ts in (t:pre, post)
-    where blockIndent = if firstLine then lineIndent else indent
-breakBlock firstLine indent (t : ts) =
-    let (pre, post) = breakBlock firstLine indent ts in (t:pre, post)
+-- | Take until a newline, then take lines until the indent established after
+-- that newline decreases.
+breakBlock :: [Token] -> ([Token], [Token])
+breakBlock (t@(Pos _ tok):ts) = case tok of
+    Newline indent -> collectIndented indent ts
+    _ -> let (pre, post) = breakBlock ts in (t:pre, post)
+    where
+    collectIndented indent (t@(Pos _ tok) : ts) = case tok of
+        Newline n | n <= indent -> ([], t:ts)
+        _ -> let (pre, post) = collectIndented indent ts in (t:pre, post)
+    collectIndented _ [] = ([], [])
+breakBlock [] = ([], [])
 
 
 -- * extract tags
 
 -- | Get all the tags in one indented block.
---
--- Search for:
--- - module <word>
--- - newtype <word>
--- - type <word>
--- - data <word> * = <word> :: or | <word>
--- - class * => <word> * where - strip indent, look for <word> ::
--- - <word> :: emit as a definition
--- - whitespace: skip to next line
 blockTags :: [Token] -> [Tag]
-blockTags tokens = case tokens of
+blockTags tokens = case stripNewlines tokens of
     [] -> []
     Pos _ (Token "module") : Pos pos (Token name) : _ ->
         [mktag pos (snd (T.breakOnEnd "." name)) Module]
@@ -260,12 +273,42 @@ blockTags tokens = case tokens of
     Pos _ (Token "type") : Pos pos (Token name) : _ -> [mktag pos name Type]
     -- data X * = X { X :: *, X :: * }
     -- data X * where ...
-    Pos _ (Token "data") : Pos pos (Token name) : rest ->
-        mktag pos name Type : dataTags pos rest
+    Pos _ (Token "data") : Pos pos (Token name) : _ ->
+        mktag pos name Type : dataTags pos (drop 2 tokens)
     -- class * => X where X :: * ...
-    Pos pos (Token "class") : rest -> classTags pos rest
-    Pos pos (Token name) : Pos _ (Token "::") : _ -> [mktag pos name Function]
-    _ -> []
+    Pos pos (Token "class") : _ -> classTags pos (drop 1 tokens)
+    -- x, y, z :: *
+    _ -> fst $ functionTags tokens
+
+-- | It's easier to scan for tokens without pesky newlines popping up
+-- everywhere.  But I need to keep the newlines in in case I hit a @where@
+-- and need to call 'breakBlocks' again.
+stripNewlines :: [Token] -> [Token]
+stripNewlines = filter (not . isNewline)
+
+-- | Get tags from a function type declaration: token , token , token ::
+-- Return the tokens left over.
+functionTags :: [Token] -> ([Tag], [Token])
+functionTags = go []
+    where
+    go tags (Pos pos (Token name) : Pos _ (Token "::") : rest)
+        | Just name <- functionName name =
+            (reverse $ mktag pos name Function : tags, rest)
+    go tags (Pos pos (Token name) : Pos _ (Token ",") : rest)
+            | Just name <- functionName name =
+        go (mktag pos name Function : tags) rest
+    go tags tokens = (tags, tokens)
+
+functionName :: Text -> Maybe Text
+functionName text
+    | isFunctionName text = Just text
+    | not (T.null stripped) = Just stripped
+    | otherwise = Nothing
+    where
+    stripped = T.drop 1 $ T.take (T.length text - 1) text
+    isFunctionName text = case T.uncons text of
+        Just (c, cs) -> Char.isLower c && startIdentChar c && T.all identChar cs
+        Nothing -> False
 
 mktag :: SrcPos -> Text -> Type -> Pos TagVal
 mktag pos name typ = Pos pos (Tag name typ)
@@ -298,33 +341,29 @@ dataTags :: SrcPos -> [Token] -> [Tag]
 dataTags _ [] = [] -- empty data declaration
 dataTags prevPos tokens
     -- if is gadt then...
-    | otherwise = case dropUntil "=" tokens of
+    | otherwise = case dropUntil "=" (stripNewlines tokens) of
         Pos pos (Token name) : rest ->
             mktag pos name Constructor : collectRest rest
         rest -> unexpected prevPos tokens rest "data * ="
     where
-    collectRest tokens = case tokens of
-        Pos pos (Token name) : Pos _ (Token "::") : rest ->
-            mktag pos name Function : collectRest rest
-        Pos _ (Token "|") : Pos pos (Token name) : rest ->
-            mktag pos name Constructor : collectRest rest
-        _ : rest -> collectRest rest
-        [] -> []
+    collectRest tokens
+        | (tags@(_:_), rest) <- functionTags tokens = tags ++ collectRest rest
+    collectRest (Pos _ (Token "|") : Pos pos (Token name) : rest) =
+        mktag pos name Constructor : collectRest rest
+    collectRest (_ : rest) = collectRest rest
+    collectRest [] = []
 
 -- | * => X where X :: * ...
 classTags :: SrcPos -> [Token] -> [Tag]
 classTags prevPos unstripped = case tokens of
     Pos pos (Token name) : rest ->
-        mktag pos name Class : collectRest rest
+        -- Drop the where and expect functions.
+        mktag pos name Class : concatMap (fst . functionTags)
+            (breakBlocks (dropUntil "where" rest))
     rest -> unexpected prevPos tokens rest "class * =>"
     where
     tokens = if any ((== Token "=>") . valOf) unstripped
         then dropUntil "=>" unstripped else unstripped
-    collectRest tokens = case tokens of
-        Pos pos (Token name) : Pos _ (Token "::") : rest ->
-            mktag pos name Function : collectRest rest
-        _ : rest -> collectRest rest
-        [] -> []
 
 dropLine :: [Token] -> [Token]
 dropLine = drop 1 . dropWhile (not . isNewline)
