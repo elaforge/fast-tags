@@ -43,8 +43,12 @@ main = do
         IO.hPutStrLn IO.stderr warn
     let write = if output == "-" then Text.IO.hPutStr IO.stdout
             else Text.IO.writeFile output
-    write $ T.unlines $
-        merge (List.sort newTags) (filter (not . isNewTag inputs) oldTags)
+
+    -- Turns out GHC will not float out the T.pack and it makes a big
+    -- performance difference.
+    let textFns = map (T.pack . ('\t':)) inputs
+        filtered = filter (not . isNewTag textFns) oldTags
+    write $ T.unlines $ merge (List.sort newTags) filtered
     where
     usage msg = putStr (GetOpt.usageInfo msg options)
         >> System.Exit.exitSuccess
@@ -64,9 +68,8 @@ options =
 vimMagicLine :: Text
 vimMagicLine = "!_TAG_FILE_SORTED\t1\t~"
 
-isNewTag :: [FilePath] -> Text -> Bool
-isNewTag fns line = any (`T.isInfixOf` line) textFns
-    where textFns = map (T.pack . ('\t':)) fns
+isNewTag :: [Text] -> Text -> Bool
+isNewTag textFns line = any (`T.isInfixOf` line) textFns
 
 merge :: [Text] -> [Text] -> [Text]
 merge [] ys = ys
