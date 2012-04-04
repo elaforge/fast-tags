@@ -347,7 +347,7 @@ functionName constructors text
     isFunction text = case T.uncons text of
         Just (c, cs) -> firstChar c && startIdentChar c && T.all identChar cs
         Nothing -> False
-    firstChar = if constructors then Char.isUpper else Char.isLower
+    firstChar = if constructors then Char.isUpper else not . Char.isUpper
     -- Technically I could insist on colons if constructors is True, but
     -- let's let ghc decide about the syntax.
     isOperator text = "(" `T.isPrefixOf` text && ")" `T.isSuffixOf` text

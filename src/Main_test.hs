@@ -73,6 +73,11 @@ test_misc = do
         [Tag "f" Function, Tag "g" Function, Tag "D" Type,
             Tag "C" Constructor, Tag "f" Function]
 
+test_unicode = do
+    let f = process
+    equal assert (f "數字 :: Int") ["數字"]
+    equal assert (f "(·), x :: Int") ["·", "x"]
+
 test_data = do
     let f = process
     equal assert (f "data X\n") ["X"]
