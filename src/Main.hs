@@ -56,15 +56,18 @@ main = do
 
     let write = if output == "-" then Text.IO.hPutStr IO.stdout
             else Text.IO.writeFile output
-
-    -- Turns out GHC will not float out the T.pack and it makes a big
-    -- performance difference.
-    let textFns = Set.fromList $ map (T.pack . ('\t':)) inputs
-        filtered = filter (not . isNewTag textFns) oldTags
-    write $ T.unlines $ merge (List.sort (map showTag newTags)) filtered
+    write $ T.unlines (mergeTags inputs oldTags newTags)
     where
     usage msg = putStr (GetOpt.usageInfo msg options)
         >> System.Exit.exitSuccess
+
+mergeTags :: [FilePath] -> [Text] -> [Pos TagVal] -> [Text]
+mergeTags inputs old new =
+    merge (List.sort (map showTag new)) (filter (not . isNewTag textFns) old)
+    where
+    -- Turns out GHC will not float out the T.pack and it makes a big
+    -- performance difference.
+    textFns = Set.fromList $ map T.pack inputs
 
 data Flag = Output FilePath | Verbose
     deriving (Eq, Show)
