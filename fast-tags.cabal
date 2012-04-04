@@ -1,5 +1,5 @@
 name: fast-tags
-version: 0.0.3
+version: 0.0.4
 cabal-version: >= 1.8
 build-type: Simple
 synopsis: Fast incremental vi tags.
@@ -12,6 +12,10 @@ description:
     .
     The intent is to bind it to vim's BufWrite autocommand to automatically
     keep the tags file up to date.
+    .
+    Changes since 0.0.3:
+    .
+    * Fixed bug that prevented old tags from being filered out.
     .
     Changes since 0.0.2:
     .
