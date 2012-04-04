@@ -11,7 +11,6 @@
 module Main where
 import qualified Control.Exception as Exception
 import Control.Monad
-
 import qualified Data.Char as Char
 import qualified Data.Either as Either
 import qualified Data.List as List
@@ -36,13 +35,24 @@ main = do
         (flags, inputs, []) -> return (flags, inputs)
         (_, _, errs) -> usage $ "flag errors:\n" ++ List.intercalate ", " errs
     let output = last $ "tags" : [fn | Output fn <- flags]
+        verbose = Verbose `elem` flags
     oldTags <- fmap (maybe [vimMagicLine] T.lines) $
         catchENOENT $ Text.IO.readFile output
-    tags <- fmap concat (mapM processFile inputs)
+    newTags <- fmap concat $ forM (zip [0..] inputs) $ \(i :: Int, fn) -> do
+        tags <- processFile fn
+        -- This has the side-effect of forcing the the tags, which is essential
+        -- if I'm tagging a lot of files at once.
+        let (warnings, newTags) = Either.partitionEithers tags
+        forM_ warnings $ \warn -> do
+            IO.hPutStrLn IO.stderr warn
+        when verbose $ do
+            let line = "\r" ++ show i ++ " of " ++ show (length inputs - 1)
+                    ++ ": " ++ fn
+            putStr $ '\r' : line ++ replicate (78 - length line) ' '
+            IO.hFlush IO.stdout
+        return newTags
+    when verbose $ putChar '\n'
 
-    let (warnings, newTags) = Either.partitionEithers $ map showTag tags
-    forM_ warnings $ \warn -> do
-        IO.hPutStrLn IO.stderr warn
     let write = if output == "-" then Text.IO.hPutStr IO.stdout
             else Text.IO.writeFile output
 
@@ -50,18 +60,20 @@ main = do
     -- performance difference.
     let textFns = Set.fromList $ map (T.pack . ('\t':)) inputs
         filtered = filter (not . isNewTag textFns) oldTags
-    write $ T.unlines $ merge (List.sort newTags) filtered
+    write $ T.unlines $ merge (List.sort (map showTag newTags)) filtered
     where
     usage msg = putStr (GetOpt.usageInfo msg options)
         >> System.Exit.exitSuccess
 
-data Flag = Output FilePath
-    deriving (Show)
+data Flag = Output FilePath | Verbose
+    deriving (Eq, Show)
 
 options :: [GetOpt.OptDescr Flag]
 options =
     [ GetOpt.Option ['o'] [] (GetOpt.ReqArg Output "filename")
         "output file, defaults to 'tags'"
+    , GetOpt.Option ['v'] [] (GetOpt.NoArg Verbose)
+        "print files as they are tagged, useful to track down slow files"
     ]
 
 -- | Documented in vim :h tags-file-format.
@@ -83,11 +95,10 @@ merge (x:xs) (y:ys)
 
 
 -- | Convert a Tag to text, e.g.: AbsoluteMark\tCmd/TimeStep.hs 67 ;" f
-showTag :: Tag -> Either String Text
-showTag (Pos (SrcPos fn lineno) (Tag text typ)) = Right $
+showTag :: Pos TagVal -> Text
+showTag (Pos (SrcPos fn lineno) (Tag text typ)) =
     T.concat [text, "\t", T.pack fn, "\t", T.pack (show lineno), " ;\" ",
         T.singleton (showType typ)]
-showTag (Pos pos (Warning text)) = Left $ show pos ++ ": " ++ text
 
 -- | Vim takes this to be the \"kind:\" annotation.  It's just an arbitrary
 -- string and these letters conform to no standard.  Presumably there are some
@@ -102,7 +113,7 @@ showType typ = case typ of
 
 -- * types
 
-data TagVal = Tag !Text !Type | Warning !String
+data TagVal = Tag !Text !Type
     deriving (Eq, Show)
 
 data Type = Module | Function | Class | Type | Constructor
@@ -111,7 +122,7 @@ data Type = Module | Function | Class | Type | Constructor
 data TokenVal = Token !Text | Newline !Int
     deriving (Eq, Show)
 
-type Tag = Pos TagVal
+type Tag = Either String (Pos TagVal)
 type Token = Pos TokenVal
 
 -- | Newlines have to remain in the tokens because 'breakBlocks' relies on
@@ -157,8 +168,8 @@ process :: FilePath -> Text -> [Tag]
 process fn = dropDups tagText . concatMap blockTags . breakBlocks
     . stripComments . Monoid.mconcat . map tokenize . stripCpp . annotate fn
     where
-    tagText (Pos _ (Tag text _)) = text
-    tagText (Pos _ (Warning warn)) = T.pack warn
+    tagText (Right (Pos _ (Tag text _))) = text
+    tagText (Left warn) = T.pack warn
 
 -- * tokenize
 
@@ -208,7 +219,7 @@ identChar c = Char.isAlphaNum c || c == '.' || c == '\'' || c == '_'
 
 -- | Span a symbol, making sure to not eat comments.
 spanSymbol :: Text -> (Text, Text)
-spanSymbol text
+spanSymbol text -- = T.span symbolChar text
     | any (`T.isPrefixOf` post) [",", "--", "-}", "{-"] = (pre, post)
     | Just (c, cs) <- T.uncons post, c == '-' || c == '{' =
         let (pre2, post2) = spanSymbol cs
@@ -390,11 +401,11 @@ classBodyTags unstripped = case stripNewlines unstripped of
 
 -- * util
 
-mktag :: SrcPos -> Text -> Type -> Pos TagVal
-mktag pos name typ = Pos pos (Tag name typ)
+mktag :: SrcPos -> Text -> Type -> Tag
+mktag pos name typ = Right $ Pos pos (Tag name typ)
 
-warning :: SrcPos -> String -> Pos TagVal
-warning pos warn = Pos pos (Warning warn)
+warning :: SrcPos -> String -> Tag
+warning pos warn = Left $ show pos ++ ": " ++ warn
 
 unexpected :: SrcPos -> UnstrippedTokens -> [Token] -> String -> [Tag]
 unexpected prevPos (UnstrippedTokens tokensBefore) tokensHere declaration =

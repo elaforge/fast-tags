@@ -11,11 +11,13 @@ functions without type declarations are skipped, as are ones inside 'let' or
 
 TODO:
 
-- Performance problem tagging lots of files at once.
+* Performance problem tagging lots of files at once.
 
-- Type families and associated types.
+* Type families and associated types.
 
 - GADTs
+
+- Lots of files are not in UTF8.  Use ByteString with a lenient decoder?
 
 - \ continuation in strings is not parsed correctly.
 

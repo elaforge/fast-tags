@@ -8,8 +8,7 @@ import Exception (assert)
 import qualified System.IO.Unsafe as Unsafe
 
 import qualified Main as Main
-import Main
-       (Token, UnstrippedTokens, TokenVal(..), TagVal(..), Type(..))
+import Main (TokenVal(..), TagVal(..), Type(..), Tag, Pos(..))
 
 
 -- This is kind of annoying without automatic test_* collection...
@@ -66,7 +65,7 @@ test_process = sequence_
     [test_misc, test_data, test_families, test_functions, test_class]
 
 test_misc = do
-    let f = process
+    let f text = [tag | Right (Pos _ tag) <- Main.process "fn" text]
     equal assert (f "module Bar.Foo where\n") [Tag "Foo" Module]
     equal assert (f "newtype Foo a b =\n\tBar x y z\n")
         [Tag "Foo" Type, Tag "Bar" Constructor]
@@ -75,7 +74,7 @@ test_misc = do
             Tag "C" Constructor, Tag "f" Function]
 
 test_data = do
-    let f = map untag . process
+    let f = process
     equal assert (f "data X\n") ["X"]
     -- The extra X is suppressed.
     equal assert (f "data X = X Int\n") ["X"]
@@ -92,7 +91,7 @@ test_data = do
         ["R", "a", "b"]
 
 test_families = do
-    let f = map untag . process
+    let f = process
     equal assert (f "type family X :: *\n") ["X"]
     equal assert (f "data family X :: * -> *\n") ["X"]
     equal assert (f "class C where\n\ttype X y :: *\n") ["C", "X"]
@@ -101,16 +100,16 @@ test_families = do
 test_functions = do
     let f = process
     -- Multiple declarations.
-    equal assert (f "a,b::X") [Tag "a" Function, Tag "b" Function]
+    equal assert (f "a,b::X") ["a", "b"]
     -- With an operator.
-    equal assert (f "(+), a :: X") [Tag "+" Function, Tag "a" Function]
+    equal assert (f "(+), a :: X") ["+", "a"]
     -- Don't get fooled by literals.
     equal assert (f "1 :: Int") []
 
 test_class = do
-    let f = map untag . process
-    equal assert (process "class (X x) => C a b where\n\tm :: a->b\n\tn :: c\n")
-        [Tag "C" Class, Tag "m" Function, Tag "n" Function]
+    let f = process
+    equal assert (f "class (X x) => C a b where\n\tm :: a->b\n\tn :: c\n")
+        ["C", "m", "n"]
     equal assert (f "class A a where f :: X\n") ["A", "f"]
     -- indented inside where
     equal assert (f "class X where\n\ta, (+) :: X\n") ["X", "a", "+"]
@@ -121,21 +120,21 @@ test_class = do
     equal assert (f "class X\n\twhere\n\ta ::\n\t\tX\n\tb :: Y")
         ["X", "a", "b"]
 
-process :: Text.Text -> [TagVal]
-process = map Main.valOf . Main.process "fn"
+process :: Text.Text -> [String]
+process = map untag . Main.process "fn"
 
-untag :: TagVal -> String
-untag (Tag name _) = Text.unpack name
-untag (Warning warn) = "warn: " ++ warn
+untag :: Tag -> String
+untag (Right (Pos _ (Tag name _))) = Text.unpack name
+untag (Left warn) = "warn: " ++ warn
 
-tokenize :: Text.Text -> UnstrippedTokens
+tokenize :: Text.Text -> Main.UnstrippedTokens
 tokenize = Monoid.mconcat . map Main.tokenize . Main.stripCpp
     . Main.annotate "fn"
 
 plist :: (Show a) => [a] -> IO ()
 plist xs = mapM_ (putStrLn . show) xs >> putChar '\n'
 
-extractTokens :: UnstrippedTokens -> [Text.Text]
+extractTokens :: Main.UnstrippedTokens -> [Text.Text]
 extractTokens = map (\token -> case Main.valOf token of
     Token name -> name
     Newline n -> Text.pack ("nl " ++ show n)) . Main.unstrippedTokensOf
