@@ -14,7 +14,7 @@ import Main (TokenVal(..), TagVal(..), Type(..), Tag, Pos(..))
 -- This is kind of annoying without automatic test_* collection...
 main = do
     test_tokenize
-    test_breakString
+    test_skipString
     test_stripComments
     test_process
 
@@ -32,14 +32,14 @@ test_tokenize = do
     equal assert (f "$#-- hi") ["$#", "--", "hi"]
     equal assert (f "(*), (-)") ["(*)", ",", "(-)"]
 
-test_breakString = do
-    let f = Main.breakString
-    equal assert (f "hi \" there") ("hi \"", " there")
-    equal assert (f "hi \\a \" there") ("hi \\a \"", " there")
-    equal assert (f "hi \\\" there\"") ("hi \\\" there\"", "")
-    equal assert (f "hi") ("hi", "")
+test_skipString = do
+    let f = Main.skipString
+    equal assert (f "hi \" there") " there"
+    equal assert (f "hi \\a \" there") " there"
+    equal assert (f "hi \\\" there\"") ""
+    equal assert (f "hi") ""
     -- String continuation isn't implemented yet.
-    equal assert (f "hi \\") ("hi \\", "")
+    equal assert (f "hi \\") ""
 
 test_stripComments = do
     let f = extractTokens . Main.stripComments . tokenize

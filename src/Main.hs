@@ -196,8 +196,7 @@ tokenizeLine text = Newline nspaces : go line
             Token sym : go (T.drop (T.length sym) text)
         | c == '\'' = let (token, rest) = breakChar text
             in Token (T.cons c token) : go rest
-        | c == '"' = let (token, rest) = breakString cs
-            in Token (T.cons c token) : go rest
+        | c == '"' = go (skipString cs)
         | (token, rest) <- spanSymbol text, not (T.null token) =
             Token token : go rest
         -- This will tokenize differently than haskell should, e.g.
@@ -237,24 +236,18 @@ breakChar text
     | T.head text == '\\' = T.splitAt 3 text
     | otherwise = T.splitAt 2 text
 
--- | Break after the ending double-quote of a string.
+-- | Skip until the ending double-quote of a string.  Tags never happen in
+-- strings so I don't need to keep it.
 --
 -- TODO \ continuation isn't supported.  I'd have to tokenize at the file
 -- level instead of the line level.
-breakString :: Text -> (Text, Text)
-breakString text = case T.uncons post of
-        Nothing -> (text, "")
-        Just (c, cs)
-            | c == '\\' && T.null cs -> (T.snoc pre c, "")
-            | c == '\\' && T.head cs == '"' ->
-                let (pre', post') = breakString (T.tail cs)
-                in (pre <> "\\\"" <> pre', post')
-            | c == '\\' ->
-                let (pre', post') = breakString cs
-                in (T.snoc pre c <> pre', post')
-            | otherwise -> (T.snoc pre c, cs)
-    where
-    (pre, post) = T.break (\c -> c == '\\' || c == '"') text
+skipString :: Text -> Text
+skipString text = case T.uncons (T.dropWhile (not . end) text) of
+    Nothing -> ""
+    Just (c, cs)
+        | c == '"' -> cs
+        | otherwise -> skipString (T.drop 1 cs)
+    where end c = c == '\\' || c == '"'
 
 stripComments :: UnstrippedTokens -> UnstrippedTokens
 stripComments = mapTokens (go 0)
