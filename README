@@ -1,15 +1,6 @@
 See vimrc for an example of how to keep the tags file up to date
 automatically.
 
-Design decisions:
-
-- Only top-level functions with type declarations are tagged.  Top-level
-functions without type declarations are skipped, as are ones inside 'let' or
-'where.
-
-- Code has to be indented "properly", so brace and semicolon style with strange
-dedents will probably confuse it.
-
 TODO:
 
 - Lots of files are not in UTF8.  Use ByteString with a lenient decoder?
