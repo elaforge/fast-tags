@@ -7,15 +7,10 @@ Design decisions:
 functions without type declarations are skipped, as are ones inside 'let' or
 'where.
 
-- Doesn't work on non-UTF8 encoded source files.
+- Code has to be indented "properly", so brace and semicolon style with strange
+dedents will probably confuse it.
 
 TODO:
-
-* Performance problem tagging lots of files at once.
-
-* Type families and associated types.
-
-- GADTs
 
 - Lots of files are not in UTF8.  Use ByteString with a lenient decoder?
 

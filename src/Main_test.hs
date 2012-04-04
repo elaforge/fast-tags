@@ -62,7 +62,7 @@ test_breakBlocks = do
     equal assert (f " 11\n 11\n") [["11"], ["11"]]
 
 test_process = sequence_
-    [test_misc, test_data, test_families, test_functions, test_class]
+    [test_misc, test_data, test_gadt, test_families, test_functions, test_class]
 
 test_misc = do
     let f text = [tag | Right (Pos _ tag) <- Main.process "fn" text]
@@ -89,6 +89,13 @@ test_data = do
 
     equal assert (f "data R = R {\n\ta :: !RealTime\n\t, b :: !RealTime\n\t}")
         ["R", "a", "b"]
+
+test_gadt = do
+    let f = process
+    equal assert (f "data X where A :: X\n") ["X", "A"]
+    equal assert (f "data X where\n\tA :: X\n") ["X", "A"]
+    equal assert (f "data X where\n\tA :: X\n\tB :: X\n") ["X", "A", "B"]
+    equal assert (f "data X where\n\tA, B :: X\n") ["X", "A", "B"]
 
 test_families = do
     let f = process

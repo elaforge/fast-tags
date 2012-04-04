@@ -315,7 +315,7 @@ blockTags tokens = case stripNewlines tokens of
     -- class * => X where X :: * ...
     Pos pos (Token "class") : _ -> classTags pos (mapTokens (drop 1) tokens)
     -- x, y, z :: *
-    stripped -> fst $ functionTags stripped
+    stripped -> fst $ functionTags False stripped
 
 -- | It's easier to scan for tokens without pesky newlines popping up
 -- everywhere.  But I need to keep the newlines in in case I hit a @where@
@@ -325,26 +325,30 @@ stripNewlines = filter (not . isNewline) . (\(UnstrippedTokens t) -> t)
 
 -- | Get tags from a function type declaration: token , token , token ::
 -- Return the tokens left over.
-functionTags :: [Token] -> ([Tag], [Token])
-functionTags = go []
+functionTags :: Bool -- ^ expect constructors, not functions
+    -> [Token] -> ([Tag], [Token])
+functionTags constructors = go []
     where
     go tags (Pos pos (Token name) : Pos _ (Token "::") : rest)
-        | Just name <- functionName name =
+        | Just name <- functionName constructors name =
             (reverse $ mktag pos name Function : tags, rest)
     go tags (Pos pos (Token name) : Pos _ (Token ",") : rest)
-            | Just name <- functionName name =
+            | Just name <- functionName constructors name =
         go (mktag pos name Function : tags) rest
     go tags tokens = (tags, tokens)
 
-functionName :: Text -> Maybe Text
-functionName text
+functionName :: Bool -> Text -> Maybe Text
+functionName constructors text
     | isFunction text = Just text
     | isOperator text && not (T.null stripped) = Just stripped
     | otherwise = Nothing
     where
     isFunction text = case T.uncons text of
-        Just (c, cs) -> Char.isLower c && startIdentChar c && T.all identChar cs
+        Just (c, cs) -> firstChar c && startIdentChar c && T.all identChar cs
         Nothing -> False
+    firstChar = if constructors then Char.isUpper else Char.isLower
+    -- Technically I could insist on colons if constructors is True, but
+    -- let's ghc decide about the syntax.
     isOperator text = "(" `T.isPrefixOf` text && ")" `T.isSuffixOf` text
         && T.all symbolChar stripped
     stripped = T.drop 1 $ T.take (T.length text - 1) text
@@ -360,26 +364,32 @@ newtypeTags prevPos tokens = case dropUntil "=" tokens of
 -- * where X :: * X :: *
 -- * = X | X
 dataTags :: SrcPos -> UnstrippedTokens -> [Tag]
-dataTags prevPos unstripped = case dropUntil "=" (stripNewlines unstripped) of
-    [] -> [] -- empty data declaration
-    Pos pos (Token name) : rest ->
-        mktag pos name Constructor : collectRest rest
-    rest -> unexpected prevPos unstripped rest "data * ="
+dataTags prevPos unstripped
+    | any ((== Token "where") . valOf) (unstrippedTokensOf unstripped) =
+        concatMap gadtTags (whereBlock unstripped)
+    | otherwise = case dropUntil "=" (stripNewlines unstripped) of
+        [] -> [] -- empty data declaration
+        Pos pos (Token name) : rest ->
+            mktag pos name Constructor : collectRest rest
+        rest -> unexpected prevPos unstripped rest "data * ="
     where
     collectRest tokens
-        | (tags@(_:_), rest) <- functionTags tokens = tags ++ collectRest rest
+        | (tags@(_:_), rest) <- functionTags False tokens =
+            tags ++ collectRest rest
     collectRest (Pos _ (Token "|") : Pos pos (Token name) : rest) =
         mktag pos name Constructor : collectRest rest
     collectRest (_ : rest) = collectRest rest
     collectRest [] = []
+
+gadtTags :: UnstrippedTokens -> [Tag]
+gadtTags = fst . functionTags True . stripNewlines
 
 -- | * => X where X :: * ...
 classTags :: SrcPos -> UnstrippedTokens -> [Tag]
 classTags prevPos unstripped = case dropContext (stripNewlines unstripped) of
     Pos pos (Token name) : _ ->
         -- Drop the where and start expecting functions.
-        mktag pos name Class : concatMap classBodyTags
-            (breakBlocks (mapTokens (dropUntil "where") unstripped))
+        mktag pos name Class : concatMap classBodyTags (whereBlock unstripped)
     rest -> unexpected prevPos unstripped rest "class * =>"
     where
     dropContext tokens = if any ((== Token "=>") . valOf) tokens
@@ -389,7 +399,11 @@ classBodyTags :: UnstrippedTokens -> [Tag]
 classBodyTags unstripped = case stripNewlines unstripped of
     Pos _ (Token typedata) : Pos pos (Token name) : _
         | typedata `elem` ["type", "data"] -> [mktag pos name Type]
-    tokens -> fst $ functionTags tokens
+    tokens -> fst $ functionTags False tokens
+
+-- | Skip to the where and split the indented block below it.
+whereBlock :: UnstrippedTokens -> [UnstrippedTokens]
+whereBlock = breakBlocks . mapTokens (dropUntil "where")
 
 
 -- * util
