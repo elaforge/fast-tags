@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings, PatternGuards, ScopedTypeVariables #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# OPTIONS_GHC -funbox-strict-fields #-}
-{- |
+{- | Tagify haskell source.
+
     Annotate lines, strip comments, tokenize, then search for
     It loads the existing tags, and updates it for the given file.  Then
     a SaveBuf action runs tags every time you save a file.
@@ -46,7 +47,7 @@ main = do
         forM_ warnings $ \warn -> do
             IO.hPutStrLn IO.stderr warn
         when verbose $ do
-            let line = "\r" ++ show i ++ " of " ++ show (length inputs - 1)
+            let line = show i ++ " of " ++ show (length inputs - 1)
                     ++ ": " ++ fn
             putStr $ '\r' : line ++ replicate (78 - length line) ' '
             IO.hFlush IO.stdout
@@ -218,7 +219,7 @@ identChar c = Char.isAlphaNum c || c == '.' || c == '\'' || c == '_'
 
 -- | Span a symbol, making sure to not eat comments.
 spanSymbol :: Text -> (Text, Text)
-spanSymbol text -- = T.span symbolChar text
+spanSymbol text
     | any (`T.isPrefixOf` post) [",", "--", "-}", "{-"] = (pre, post)
     | Just (c, cs) <- T.uncons post, c == '-' || c == '{' =
         let (pre2, post2) = spanSymbol cs
@@ -348,7 +349,7 @@ functionName constructors text
         Nothing -> False
     firstChar = if constructors then Char.isUpper else Char.isLower
     -- Technically I could insist on colons if constructors is True, but
-    -- let's ghc decide about the syntax.
+    -- let's let ghc decide about the syntax.
     isOperator text = "(" `T.isPrefixOf` text && ")" `T.isSuffixOf` text
         && T.all symbolChar stripped
     stripped = T.drop 1 $ T.take (T.length text - 1) text
