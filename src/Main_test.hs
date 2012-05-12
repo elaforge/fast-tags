@@ -2,8 +2,10 @@
 module Main_test where
 import qualified Control.Exception as Exception
 import Control.Monad
+import qualified Data.Either as Either
 import qualified Data.Monoid as Monoid
 import qualified Data.Text as Text
+
 import Exception (assert)
 import qualified System.IO.Unsafe as Unsafe
 
@@ -12,11 +14,11 @@ import Main (TokenVal(..), TagVal(..), Type(..), Tag, Pos(..))
 
 
 -- This is kind of annoying without automatic test_* collection...
-main = do
-    test_tokenize
-    test_skipString
-    test_stripComments
-    test_process
+main = sequence_
+    [ test_tokenize, test_skipString, test_stripComments
+    , test_breakBlocks, test_processAll
+    , test_process
+    ]
 
 test_tokenize = do
     -- drop leading "nl 0"
@@ -61,8 +63,25 @@ test_breakBlocks = do
     equal assert (f "1\n 11\n 11\n") [["1", "11", "11"]]
     equal assert (f " 11\n 11\n") [["11"], ["11"]]
 
+test_processAll = do
+    let f = map showTag . Main.processAll . Either.rights
+            . concatMap (\(i, t) -> Main.process ("fn" ++ show i) t)
+            . zip [0..]
+        showTag (Pos p (Tag text typ)) =
+            unwords [show p, Text.unpack text, show typ]
+    equal assert (f ["data X", "module X"])
+        ["fn0:1 X Type", "fn1:1 X Module"]
+    -- Type goes ahead of Module.
+    equal assert (f ["module X\ndata X"])
+        ["fn0:2 X Type", "fn0:1 X Module"]
+    -- Extra X was filtered.
+    equal assert (f ["module X\ndata X = X\n"])
+        ["fn0:2 X Type", "fn0:1 X Module"]
+
 test_process = sequence_
-    [test_misc, test_data, test_gadt, test_families, test_functions, test_class]
+    [ test_misc, test_data, test_gadt, test_families, test_functions
+    , test_class
+    ]
 
 test_misc = do
     let f text = [tag | Right (Pos _ tag) <- Main.process "fn" text]
@@ -81,19 +100,18 @@ test_unicode = do
 test_data = do
     let f = process
     equal assert (f "data X\n") ["X"]
-    -- The extra X is suppressed.
-    equal assert (f "data X = X Int\n") ["X"]
+    equal assert (f "data X = X Int\n") ["X", "X"]
     equal assert (f "data Foo = Bar | Baz") ["Foo", "Bar", "Baz"]
     equal assert (f "data Foo =\n\tBar\n\t| Baz") ["Foo", "Bar", "Baz"]
     -- Records.
     equal assert (f "data Foo a = Bar { field :: Field }")
         ["Foo", "Bar", "field"]
-    equal assert (f "data R = R { a::X, b::Y }") ["R", "a", "b"]
-    equal assert (f "data R = R {\n\ta::X\n\t, b::Y\n\t}") ["R", "a", "b"]
-    equal assert (f "data R = R {\n\ta,b::X\n\t}") ["R", "a", "b"]
+    equal assert (f "data R = R { a::X, b::Y }") ["R", "R", "a", "b"]
+    equal assert (f "data R = R {\n\ta::X\n\t, b::Y\n\t}") ["R", "R", "a", "b"]
+    equal assert (f "data R = R {\n\ta,b::X\n\t}") ["R", "R", "a", "b"]
 
     equal assert (f "data R = R {\n\ta :: !RealTime\n\t, b :: !RealTime\n\t}")
-        ["R", "a", "b"]
+        ["R", "R", "a", "b"]
 
 test_gadt = do
     let f = process

@@ -39,19 +39,25 @@ main = do
         verbose = Verbose `elem` flags
     oldTags <- fmap (maybe [vimMagicLine] T.lines) $
         catchENOENT $ Text.IO.readFile output
-    newTags <- fmap concat $ forM (zip [0..] inputs) $ \(i :: Int, fn) -> do
-        tags <- processFile fn
-        -- This has the side-effect of forcing the the tags, which is essential
-        -- if I'm tagging a lot of files at once.
-        let (warnings, newTags) = Either.partitionEithers tags
-        forM_ warnings $ \warn -> do
-            IO.hPutStrLn IO.stderr warn
-        when verbose $ do
-            let line = show i ++ " of " ++ show (length inputs - 1)
-                    ++ ": " ++ fn
-            putStr $ '\r' : line ++ replicate (78 - length line) ' '
-            IO.hFlush IO.stdout
-        return newTags
+    -- This will merge and sort the new tags.  But I don't run it on the
+    -- the result of merging the old and new tags, so tags from another
+    -- file won't be sorted properly.  To do that I'd have to parse all the
+    -- old tags and run processAll on all of them, which is a hassle.
+    -- TODO try it and see if it really hurts performance that much.
+    newTags <- fmap (processAll . concat) $
+        forM (zip [0..] inputs) $ \(i :: Int, fn) -> do
+            tags <- processFile fn
+            -- This has the side-effect of forcing the the tags, which is
+            -- essential if I'm tagging a lot of files at once.
+            let (warnings, newTags) = Either.partitionEithers tags
+            forM_ warnings $ \warn -> do
+                IO.hPutStrLn IO.stderr warn
+            when verbose $ do
+                let line = show i ++ " of " ++ show (length inputs - 1)
+                        ++ ": " ++ fn
+                putStr $ '\r' : line ++ replicate (78 - length line) ' '
+                IO.hFlush IO.stdout
+            return newTags
     when verbose $ putChar '\n'
 
     let write = if output == "-" then Text.IO.hPutStr IO.stdout
@@ -63,11 +69,10 @@ main = do
 
 mergeTags :: [FilePath] -> [Text] -> [Pos TagVal] -> [Text]
 mergeTags inputs old new =
-    merge (List.sort (map showTag new)) (filter (not . isNewTag textFns) old)
-    where
-    -- Turns out GHC will not float out the T.pack and it makes a big
-    -- performance difference.
-    textFns = Set.fromList $ map T.pack inputs
+    -- 'new' was already been sorted by 'process', but then I just concat
+    -- the tags from each file, so they need sorting again.
+    merge (map showTag new) (filter (not . isNewTag textFns) old)
+    where textFns = Set.fromList $ map T.pack inputs
 
 data Flag = Output FilePath | Verbose
     deriving (Eq, Show)
@@ -152,13 +157,41 @@ data Pos a = Pos {
 data SrcPos = SrcPos {
     posFile :: !FilePath
     , posLine :: !Int
-    }
+    } deriving (Eq)
 
 instance (Show a) => Show (Pos a) where
     show (Pos pos val) = show pos ++ ":" ++ show val
 instance Show SrcPos where
     show (SrcPos fn line) = fn ++ ":" ++ show line
 
+-- * process
+
+-- | Global processing for when all tags are together.
+processAll :: [Pos TagVal] -> [Pos TagVal]
+processAll = sortDups . dropDups (\t -> (posOf t, tagText t))
+    . sortOn tagText
+
+-- | Given multiple matches, vim will jump to the first one.  So sort adjacent
+-- tags with the same text by their type.
+--
+-- Mostly this is so that given a type with the same name as its module,
+-- the type will come first.
+sortDups :: [Pos TagVal] -> [Pos TagVal]
+sortDups = concat . sort . List.groupBy (\a b -> tagText a == tagText b)
+    where
+    sort = map (sortOn key)
+    key :: Pos TagVal -> Int
+    key (Pos _ (Tag _ typ)) = case typ of
+        Function -> 0
+        Type -> 1
+        Constructor -> 2
+        Class -> 3
+        Module -> 4
+
+tagText :: Pos TagVal -> Text
+tagText (Pos _ (Tag text _)) = text
+
+-- | Read tags from one file.
 processFile :: FilePath -> IO [Tag]
 processFile fn = fmap (process fn) (Text.IO.readFile fn)
     `Exception.catch` \(exc :: Exception.SomeException) -> do
@@ -168,12 +201,10 @@ processFile fn = fmap (process fn) (Text.IO.readFile fn)
             ++ show exc
         return []
 
+-- | Process one file's worth of tags.
 process :: FilePath -> Text -> [Tag]
-process fn = dropDups tagText . concatMap blockTags . breakBlocks
-    . stripComments . Monoid.mconcat . map tokenize . stripCpp . annotate fn
-    where
-    tagText (Right (Pos _ (Tag text _))) = text
-    tagText (Left warn) = T.pack warn
+process fn = concatMap blockTags . breakBlocks . stripComments
+    . Monoid.mconcat . map tokenize . stripCpp . annotate fn
 
 -- * tokenize
 
@@ -461,3 +492,6 @@ dropDups key (x:xs) = go x xs
         | key a == key b = go a bs
         | otherwise = a : go b bs
 dropDups _ [] = []
+
+sortOn :: (Ord k) => (a -> k) -> [a] -> [a]
+sortOn key = List.sortBy (\a b -> compare (key a) (key b))
