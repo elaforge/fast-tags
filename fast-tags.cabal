@@ -1,5 +1,5 @@
 name: fast-tags
-version: 0.0.4
+version: 0.0.5
 cabal-version: >= 1.8
 build-type: Simple
 synopsis: Fast incremental vi tags.
@@ -11,11 +11,17 @@ description:
     In addition, it will load an existing tags file and merge generated tags.
     .
     The intent is to bind it to vim's BufWrite autocommand to automatically
-    keep the tags file up to date.
+    keep the tags file up to date.  This only works for files changed be the
+    editor of course, so you may want to bind 'rm tags' to a 'pull' posthook.
+    .
+    Changes since 0.0.4:
+    .
+    * Tags with the same name are sorted by their type: Function, Type,
+    Constructor, Class, Module.
     .
     Changes since 0.0.3:
     .
-    * Fixed bug that prevented old tags from being filered out.
+    * Fixed bug that prevented old tags from being filtered out.
     .
     Changes since 0.0.2:
     .
