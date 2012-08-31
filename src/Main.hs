@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedStrings, PatternGuards, ScopedTypeVariables #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 {-# OPTIONS_GHC -funbox-strict-fields #-}
+
 {- | Tagify haskell source.
 
     Annotate lines, strip comments, tokenize, then search for
@@ -9,36 +11,52 @@
     Or extend lushtags, the question is complete parsing ok?  It means I can't
     do it on save, since I'd have to invoke the build system to de-hsc.
 -}
+
 module Main where
-import qualified Control.Exception as Exception
+
+import Control.Applicative
 import Control.Monad
+import Data.Either
+import Data.Text (Text)
+import System.Console.GetOpt
+
+import qualified Control.Exception as Exception
 import qualified Data.Char as Char
-import qualified Data.Either as Either
 import qualified Data.List as List
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
 import qualified Data.Text as T
-import Data.Text (Text)
 import qualified Data.Text.IO as Text.IO
-
 import qualified Debug.Trace as Trace
-import qualified System.Console.GetOpt as GetOpt
 import qualified System.Environment as Environment
 import qualified System.Exit
 import qualified System.IO as IO
 import qualified System.IO.Error as IO.Error
 
+import qualified Data.Map as Map
 
 main :: IO ()
 main = do
     args <- Environment.getArgs
-    (flags, inputs) <- case GetOpt.getOpt GetOpt.Permute options args of
+
+    (flags, inputs) <- case getOpt Permute options args of
         (flags, inputs, []) -> return (flags, inputs)
-        (_, _, errs) -> usage $ "flag errors:\n" ++ List.intercalate ", " errs
-    let output = last $ "tags" : [fn | Output fn <- flags]
-        verbose = Verbose `elem` flags
-    oldTags <- fmap (maybe [vimMagicLine] T.lines) $
-        catchENOENT $ Text.IO.readFile output
+        (_, _, errs)        -> usage $ "flag errors:\n" ++
+                                       List.intercalate ", " errs
+
+    let verbose = Verbose `elem` flags
+        emacs   = ETags `elem` flags
+        vim     = not emacs
+        output  = last $ defaultOutput : [fn | Output fn <- flags]
+        defaultOutput = if vim then "tags" else "TAGS"
+
+    oldTags <-
+      if vim
+         then maybe [vimMagicLine] T.lines <$>
+              (catchENOENT $ Text.IO.readFile output)
+         else return [] -- we do not support tags merging for emacs
+                        -- for now
+
     -- This will merge and sort the new tags.  But I don't run it on the
     -- the result of merging the old and new tags, so tags from another
     -- file won't be sorted properly.  To do that I'd have to parse all the
@@ -47,25 +65,62 @@ main = do
     newTags <- fmap (processAll . concat) $
         forM (zip [0..] inputs) $ \(i :: Int, fn) -> do
             tags <- processFile fn
-            -- This has the side-effect of forcing the the tags, which is
+            -- This has the side-effect of forcing the tags, which is
             -- essential if I'm tagging a lot of files at once.
-            let (warnings, newTags) = Either.partitionEithers tags
-            forM_ warnings $ \warn -> do
-                IO.hPutStrLn IO.stderr warn
+            let (warnings, newTags) = partitionEithers tags
+
+            forM_ warnings printErr
+
             when verbose $ do
                 let line = show i ++ " of " ++ show (length inputs - 1)
                         ++ ": " ++ fn
                 putStr $ '\r' : line ++ replicate (78 - length line) ' '
                 IO.hFlush IO.stdout
             return newTags
+
     when verbose $ putChar '\n'
 
-    let write = if output == "-" then Text.IO.hPutStr IO.stdout
+    let write =
+          if output == "-"
+            then Text.IO.hPutStr IO.stdout
             else Text.IO.writeFile output
-    write $ T.unlines (mergeTags inputs oldTags newTags)
+
+    write $
+      if vim
+        then T.unlines $ mergeTags inputs oldTags newTags
+        else T.concat $ prepareEmacsTags newTags
+
     where
-    usage msg = putStr (GetOpt.usageInfo msg options)
+
+    usage msg = putStr (usageInfo msg options)
         >> System.Exit.exitSuccess
+
+type TagsTable = Map.Map FilePath [Pos TagVal]
+
+prepareEmacsTags :: [Pos TagVal] -> [Text]
+prepareEmacsTags = printTagsTable . classifyTagsByFile
+
+printTagsTable :: TagsTable -> [Text]
+printTagsTable = map (uncurry printSection) . Map.assocs
+
+printSection :: FilePath -> [Pos TagVal] -> Text
+printSection file tags =
+  T.concat ["\x0c\x0a", T.pack file, ",",
+            T.pack $ show tagsLength, "\x0a", tagsText]
+  where
+    tagsText = T.unlines $ map printEmacsTag tags
+    tagsLength = T.length tagsText
+
+printEmacsTag :: Pos TagVal -> Text
+printEmacsTag (Pos (SrcPos _file line) (Tag text _type)) =
+    T.concat [text, "\x7f", T.pack (show line)]
+
+classifyTagsByFile :: [Pos TagVal] -> TagsTable
+classifyTagsByFile = foldr insertTag Map.empty
+
+insertTag :: Pos TagVal -> TagsTable -> TagsTable
+insertTag tag@(Pos (SrcPos file _) _) table =
+  Map.insertWith (<>) file [tag] table
 
 mergeTags :: [FilePath] -> [Text] -> [Pos TagVal] -> [Text]
 mergeTags inputs old new =
@@ -74,14 +129,16 @@ mergeTags inputs old new =
     merge (map showTag new) (filter (not . isNewTag textFns) old)
     where textFns = Set.fromList $ map T.pack inputs
 
-data Flag = Output FilePath | Verbose
+data Flag = Output FilePath | Verbose | ETags
     deriving (Eq, Show)
 
-options :: [GetOpt.OptDescr Flag]
+options :: [OptDescr Flag]
 options =
-    [ GetOpt.Option ['o'] [] (GetOpt.ReqArg Output "filename")
+    [ Option ['o'] [] (ReqArg Output "filename")
         "output file, defaults to 'tags'"
-    , GetOpt.Option ['v'] [] (GetOpt.NoArg Verbose)
+    , Option ['e'] [] (NoArg ETags)
+        "print tags in Emacs format"
+    , Option ['v'] [] (NoArg Verbose)
         "print files as they are tagged, useful to track down slow files"
     ]
 
@@ -102,7 +159,6 @@ merge (x:xs) (y:ys)
     | x <= y = x : merge xs (y:ys)
     | otherwise = y : merge (x:xs) ys
 
-
 -- | Convert a Tag to text, e.g.: AbsoluteMark\tCmd/TimeStep.hs 67 ;" f
 showTag :: Pos TagVal -> Text
 showTag (Pos (SrcPos fn lineno) (Tag text typ)) =
@@ -114,10 +170,10 @@ showTag (Pos (SrcPos fn lineno) (Tag text typ)) =
 -- vim extensions that can make use of it.
 showType :: Type -> Char
 showType typ = case typ of
-    Module -> 'm'
-    Function -> 'f'
-    Class -> 'c'
-    Type -> 't'
+    Module      -> 'm'
+    Function    -> 'f'
+    Class       -> 'c'
+    Type        -> 't'
     Constructor -> 'C'
 
 -- * types
@@ -132,6 +188,7 @@ data TokenVal = Token !Text | Newline !Int
     deriving (Eq, Show)
 
 type Tag = Either String (Pos TagVal)
+
 type Token = Pos TokenVal
 
 -- | Newlines have to remain in the tokens because 'breakBlocks' relies on
@@ -149,13 +206,13 @@ unstrippedTokensOf (UnstrippedTokens tokens) = tokens
 
 type Line = Pos Text
 
-data Pos a = Pos {
-    posOf :: !SrcPos
+data Pos a = Pos
+    { posOf :: !SrcPos
     , valOf :: !a
     }
 
-data SrcPos = SrcPos {
-    posFile :: !FilePath
+data SrcPos = SrcPos
+    { posFile :: !FilePath
     , posLine :: !Int
     } deriving (Eq)
 
@@ -168,8 +225,9 @@ instance Show SrcPos where
 
 -- | Global processing for when all tags are together.
 processAll :: [Pos TagVal] -> [Pos TagVal]
-processAll = sortDups . dropDups (\t -> (posOf t, tagText t))
-    . sortOn tagText
+processAll = sortDups .
+             dropDups (\t -> (posOf t, tagText t)) .
+             sortOn tagText
 
 -- | Given multiple matches, vim will jump to the first one.  So sort adjacent
 -- tags with the same text by their type.
@@ -180,13 +238,14 @@ sortDups :: [Pos TagVal] -> [Pos TagVal]
 sortDups = concat . sort . List.groupBy (\a b -> tagText a == tagText b)
     where
     sort = map (sortOn key)
+
     key :: Pos TagVal -> Int
     key (Pos _ (Tag _ typ)) = case typ of
-        Function -> 0
-        Type -> 1
+        Function    -> 0
+        Type        -> 1
         Constructor -> 2
-        Class -> 3
-        Module -> 4
+        Class       -> 3
+        Module      -> 4
 
 tagText :: Pos TagVal -> Text
 tagText (Pos _ (Tag text _)) = text
@@ -197,8 +256,8 @@ processFile fn = fmap (process fn) (Text.IO.readFile fn)
     `Exception.catch` \(exc :: Exception.SomeException) -> do
         -- readFile will crash on files that are not UTF8.  Unfortunately not
         -- all haskell source file are.
-        IO.hPutStrLn IO.stderr $ "exception reading " ++ show fn ++ ": "
-            ++ show exc
+        IO.hPutStrLn IO.stderr $
+             "exception reading " ++ show fn ++ ": " ++ show exc
         return []
 
 -- | Process one file's worth of tags.
@@ -495,3 +554,6 @@ dropDups _ [] = []
 
 sortOn :: (Ord k) => (a -> k) -> [a] -> [a]
 sortOn key = List.sortBy (\a b -> compare (key a) (key b))
+
+printErr :: String -> IO ()
+printErr = IO.hPutStrLn IO.stderr
