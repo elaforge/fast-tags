@@ -6,7 +6,7 @@ import qualified Data.Either as Either
 import qualified Data.Monoid as Monoid
 import qualified Data.Text as Text
 
-import Exception (assert)
+import Control.Exception (assert)
 import qualified System.IO.Unsafe as Unsafe
 
 import qualified Main as Main
@@ -35,7 +35,7 @@ test_tokenize = do
     equal assert (f "(*), (-)") ["(*)", ",", "(-)"]
 
 test_skipString = do
-    let f = Main.skipString
+    let f = snd . Main.skipString
     equal assert (f "hi \" there") " there"
     equal assert (f "hi \\a \" there") " there"
     equal assert (f "hi \\\" there\"") ""
@@ -67,7 +67,7 @@ test_processAll = do
     let f = map showTag . Main.processAll . Either.rights
             . concatMap (\(i, t) -> Main.process ("fn" ++ show i) t)
             . zip [0..]
-        showTag (Pos p (Tag text typ)) =
+        showTag (Pos p (Tag _ text typ)) =
             unwords [show p, Text.unpack text, show typ]
     equal assert (f ["data X", "module X"])
         ["fn0:1 X Type", "fn1:1 X Module"]
@@ -85,12 +85,13 @@ test_process = sequence_
 
 test_misc = do
     let f text = [tag | Right (Pos _ tag) <- Main.process "fn" text]
-    equal assert (f "module Bar.Foo where\n") [Tag "Foo" Module]
+    equal assert (f "module Bar.Foo where\n")
+        [Tag "module Bar.Foo" "Foo" Module]
     equal assert (f "newtype Foo a b =\n\tBar x y z\n")
-        [Tag "Foo" Type, Tag "Bar" Constructor]
+        [Tag "newtype Foo" "Foo" Type, Tag "\tBar" "Bar" Constructor]
     equal assert (f "f :: A -> B\ng :: C -> D\ndata D = C {\n\tf :: A\n\t}\n")
-        [Tag "f" Function, Tag "g" Function, Tag "D" Type,
-            Tag "C" Constructor, Tag "f" Function]
+        [Tag "f" "f" Function, Tag "g" "g" Function, Tag "data D" "D" Type,
+            Tag "data D = C" "C" Constructor, Tag "\tf" "f" Function]
 
 test_unicode = do
     let f = process
@@ -154,7 +155,7 @@ process :: Text.Text -> [String]
 process = map untag . Main.process "fn"
 
 untag :: Tag -> String
-untag (Right (Pos _ (Tag name _))) = Text.unpack name
+untag (Right (Pos _ (Tag _ name _))) = Text.unpack name
 untag (Left warn) = "warn: " ++ warn
 
 tokenize :: Text.Text -> Main.UnstrippedTokens
@@ -166,7 +167,7 @@ plist xs = mapM_ (putStrLn . show) xs >> putChar '\n'
 
 extractTokens :: Main.UnstrippedTokens -> [Text.Text]
 extractTokens = map (\token -> case Main.valOf token of
-    Token name -> name
+    Token _ name -> name
     Newline n -> Text.pack ("nl " ++ show n)) . Main.unstrippedTokensOf
 
 equal :: (Show a, Eq a) => Assert z -> a -> a -> IO ()
@@ -180,4 +181,3 @@ getSourceLoc :: Assert a -> String
 getSourceLoc assert_ = takeWhile (/=' ') $ Unsafe.unsafePerformIO $
     Exception.evaluate (assert_ False (error "Impossible"))
         `Exception.catch` (\(Exception.AssertionFailed s) -> return s)
-
