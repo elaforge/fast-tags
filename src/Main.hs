@@ -112,8 +112,8 @@ printSection file tags =
     tagsLength = T.length tagsText
 
 printEmacsTag :: Pos TagVal -> Text
-printEmacsTag (Pos (SrcPos _file line) (Tag text _type)) =
-    T.concat [text, "\x7f", T.pack (show line)]
+printEmacsTag (Pos (SrcPos _file line) (Tag prefix _text _type)) =
+    T.concat [prefix, "\x7f", T.pack (show line)]
 
 classifyTagsByFile :: [Pos TagVal] -> TagsTable
 classifyTagsByFile = foldr insertTag Map.empty
@@ -161,7 +161,7 @@ merge (x:xs) (y:ys)
 
 -- | Convert a Tag to text, e.g.: AbsoluteMark\tCmd/TimeStep.hs 67 ;" f
 showTag :: Pos TagVal -> Text
-showTag (Pos (SrcPos fn lineno) (Tag text typ)) =
+showTag (Pos (SrcPos fn lineno) (Tag _ text typ)) =
     T.concat [text, "\t", T.pack fn, "\t", T.pack (show lineno), " ;\" ",
         T.singleton (showType typ)]
 
@@ -178,13 +178,13 @@ showType typ = case typ of
 
 -- * types
 
-data TagVal = Tag !Text !Type
+data TagVal = Tag !Text !Text !Type
     deriving (Eq, Show)
 
 data Type = Module | Function | Class | Type | Constructor
     deriving (Eq, Show)
 
-data TokenVal = Token !Text | Newline !Int
+data TokenVal = Token !Text !Text | Newline !Int
     deriving (Eq, Show)
 
 type Tag = Either String (Pos TagVal)
@@ -240,7 +240,7 @@ sortDups = concat . sort . List.groupBy (\a b -> tagText a == tagText b)
     sort = map (sortOn key)
 
     key :: Pos TagVal -> Int
-    key (Pos _ (Tag _ typ)) = case typ of
+    key (Pos _ (Tag _ _ typ)) = case typ of
         Function    -> 0
         Type        -> 1
         Constructor -> 2
@@ -248,7 +248,7 @@ sortDups = concat . sort . List.groupBy (\a b -> tagText a == tagText b)
         Module      -> 4
 
 tagText :: Pos TagVal -> Text
-tagText (Pos _ (Tag text _)) = text
+tagText (Pos _ (Tag _ text _)) = text
 
 -- | Read tags from one file.
 processFile :: FilePath -> IO [Tag]
@@ -278,31 +278,39 @@ stripCpp = filter $ not . ("#" `T.isPrefixOf`) . valOf
 tokenize :: Line -> UnstrippedTokens
 tokenize (Pos pos line) = UnstrippedTokens $ map (Pos pos) (tokenizeLine line)
 
+spanToken :: Text -> (Text, Text)
+spanToken text
+    | Just sym <- List.find (`T.isPrefixOf` text) symbols
+    = (sym, T.drop (T.length sym) text)
+    | c == '\''
+    = let (token,  rest) = breakChar  cs in (T.cons c token,  rest)
+    | c == '"'
+    = let (string, rest) = skipString cs in (T.cons c string, rest)
+    | (token, rest) <- spanSymbol text, not (T.null token)
+    = (token, rest)
+    | otherwise
+    -- This will tokenize differently than haskell should, e.g., 9x will
+    -- be "9x" not "9" "x".  But I just need a wordlike chunk, not an
+    -- actual token.  Otherwise I'd have to tokenize numbers.
+    = case T.span identChar text of
+        ("", _)       -> (T.singleton c, cs)
+        (token, rest) -> (token, rest)
+  where
+    Just (c, cs) = T.uncons text
+    symbols = ["--", "{-", "-}", "=>", "->", "::"]
+
 tokenizeLine :: Text -> [TokenVal]
-tokenizeLine text = Newline nspaces : go line
-    where
+tokenizeLine text = Newline nspaces : go spaces line
+  where
     nspaces = T.count " " spaces + T.count "\t" spaces * 8
     (spaces, line) = T.break (not . Char.isSpace) text
-    symbols = ["--", "{-", "-}", "=>", "->", "::"]
-    go unstripped
-        | T.null text = []
-        | Just sym <- List.find (`T.isPrefixOf` text) symbols =
-            Token sym : go (T.drop (T.length sym) text)
-        | c == '\'' = let (token, rest) = breakChar text
-            in Token (T.cons c token) : go rest
-        | c == '"' = go (skipString cs)
-        | (token, rest) <- spanSymbol text, not (T.null token) =
-            Token token : go rest
-        -- This will tokenize differently than haskell should, e.g.
-        -- 9x will be "9x" not "9" "x".  But I just need a wordlike chunk, not
-        -- an actual token.  Otherwise I'd have to tokenize numbers.
-        | otherwise = case T.span identChar text of
-            ("", _) -> Token (T.singleton c) : go cs
-            (token, rest) -> Token token : go rest
-        where
-        text = T.dropWhile Char.isSpace unstripped
-        c = T.head text
-        cs = T.tail text
+    go oldPrefix unstripped
+      | T.null stripped = []
+      | otherwise       = let (token, rest) = spanToken stripped
+                              newPrefix = oldPrefix <> spaces <> token
+                          in Token newPrefix token : go newPrefix rest
+      where
+        (spaces, stripped) = T.break (not . Char.isSpace) unstripped
 
 startIdentChar :: Char -> Bool
 startIdentChar c = Char.isAlpha c || c == '_'
@@ -335,13 +343,17 @@ breakChar text
 --
 -- TODO \ continuation isn't supported.  I'd have to tokenize at the file
 -- level instead of the line level.
-skipString :: Text -> Text
-skipString text = case T.uncons (T.dropWhile (not . end) text) of
-    Nothing -> ""
-    Just (c, cs)
-        | c == '"' -> cs
-        | otherwise -> skipString (T.drop 1 cs)
-    where end c = c == '\\' || c == '"'
+skipString :: Text -> (Text, Text)
+skipString text = go "" text
+    where
+    go prefix text = case T.uncons post of
+        Nothing -> (pre, "")
+        Just (c, cs)
+            | c == '"'  -> (prefix <> pre <> T.singleton c, cs)
+            | otherwise -> go (prefix <> pre <> T.singleton c <> T.take 1 cs) (T.drop 1 cs)
+        where
+          (pre, post) = T.break end text
+          end c = c == '\\' || c == '"'
 
 stripComments :: UnstrippedTokens -> UnstrippedTokens
 stripComments = mapTokens (go 0)
@@ -349,9 +361,9 @@ stripComments = mapTokens (go 0)
     go :: Int -> [Token] -> [Token]
     go _ [] = []
     go nest (pos@(Pos _ token) : rest)
-        | token == Token "--" = go nest (dropLine rest)
-        | token == Token "{-" = go (nest+1) rest
-        | token == Token "-}" = go (nest-1) rest
+        | token `hasName` "--" = go nest (dropLine rest)
+        | token `hasName` "{-" = go (nest+1) rest
+        | token `hasName` "-}" = go (nest-1) rest
         | nest > 0 = go nest rest
         | otherwise = pos : go nest rest
 
@@ -389,25 +401,25 @@ breakBlock [] = ([], [])
 blockTags :: UnstrippedTokens -> [Tag]
 blockTags tokens = case stripNewlines tokens of
     [] -> []
-    Pos _ (Token "module") : Pos pos (Token name) : _ ->
-        [mktag pos (snd (T.breakOnEnd "." name)) Module]
+    Pos _ (Token _ "module") : Pos pos (Token prefix name) : _ ->
+        [mktag pos prefix (snd (T.breakOnEnd "." name)) Module]
     -- newtype X * = X *
-    Pos _ (Token "newtype") : Pos pos (Token name) : rest ->
-        mktag pos name Type : newtypeTags pos rest
+    Pos _ (Token _ "newtype") : Pos pos (Token prefix name) : rest ->
+        mktag pos prefix name Type : newtypeTags pos rest
     -- type family X ...
-    Pos _ (Token "type") : Pos _ (Token "family") : Pos pos (Token name) : _ ->
-        [mktag pos name Type]
+    Pos _ (Token _ "type") : Pos _ (Token _ "family") : Pos pos (Token prefix name) : _ ->
+        [mktag pos prefix name Type]
     -- type X * = ...
-    Pos _ (Token "type") : Pos pos (Token name) : _ -> [mktag pos name Type]
+    Pos _ (Token _ "type") : Pos pos (Token prefix name) : _ -> [mktag pos prefix name Type]
     -- data family X ...
-    Pos _ (Token "data") : Pos _ (Token "family") : Pos pos (Token name) : _ ->
-        [mktag pos name Type]
+    Pos _ (Token _ "data") : Pos _ (Token _ "family") : Pos pos (Token prefix name) : _ ->
+        [mktag pos prefix name Type]
     -- data X * = X { X :: *, X :: * }
     -- data X * where ...
-    Pos _ (Token "data") : Pos pos (Token name) : _ ->
-        mktag pos name Type : dataTags pos (mapTokens (drop 2) tokens)
+    Pos _ (Token _ "data") : Pos pos (Token prefix name) : _ ->
+        mktag pos prefix name Type : dataTags pos (mapTokens (drop 2) tokens)
     -- class * => X where X :: * ...
-    Pos pos (Token "class") : _ -> classTags pos (mapTokens (drop 1) tokens)
+    Pos pos (Token _ "class") : _ -> classTags pos (mapTokens (drop 1) tokens)
     -- x, y, z :: *
     stripped -> fst $ functionTags False stripped
 
@@ -423,12 +435,12 @@ functionTags :: Bool -- ^ expect constructors, not functions
     -> [Token] -> ([Tag], [Token])
 functionTags constructors = go []
     where
-    go tags (Pos pos (Token name) : Pos _ (Token "::") : rest)
+    go tags (Pos pos (Token prefix name) : Pos _ (Token _ "::") : rest)
         | Just name <- functionName constructors name =
-            (reverse $ mktag pos name Function : tags, rest)
-    go tags (Pos pos (Token name) : Pos _ (Token ",") : rest)
+            (reverse $ mktag pos prefix name Function : tags, rest)
+    go tags (Pos pos (Token prefix name) : Pos _ (Token _ ",") : rest)
             | Just name <- functionName constructors name =
-        go (mktag pos name Function : tags) rest
+        go (mktag pos prefix name Function : tags) rest
     go tags tokens = (tags, tokens)
 
 functionName :: Bool -> Text -> Maybe Text
@@ -450,7 +462,7 @@ functionName constructors text
 -- | * = X *
 newtypeTags :: SrcPos -> [Token] -> [Tag]
 newtypeTags prevPos tokens = case dropUntil "=" tokens of
-    Pos pos (Token name) : _ -> [mktag pos name Constructor]
+    Pos pos (Token prefix name) : _ -> [mktag pos prefix name Constructor]
     rest -> unexpected prevPos (UnstrippedTokens tokens) rest "newtype * ="
 
 -- | [] (empty data declaration)
@@ -459,19 +471,19 @@ newtypeTags prevPos tokens = case dropUntil "=" tokens of
 -- * = X | X
 dataTags :: SrcPos -> UnstrippedTokens -> [Tag]
 dataTags prevPos unstripped
-    | any ((== Token "where") . valOf) (unstrippedTokensOf unstripped) =
+    | any ((`hasName` "where") . valOf) (unstrippedTokensOf unstripped) =
         concatMap gadtTags (whereBlock unstripped)
     | otherwise = case dropUntil "=" (stripNewlines unstripped) of
         [] -> [] -- empty data declaration
-        Pos pos (Token name) : rest ->
-            mktag pos name Constructor : collectRest rest
+        Pos pos (Token prefix name) : rest ->
+            mktag pos prefix name Constructor : collectRest rest
         rest -> unexpected prevPos unstripped rest "data * ="
     where
     collectRest tokens
         | (tags@(_:_), rest) <- functionTags False tokens =
             tags ++ collectRest rest
-    collectRest (Pos _ (Token "|") : Pos pos (Token name) : rest) =
-        mktag pos name Constructor : collectRest rest
+    collectRest (Pos _ (Token _ "|") : Pos pos (Token prefix name) : rest) =
+        mktag pos prefix name Constructor : collectRest rest
     collectRest (_ : rest) = collectRest rest
     collectRest [] = []
 
@@ -481,18 +493,18 @@ gadtTags = fst . functionTags True . stripNewlines
 -- | * => X where X :: * ...
 classTags :: SrcPos -> UnstrippedTokens -> [Tag]
 classTags prevPos unstripped = case dropContext (stripNewlines unstripped) of
-    Pos pos (Token name) : _ ->
+    Pos pos (Token prefix name) : _ ->
         -- Drop the where and start expecting functions.
-        mktag pos name Class : concatMap classBodyTags (whereBlock unstripped)
+        mktag pos prefix name Class : concatMap classBodyTags (whereBlock unstripped)
     rest -> unexpected prevPos unstripped rest "class * =>"
     where
-    dropContext tokens = if any ((== Token "=>") . valOf) tokens
+    dropContext tokens = if any ((`hasName` "=>") . valOf) tokens
         then dropUntil "=>" tokens else tokens
 
 classBodyTags :: UnstrippedTokens -> [Tag]
 classBodyTags unstripped = case stripNewlines unstripped of
-    Pos _ (Token typedata) : Pos pos (Token name) : _
-        | typedata `elem` ["type", "data"] -> [mktag pos name Type]
+    Pos _ (Token _ typedata) : Pos pos (Token prefix name) : _
+        | typedata `elem` ["type", "data"] -> [mktag pos prefix name Type]
     tokens -> fst $ functionTags False tokens
 
 -- | Skip to the where and split the indented block below it.
@@ -502,8 +514,8 @@ whereBlock = breakBlocks . mapTokens (dropUntil "where")
 
 -- * util
 
-mktag :: SrcPos -> Text -> Type -> Tag
-mktag pos name typ = Right $ Pos pos (Tag name typ)
+mktag :: SrcPos -> Text -> Text -> Type -> Tag
+mktag pos prefix name typ = Right $ Pos pos (Tag prefix name typ)
 
 warning :: SrcPos -> String -> Tag
 warning pos warn = Left $ show pos ++ ": " ++ warn
@@ -526,8 +538,12 @@ isNewline :: Token -> Bool
 isNewline (Pos _ (Newline _)) = True
 isNewline _ = False
 
+hasName :: TokenVal -> Text -> Bool
+hasName (Token _ name) text = name == text
+hasName _ _ = False
+
 dropUntil :: Text -> [Token] -> [Token]
-dropUntil token = drop 1 . dropWhile ((/= Token token) . valOf)
+dropUntil token = drop 1 . dropWhile (not . (`hasName` token) . valOf)
 
 
 -- * misc
