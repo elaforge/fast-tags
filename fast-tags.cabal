@@ -67,3 +67,10 @@ executable fast-tags
         -- text 0.11.1.12 has a bug.
         text (> 0.11.1.12 || < 0.11.1.12)
     ghc-options: -Wall -fno-warn-name-shadowing
+
+test-suite test-fast-tags
+    type: exitcode-stdio-1.0
+    main-is: Main_test.hs
+    hs-source-dirs: src
+    build-depends: base >= 3 && < 5, containers,
+        text (> 0.11.1.12 || < 0.11.1.12)
