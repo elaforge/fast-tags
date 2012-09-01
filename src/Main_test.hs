@@ -35,7 +35,7 @@ test_tokenize = do
     equal assert (f "(*), (-)") ["(*)", ",", "(-)"]
 
 test_skipString = do
-    let f = snd . Main.skipString
+    let f = snd . Main.breakString
     equal assert (f "hi \" there") " there"
     equal assert (f "hi \\a \" there") " there"
     equal assert (f "hi \\\" there\"") ""

@@ -283,9 +283,9 @@ spanToken text
     | Just sym <- List.find (`T.isPrefixOf` text) symbols
     = (sym, T.drop (T.length sym) text)
     | c == '\''
-    = let (token,  rest) = breakChar  cs in (T.cons c token,  rest)
+    = let (token, rest) = breakChar   cs in (T.cons c token, rest)
     | c == '"'
-    = let (string, rest) = skipString cs in (T.cons c string, rest)
+    = let (token, rest) = breakString cs in (T.cons c token, rest)
     | (token, rest) <- spanSymbol text, not (T.null token)
     = (token, rest)
     | otherwise
@@ -341,17 +341,20 @@ breakChar text
 
 -- TODO \ continuation isn't supported.  I'd have to tokenize at the file
 -- level instead of the line level.
-skipString :: Text -> (Text, Text)
-skipString text = go "" text
-    where
-    go prefix text = case T.uncons post of
-        Nothing -> (pre, "")
+breakString :: Text -> (Text, Text)
+breakString text = case T.uncons post of
+        Nothing -> (text, "")
         Just (c, cs)
-            | c == '"'  -> (prefix <> pre <> T.singleton c, cs)
-            | otherwise -> go (prefix <> pre <> T.singleton c <> T.take 1 cs) (T.drop 1 cs)
-        where
-          (pre, post) = T.break end text
-          end c = c == '\\' || c == '"'
+            | c == '\\' && T.null cs -> (T.snoc pre c, "")
+            | c == '\\' && T.head cs == '"' ->
+                let (pre', post') = breakString (T.tail cs)
+                in (pre <> "\\\"" <> pre', post')
+            | c == '\\' ->
+                let (pre', post') = breakString cs
+                in (T.snoc pre c <> pre', post')
+            | otherwise -> (T.snoc pre c, cs)
+    where
+    (pre, post) = T.break (\c -> c == '\\' || c == '"') text
 
 stripComments :: UnstrippedTokens -> UnstrippedTokens
 stripComments = mapTokens (go 0)
