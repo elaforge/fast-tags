@@ -330,7 +330,8 @@ spanSymbol text
     (pre, post) = T.break (\c -> T.any (==c) "-{," || not (symbolChar c)) text
 
 symbolChar :: Char -> Bool
-symbolChar c = Char.isSymbol c || Char.isPunctuation c
+symbolChar c = (Char.isSymbol c || Char.isPunctuation c) &&
+               not (c `elem` "(),;[]`{}_:\"'")
 
 breakChar :: Text -> (Text, Text)
 breakChar text
