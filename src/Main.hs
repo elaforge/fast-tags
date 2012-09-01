@@ -490,12 +490,14 @@ gadtTags = fst . functionTags True . stripNewlines
 
 -- | * => X where X :: * ...
 classTags :: SrcPos -> UnstrippedTokens -> [Tag]
-classTags prevPos unstripped = case dropContext (stripNewlines unstripped) of
+classTags prevPos unstripped = case dropContext classHeader of
     Pos pos (Token prefix name) : _ ->
         -- Drop the where and start expecting functions.
         mktag pos prefix name Class : concatMap classBodyTags (whereBlock unstripped)
     rest -> unexpected prevPos unstripped rest "class * =>"
     where
+    classHeader = takeWhile (not . (`hasName` "where") . valOf) $
+                  stripNewlines unstripped
     dropContext tokens = if any ((`hasName` "=>") . valOf) tokens
         then dropUntil "=>" tokens else tokens
 
