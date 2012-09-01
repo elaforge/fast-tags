@@ -338,9 +338,6 @@ breakChar text
     | T.head text == '\\' = T.splitAt 3 text
     | otherwise = T.splitAt 2 text
 
--- | Skip until the ending double-quote of a string.  Tags never happen in
--- strings so I don't need to keep it.
---
 -- TODO \ continuation isn't supported.  I'd have to tokenize at the file
 -- level instead of the line level.
 skipString :: Text -> (Text, Text)
