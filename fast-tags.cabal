@@ -1,5 +1,5 @@
 name: fast-tags
-version: 0.0.5
+version: 0.0.6
 cabal-version: >= 1.8
 build-type: Simple
 synopsis: Fast incremental vi tags.
@@ -13,6 +13,12 @@ description:
     The intent is to bind it to vim's BufWrite autocommand to automatically
     keep the tags file up to date.  This only works for files changed be the
     editor of course, so you may want to bind 'rm tags' to a 'pull' posthook.
+    .
+    Changes since 0.0.5:
+    .
+    * Accepts directories as arguments and will look for *.hs and *.lhs files
+      inside them.
+    * Optionally recursively enters directories if the -R switch is specified.
     .
     Changes since 0.0.4:
     .
@@ -63,7 +69,7 @@ source-repository head
 executable fast-tags
     main-is: Main.hs
     hs-source-dirs: src
-    build-depends: base >= 3 && < 5, containers,
+    build-depends: base >= 3 && < 5, containers, filepath, directory,
         -- text 0.11.1.12 has a bug.
         text (> 0.11.1.12 || < 0.11.1.12)
     ghc-options: -Wall -fno-warn-name-shadowing
@@ -72,5 +78,5 @@ test-suite test-fast-tags
     type: exitcode-stdio-1.0
     main-is: Main_test.hs
     hs-source-dirs: src
-    build-depends: base >= 3 && < 5, containers,
+    build-depends: base >= 3 && < 5, containers, filepath, directory,
         text (> 0.11.1.12 || < 0.11.1.12)

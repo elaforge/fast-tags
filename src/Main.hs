@@ -33,6 +33,10 @@ import qualified System.Exit
 import qualified System.IO as IO
 import qualified System.IO.Error as IO.Error
 
+import System.Directory (doesDirectoryExist, getDirectoryContents)
+import System.FilePath ((</>))
+
+
 import qualified Data.Map as Map
 
 main :: IO ()
@@ -47,6 +51,7 @@ main = do
     let verbose = Verbose `elem` flags
         emacs   = ETags `elem` flags
         vim     = not emacs
+        recurse = Recurse `elem` flags
         output  = last $ defaultOutput : [fn | Output fn <- flags]
         defaultOutput = if vim then "tags" else "TAGS"
 
@@ -62,8 +67,17 @@ main = do
     -- file won't be sorted properly.  To do that I'd have to parse all the
     -- old tags and run processAll on all of them, which is a hassle.
     -- TODO try it and see if it really hurts performance that much.
-    newTags <- fmap (processAll . concat) $
-        forM (zip [0..] inputs) $ \(i :: Int, fn) -> do
+    newTags <- fmap (processAll . concat) $ do
+
+        -- if an input is a directory then we find the haskell files inside it,
+        -- optionally recursing further if the -R switch is specified
+        files <- fmap concat $ forM inputs $ \input -> do
+          isDirectory <- doesDirectoryExist input
+          if isDirectory
+            then filter isHsFile <$> contents recurse input
+            else return [input]
+
+        forM (zip [0..] files) $ \(i :: Int, fn) -> do
             tags <- processFile fn
             -- This has the side-effect of forcing the tags, which is
             -- essential if I'm tagging a lot of files at once.
@@ -72,8 +86,7 @@ main = do
             forM_ warnings printErr
 
             when verbose $ do
-                let line = show i ++ " of " ++ show (length inputs - 1)
-                        ++ ": " ++ fn
+                let line = take 78 $ show i ++ ": " ++ fn
                 putStr $ '\r' : line ++ replicate (78 - length line) ' '
                 IO.hFlush IO.stdout
             return newTags
@@ -91,9 +104,37 @@ main = do
         else T.concat $ prepareEmacsTags newTags
 
     where
-
+    
     usage msg = putStr (usageInfo msg options)
         >> System.Exit.exitSuccess
+ 
+    contents recurse = if recurse 
+                         then getRecursiveDirContents
+                         else getProperDirContents
+
+-- | Crude predicate for Haskell files
+isHsFile :: FilePath -> Bool
+isHsFile fn = ".hs" `List.isSuffixOf` fn || ".lhs" `List.isSuffixOf` fn
+  
+-- | Get all absolute filepaths contained in the supplied topdir,
+-- except "." and ".."
+getProperDirContents :: FilePath -> IO [FilePath]
+getProperDirContents topdir = do
+  names <- getDirectoryContents topdir
+  let properNames = filter (`notElem` [".", ".."]) names
+  return $ map ((</>) topdir) properNames
+
+-- | Recurse directories collecting all files
+getRecursiveDirContents :: FilePath -> IO [FilePath]
+getRecursiveDirContents topdir = do
+  paths <- getProperDirContents topdir
+  paths' <- forM paths $ \path -> do
+    isDirectory <- doesDirectoryExist path
+    if isDirectory
+      then getRecursiveDirContents path
+      else return [path]
+  return (concat paths')
+
 
 type TagsTable = Map.Map FilePath [Pos TagVal]
 
@@ -129,7 +170,7 @@ mergeTags inputs old new =
     merge (map showTag new) (filter (not . isNewTag textFns) old)
     where textFns = Set.fromList $ map T.pack inputs
 
-data Flag = Output FilePath | Verbose | ETags
+data Flag = Output FilePath | Verbose | ETags | Recurse
     deriving (Eq, Show)
 
 options :: [OptDescr Flag]
@@ -140,6 +181,8 @@ options =
         "print tags in Emacs format"
     , Option ['v'] [] (NoArg Verbose)
         "print files as they are tagged, useful to track down slow files"
+    , Option ['R'] [] (NoArg Recurse)
+        "read all files under any specified directories recursively"
     ]
 
 -- | Documented in vim :h tags-file-format.
