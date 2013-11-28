@@ -30,9 +30,11 @@ test_tokenize = do
     equal assert (f "x9") ["x9"]
     -- equal assert (f "9x") ["nl 0", "9", "x"]
     equal assert (f "x :+: y") ["x", ":+:", "y"]
-    equal assert (f "(#$)") ["(#$)"]
+    equal assert (f "(#$)") ["(", "#$", ")"]
     equal assert (f "$#-- hi") ["$#", "--", "hi"]
-    equal assert (f "(*), (-)") ["(*)", ",", "(-)"]
+    equal assert (f "(*), (-)") ["(", "*", ")", ",", "(", "-", ")"]
+    -- we rely on this behavior
+    equal assert (f "data (:+) a b") ["data", "(", ":+", ")", "a", "b"]
 
 test_skipString = do
     let f = snd . Main.breakString
@@ -113,6 +115,19 @@ test_data = do
 
     equal assert (f "data R = R {\n\ta :: !RealTime\n\t, b :: !RealTime\n\t}")
         ["R", "R", "a", "b"]
+
+    equal assert (f "data X = X !Int") ["X", "X"]
+    equal assert (f "data X = Y !Int !X | Z") ["X", "Y", "Z"]
+    equal assert (f "data X = Y :+: !Z | !X `Mult` X") ["X", ":+:", "Mult"]
+    equal assert (f "data X = !Y `Add` !Z") ["X", "Add"]
+
+    equal assert (f "newtype (u :*: v) z = X") [":*:", "X"]
+    equal assert (f "data (u :*: v) z = X") [":*:", "X"]
+    equal assert (f "type (u :*: v) z = (u, v, z)") [":*:"]
+
+
+    equal assert (f "data (:*:) u v z = X") [":*:", "X"]
+    equal assert (f "data (u `W` v) z = X") ["W", "X"]
 
 test_gadt = do
     let f = process
