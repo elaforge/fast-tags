@@ -20,6 +20,8 @@ import Data.Either
 import Data.Text (Text)
 import System.Console.GetOpt
 
+import Text.Printf (printf)
+
 import qualified Control.Exception as Exception
 import qualified Data.Char as Char
 import qualified Data.List as List
@@ -218,13 +220,14 @@ showType typ = case typ of
     Class       -> 'c'
     Type        -> 't'
     Constructor -> 'C'
+    Operator    -> 'o'
 
 -- * types
 
 data TagVal = Tag !Text !Text !Type
     deriving (Eq, Show)
 
-data Type = Module | Function | Class | Type | Constructor
+data Type = Module | Function | Class | Type | Constructor | Operator
     deriving (Eq, Show)
 
 data TokenVal = Token !Text !Text | Newline !Int
@@ -289,6 +292,7 @@ sortDups = concat . sort . List.groupBy (\a b -> tagText a == tagText b)
         Constructor -> 2
         Class       -> 3
         Module      -> 4
+        Operator    -> 5
 
 tagText :: Pos TagVal -> Text
 tagText (Pos _ (Tag _ text _)) = text
@@ -325,11 +329,13 @@ spanToken :: Text -> (Text, Text)
 spanToken text
     | Just sym <- List.find (`T.isPrefixOf` text) symbols
     = (sym, T.drop (T.length sym) text)
+    | c == ':'
+    = spanSymbol True text
     | c == '\''
     = let (token, rest) = breakChar   cs in (T.cons c token, rest)
     | c == '"'
     = let (token, rest) = breakString cs in (T.cons c token, rest)
-    | (token, rest) <- spanSymbol text, not (T.null token)
+    | (token, rest) <- spanSymbol False text, not (T.null token)
     = (token, rest)
     | otherwise
     -- This will tokenize differently than haskell should, e.g., 9x will
@@ -362,19 +368,20 @@ identChar :: Char -> Bool
 identChar c = Char.isAlphaNum c || c == '.' || c == '\'' || c == '_'
 
 -- | Span a symbol, making sure to not eat comments.
-spanSymbol :: Text -> (Text, Text)
-spanSymbol text
+spanSymbol :: Bool -> Text -> (Text, Text)
+spanSymbol considerColon text
     | any (`T.isPrefixOf` post) [",", "--", "-}", "{-"] = (pre, post)
     | Just (c, cs) <- T.uncons post, c == '-' || c == '{' =
-        let (pre2, post2) = spanSymbol cs
+        let (pre2, post2) = spanSymbol considerColon cs
         in (pre <> T.cons c pre2, post2)
     | otherwise = (pre, post)
     where
-    (pre, post) = T.break (\c -> T.any (==c) "-{," || not (symbolChar c)) text
+    (pre, post) = T.break (\c -> T.any (==c) "-{," || not (symbolChar considerColon c)) text
 
-symbolChar :: Char -> Bool
-symbolChar c = (Char.isSymbol c || Char.isPunctuation c) &&
-               not (c `elem` "(),;[]`{}_:\"'")
+symbolChar :: Bool -> Char -> Bool
+symbolChar considerColon c = (Char.isSymbol c || Char.isPunctuation c) &&
+                             (not (c `elem` "(),;[]`{}_:\"'") ||
+                              considerColon && c == ':')
 
 breakChar :: Text -> (Text, Text)
 breakChar text
@@ -448,24 +455,53 @@ blockTags tokens = case stripNewlines tokens of
     Pos _ (Token _ "module") : Pos pos (Token prefix name) : _ ->
         [mktag pos prefix (snd (T.breakOnEnd "." name)) Module]
     -- newtype X * = X *
-    Pos _ (Token _ "newtype") : Pos pos (Token prefix name) : rest ->
-        mktag pos prefix name Type : newtypeTags pos rest
+    Pos _ (Token _ "newtype") : Pos pos (Token prefix name) : rest
+        | isTypeName name -> mktag pos prefix name Type : newtypeTags pos rest
+        | otherwise -> let (pos', _, tok, rest') = recordInfixType rest
+                       in tok: newtypeTags pos' rest'
     -- type family X ...
     Pos _ (Token _ "type") : Pos _ (Token _ "family") : Pos pos (Token prefix name) : _ ->
         [mktag pos prefix name Type]
     -- type X * = ...
-    Pos _ (Token _ "type") : Pos pos (Token prefix name) : _ -> [mktag pos prefix name Type]
+    Pos _ (Token _ "type") : Pos pos (Token prefix name) : rest
+        | isTypeName name -> [mktag pos prefix name Type]
+        | otherwise -> let (_, _, tok, _) = recordInfixType rest in [tok]
     -- data family X ...
     Pos _ (Token _ "data") : Pos _ (Token _ "family") : Pos pos (Token prefix name) : _ ->
         [mktag pos prefix name Type]
     -- data X * = X { X :: *, X :: * }
     -- data X * where ...
-    Pos _ (Token _ "data") : Pos pos (Token prefix name) : _ ->
-        mktag pos prefix name Type : dataTags pos (mapTokens (drop 2) tokens)
+    Pos _ (Token _ "data") : Pos pos (Token prefix name) : rest
+        | isTypeName name ->
+            mktag pos prefix name Type : dataTags pos (mapTokens (drop 2) tokens)
+        -- if token after data is not a type name then it isn't
+        -- infix type as well since it may be only '(' or some
+        -- lowercase name, either of which is not type constructor
+        | otherwise -> let (pos', n, tok, _) = recordInfixType rest
+                       in tok: dataTags pos' (mapTokens (drop $! n + 2) tokens)
     -- class * => X where X :: * ...
     Pos pos (Token _ "class") : _ -> classTags pos (mapTokens (drop 1) tokens)
     -- x, y, z :: *
     stripped -> fst $ functionTags False stripped
+  where
+    isTypeName        x = Char.isUpper c || c == ':' where c = T.head x
+    isInfixTypePrefix x = Char.isLower c || c == '(' where c = T.head x
+
+    recordInfixType :: [Token] -> (SrcPos, Int, Tag, [Token])
+    recordInfixType tokens = (pos, n, mktag pos prefix name Type, rest)
+      where
+        (n, Pos pos (Token prefix name) : rest) = dropInfixTypeStart tokens
+
+    -- same as dropWhile with counting
+    dropInfixTypeStart :: [Token] -> (Int, [Token])
+    dropInfixTypeStart tokens = go tokens 0
+      where
+        go toks@(Pos _ (Token _ name): rest) n
+            | isInfixTypePrefix name                   = go rest $! n + 1
+            | T.length name == 1 && T.head name == '`' = go rest $! n + 1
+            | otherwise                                = (n, toks)
+        go xs                                n = (n, xs)
+
 
 -- | It's easier to scan for tokens without pesky newlines popping up
 -- everywhere.  But I need to keep the newlines in in case I hit a @where@
@@ -479,29 +515,27 @@ functionTags :: Bool -- ^ expect constructors, not functions
     -> [Token] -> ([Tag], [Token])
 functionTags constructors = go []
     where
+    go tags (Pos _ (Token _ "(") : Pos pos (Token _ name) : Pos _ (Token prefix ")") : Pos _ (Token _ "::") : rest) =
+        (reverse $ mktag pos prefix name Operator : tags, rest)
     go tags (Pos pos (Token prefix name) : Pos _ (Token _ "::") : rest)
         | Just name <- functionName constructors name =
             (reverse $ mktag pos prefix name Function : tags, rest)
+    go tags (Pos _ (Token _ "(") : Pos pos (Token _ name) : Pos _ (Token prefix ")") : Pos _ (Token _ ",") : rest) =
+        go (mktag pos prefix name Operator : tags) rest
     go tags (Pos pos (Token prefix name) : Pos _ (Token _ ",") : rest)
-            | Just name <- functionName constructors name =
-        go (mktag pos prefix name Function : tags) rest
+        | Just name <- functionName constructors name =
+            go (mktag pos prefix name Function : tags) rest
     go tags tokens = (tags, tokens)
 
 functionName :: Bool -> Text -> Maybe Text
 functionName constructors text
     | isFunction text = Just text
-    | isOperator text && not (T.null stripped) = Just stripped
-    | otherwise = Nothing
+    | otherwise       = Nothing
     where
     isFunction text = case T.uncons text of
         Just (c, cs) -> firstChar c && startIdentChar c && T.all identChar cs
         Nothing -> False
     firstChar = if constructors then Char.isUpper else not . Char.isUpper
-    -- Technically I could insist on colons if constructors is True, but
-    -- let's let ghc decide about the syntax.
-    isOperator text = "(" `T.isPrefixOf` text && ")" `T.isSuffixOf` text
-        && T.all symbolChar stripped
-    stripped = T.drop 1 $ T.take (T.length text - 1) text
 
 -- | * = X *
 newtypeTags :: SrcPos -> [Token] -> [Tag]
@@ -515,10 +549,15 @@ newtypeTags prevPos tokens = case dropUntil "=" tokens of
 -- * = X | X
 dataTags :: SrcPos -> UnstrippedTokens -> [Tag]
 dataTags prevPos unstripped
+    -- GADT
     | any ((`hasName` "where") . valOf) (unstrippedTokensOf unstripped) =
         concatMap gadtTags (whereBlock unstripped)
-    | otherwise = case dropUntil "=" (stripNewlines unstripped) of
+    -- plain ADT
+    | otherwise = case stripOptBang $ dropUntil "=" (stripNewlines unstripped) of
         [] -> [] -- empty data declaration
+        _ : rest
+            | Just (Pos pos (Token prefix name), rest') <- extractInfixConstructor rest ->
+                mktag pos prefix name Constructor : collectRest rest'
         Pos pos (Token prefix name) : rest ->
             mktag pos prefix name Constructor : collectRest rest
         rest -> unexpected prevPos unstripped rest "data * ="
@@ -526,10 +565,28 @@ dataTags prevPos unstripped
     collectRest tokens
         | (tags@(_:_), rest) <- functionTags False tokens =
             tags ++ collectRest rest
-    collectRest (Pos _ (Token _ "|") : Pos pos (Token prefix name) : rest) =
-        mktag pos prefix name Constructor : collectRest rest
+    collectRest (Pos pipePos (Token _ "|") : rest)
+        | Just (Pos pos (Token prefix name), rest'') <-
+            extractInfixConstructor $ tail rest' =
+                mktag pos prefix name Constructor: collectRest rest''
+        | Pos pos (Token prefix name): rest'' <- rest' =
+            mktag pos prefix name Constructor : collectRest rest''
+        | otherwise = error (printf "syntax error@%d: | not followed by tokens\n" (posLine pipePos))
+      where
+        rest' = stripOptBang rest
     collectRest (_ : rest) = collectRest rest
     collectRest [] = []
+
+    stripOptBang :: [Token] -> [Token]
+    stripOptBang ((Pos _ (Token _ "!")): rest) = rest
+    stripOptBang ts                            = ts
+
+    extractInfixConstructor :: [Token] -> Maybe (Token, [Token])
+    extractInfixConstructor (tok@(Pos _ (Token _ name)): rest)
+        | T.head name == ':' = Just (tok, rest)
+    extractInfixConstructor (Pos _ (Token _ "`"): tok@(Pos _ _): Pos _ (Token _ "`"): rest) =
+        Just (tok, rest)
+    extractInfixConstructor _ = Nothing
 
 gadtTags :: UnstrippedTokens -> [Tag]
 gadtTags = fst . functionTags True . stripNewlines
