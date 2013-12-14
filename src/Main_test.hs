@@ -83,6 +83,7 @@ test_processAll = do
 test_process = sequence_
     [ test_misc, test_data, test_gadt, test_families, test_functions
     , test_class
+    , test_literate
     ]
 
 test_misc = do
@@ -166,7 +167,14 @@ test_class = do
     equal assert (f "class X\n\twhere\n\ta ::\n\t\tX\n\tb :: Y")
         ["X", "a", "b"]
 
-process :: Text.Text -> [String]
+test_literate = do
+    let f = map untag . Main.process "fn.lhs"
+    equal assert (f "> class (X x) => C a b where\n>\tm :: a->b\n>\tn :: c\n")
+        ["C", "m", "n"]
+    equal assert (f "Test\n\\begin{code}\nclass (X x) => C a b where\n\tm :: a->b\n\tn :: c\n\\end{code}")
+        ["C", "m", "n"]
+
+process :: String -> [String]
 process = map untag . Main.process "fn"
 
 untag :: Tag -> String

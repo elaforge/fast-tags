@@ -20,6 +20,7 @@ import Data.Either
 import Data.Text (Text)
 import System.Console.GetOpt
 
+import Language.Preprocessor.Unlit
 import Text.Printf (printf)
 
 import qualified Control.Exception as Exception
@@ -106,18 +107,21 @@ main = do
         else T.concat $ prepareEmacsTags newTags
 
     where
-    
+
     usage msg = putStr (usageInfo msg options)
         >> System.Exit.exitSuccess
- 
-    contents recurse = if recurse 
+
+    contents recurse = if recurse
                          then getRecursiveDirContents
                          else getProperDirContents
 
 -- | Crude predicate for Haskell files
 isHsFile :: FilePath -> Bool
-isHsFile fn = ".hs" `List.isSuffixOf` fn || ".lhs" `List.isSuffixOf` fn
-  
+isHsFile fn = ".hs" `List.isSuffixOf` fn || isLiterateFile fn
+
+isLiterateFile :: FilePath -> Bool
+isLiterateFile fn = ".lhs" `List.isSuffixOf` fn
+
 -- | Get all absolute filepaths contained in the supplied topdir,
 -- except "." and ".."
 getProperDirContents :: FilePath -> IO [FilePath]
@@ -299,7 +303,7 @@ tagText (Pos _ (Tag _ text _)) = text
 
 -- | Read tags from one file.
 processFile :: FilePath -> IO [Tag]
-processFile fn = fmap (process fn) (Text.IO.readFile fn)
+processFile fn = fmap (process fn) (IO.readFile fn)
     `Exception.catch` \(exc :: Exception.SomeException) -> do
         -- readFile will crash on files that are not UTF8.  Unfortunately not
         -- all haskell source file are.
@@ -308,9 +312,11 @@ processFile fn = fmap (process fn) (Text.IO.readFile fn)
         return []
 
 -- | Process one file's worth of tags.
-process :: FilePath -> Text -> [Tag]
+process :: FilePath -> String -> [Tag]
 process fn = concatMap blockTags . breakBlocks . stripComments
-    . Monoid.mconcat . map tokenize . stripCpp . annotate fn
+    . Monoid.mconcat . map tokenize . stripCpp . annotate fn . T.pack . unlit'
+  where
+    unlit' = if isLiterateFile fn then unlit fn else id
 
 -- * tokenize
 
