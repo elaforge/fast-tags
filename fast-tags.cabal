@@ -77,6 +77,13 @@ executable fast-tags
 test-suite test-fast-tags
     type: exitcode-stdio-1.0
     main-is: Main_test.hs
+    -- Since "main-is:" field doesn't do the same thing as -main-is flag for ghc
+    -- (see https://github.com/haskell/cabal/issues/172 for further information)
+    -- the -main-is module is specified here.
+    -- Optimizations are disabled for tests in order to leave assertion
+    -- mechanism functioning properly since ghc disables assertions when
+    -- optimizations are enabled
+    ghc-options: -main-is Main_test -O0
     hs-source-dirs: src
     build-depends: base >= 3 && < 5, containers, cpphs, filepath, directory,
         text (> 0.11.1.12 || < 0.11.1.12)
