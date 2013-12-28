@@ -46,25 +46,35 @@ main :: IO ()
 main = do
     args <- Environment.getArgs
 
-    (flags, inputs) <- case getOpt Permute options args of
+    (flags, inputFiles) <- case getOpt Permute options args of
         (flags, inputs, []) -> return (flags, inputs)
-        (_, _, errs)        -> usage $ "flag errors:\n" ++
-                                       List.intercalate ", " errs
+        (_, _, errs)        -> let errMsg = "flag errors:\n" ++
+                                            List.intercalate ", " errs
+                               in usage $ errMsg ++ "\n" ++ help
 
-    let verbose = Verbose `elem` flags
-        emacs   = ETags `elem` flags
-        vim     = not emacs
-        recurse = Recurse `elem` flags
-        output  = last $ defaultOutput : [fn | Output fn <- flags]
+    when (Help `elem` flags) $ usage help
+
+    let verbose       = Verbose `elem` flags
+        emacs         = ETags `elem` flags
+        vim           = not emacs
+        recurse       = Recurse `elem` flags
+        output        = last $ defaultOutput : [fn | Output fn <- flags]
+        noMerge       = NoMerge `elem` flags
+        useZeroSep    = ZeroSep `elem` flags
+        sep           = if useZeroSep then '\0' else '\n'
         defaultOutput = if vim then "tags" else "TAGS"
+        inputsM       = if null inputFiles
+                        then split sep <$> getContents
+                        else return inputFiles
 
     oldTags <-
-      if vim
+      if vim && not noMerge
          then maybe [vimMagicLine] T.lines <$>
               (catchENOENT $ Text.IO.readFile output)
          else return [] -- we do not support tags merging for emacs
                         -- for now
 
+    inputs <- inputsM
     -- This will merge and sort the new tags.  But I don't run it on the
     -- the result of merging the old and new tags, so tags from another
     -- file won't be sorted properly.  To do that I'd have to parse all the
@@ -102,7 +112,7 @@ main = do
             else Text.IO.writeFile output
 
     write $
-      if vim
+      if vim && not noMerge
         then T.unlines $ mergeTags inputs oldTags newTags
         else T.concat $ prepareEmacsTags newTags
 
@@ -176,12 +186,25 @@ mergeTags inputs old new =
     merge (map showTag new) (filter (not . isNewTag textFns) old)
     where textFns = Set.fromList $ map T.pack inputs
 
-data Flag = Output FilePath | Verbose | ETags | Recurse
+data Flag = Output FilePath
+          | Help
+          | Verbose
+          | ETags
+          | Recurse
+          | NoMerge
+          | ZeroSep
     deriving (Eq, Show)
+
+help :: String
+help = "usage: fast-tags [options] [filenames]\n" ++
+       "In case no filenames provided on commandline, fast-tags expects " ++
+       "list of files separated by newlines in stdin."
 
 options :: [OptDescr Flag]
 options =
-    [ Option ['o'] [] (ReqArg Output "filename")
+    [ Option ['h'] ["help"] (NoArg Help)
+        "print help message"
+    , Option ['o'] [] (ReqArg Output "file")
         "output file, defaults to 'tags'"
     , Option ['e'] [] (NoArg ETags)
         "print tags in Emacs format"
@@ -189,6 +212,10 @@ options =
         "print files as they are tagged, useful to track down slow files"
     , Option ['R'] [] (NoArg Recurse)
         "read all files under any specified directories recursively"
+    , Option ['0'] [] (NoArg ZeroSep)
+        "expect list of file names in stdin to be 0-separated."
+    , Option [] ["nomerge"] (NoArg NoMerge)
+        "do not merge tag files"
     ]
 
 -- | Documented in vim :h tags-file-format.
@@ -682,3 +709,12 @@ sortOn key = List.sortBy (\a b -> compare (key a) (key b))
 
 printErr :: String -> IO ()
 printErr = IO.hPutStrLn IO.stderr
+
+split :: (Eq a) => a -> [a] -> [[a]]
+split _ [] = []
+split x xs = xs': split x (tail' xs'')
+    where
+      (xs', xs'') = break (==x) xs
+
+      tail' []     = []
+      tail' (_:xs) = xs
