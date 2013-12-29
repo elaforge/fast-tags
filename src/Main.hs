@@ -113,7 +113,7 @@ main = do
             else Text.IO.writeFile output
 
     write $
-      if vim && not noMerge
+      if vim
         then T.unlines $ mergeTags inputs oldTags newTags
         else T.concat $ prepareEmacsTags newTags
 
