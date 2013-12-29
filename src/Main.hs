@@ -25,6 +25,7 @@ import Text.Printf (printf)
 
 import qualified Control.Exception as Exception
 import qualified Data.Char as Char
+import qualified Data.IntSet as IntSet
 import qualified Data.List as List
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
@@ -362,14 +363,13 @@ spanToken :: Text -> (Text, Text)
 spanToken text
     | Just sym <- List.find (`T.isPrefixOf` text) symbols
     = (sym, T.drop (T.length sym) text)
-    | c == ':'
-    = spanSymbol True text
     | c == '\''
     = let (token, rest) = breakChar   cs in (T.cons c token, rest)
     | c == '"'
     = let (token, rest) = breakString cs in (T.cons c token, rest)
-    | (token, rest) <- spanSymbol False text, not (T.null token)
-    = (token, rest)
+    | state@(token, _) <- spanSymbol (c == ':' || haskellOpChar c) text,
+      not (T.null token)
+    = state
     | otherwise
     -- This will tokenize differently than haskell should, e.g., 9x will
     -- be "9x" not "9" "x".  But I just need a wordlike chunk, not an
@@ -399,6 +399,13 @@ startIdentChar c = Char.isAlpha c || c == '_'
 
 identChar :: Char -> Bool
 identChar c = Char.isAlphaNum c || c == '.' || c == '\'' || c == '_'
+
+-- unicode operators are not supported yet
+haskellOpChar :: Char -> Bool
+haskellOpChar c = IntSet.member (Char.ord c) opChars
+  where
+    opChars :: IntSet.IntSet
+    opChars = IntSet.fromList $ map Char.ord "-!#$%&*+./<=>?@^|~:\\"
 
 -- | Span a symbol, making sure to not eat comments.
 spanSymbol :: Bool -> Text -> (Text, Text)

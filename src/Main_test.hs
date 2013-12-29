@@ -33,8 +33,10 @@ test_tokenize = do
     equal assert (f "(#$)") ["(", "#$", ")"]
     equal assert (f "$#-- hi") ["$#", "--", "hi"]
     equal assert (f "(*), (-)") ["(", "*", ")", ",", "(", "-", ")"]
+    equal assert (f "(.::)") ["(", ".::", ")"]
     -- we rely on this behavior
     equal assert (f "data (:+) a b") ["data", "(", ":+", ")", "a", "b"]
+    equal assert (f "data (.::+::) a b") ["data", "(", ".::+::", ")", "a", "b"]
 
 test_skipString = do
     let f = snd . Main.breakString
@@ -152,6 +154,9 @@ test_functions = do
     equal assert (f "(+), a :: X") ["+", "a"]
     -- Don't get fooled by literals.
     equal assert (f "1 :: Int") []
+
+    -- plain functions and operators
+    equal assert (f "(.::) :: X -> Y") [".::"]
 
 test_class = do
     let f = process
