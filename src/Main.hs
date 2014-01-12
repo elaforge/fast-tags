@@ -398,7 +398,7 @@ startIdentChar :: Char -> Bool
 startIdentChar c = Char.isAlpha c || c == '_'
 
 identChar :: Char -> Bool
-identChar c = Char.isAlphaNum c || c == '.' || c == '\'' || c == '_'
+identChar c = Char.isAlphaNum c || c == '.' || c == '\'' || c == '_' || c == '#'
 
 -- unicode operators are not supported yet
 haskellOpChar :: Char -> Bool

@@ -25,7 +25,7 @@ test_tokenize = do
     let f = drop 1 . extractTokens . tokenize
     equal assert (f "a::b->c") ["a", "::", "b", "->", "c"]
     equal assert (f "x{-\n  bc#-}\n")
-        ["x", "{-", "nl 2", "bc", "#", "-}"]
+        ["x", "{-", "nl 2", "bc#", "-}"]
     equal assert (f "X.Y") ["X.Y"]
     equal assert (f "x9") ["x9"]
     -- equal assert (f "9x") ["nl 0", "9", "x"]
