@@ -66,7 +66,14 @@ main = do
         defaultOutput = if vim then "tags" else "TAGS"
         inputsM       = if null inputFiles
                         then split sep <$> getContents
-                        else return inputFiles
+                        else fmap concat $ forM inputFiles $ \input -> do
+                            -- if an input is a directory then we find the
+                            -- haskell files inside it, optionally recursing
+                            -- further if the -R switch is specified
+                            isDirectory <- doesDirectoryExist input
+                            if isDirectory
+                                then filter isHsFile <$> contents recurse input
+                                else return [input]
 
     oldTags <-
       if vim && not noMerge
@@ -81,17 +88,8 @@ main = do
     -- file won't be sorted properly.  To do that I'd have to parse all the
     -- old tags and run processAll on all of them, which is a hassle.
     -- TODO try it and see if it really hurts performance that much.
-    newTags <- fmap (processAll . concat) $ do
-
-        -- if an input is a directory then we find the haskell files inside it,
-        -- optionally recursing further if the -R switch is specified
-        files <- fmap concat $ forM inputs $ \input -> do
-          isDirectory <- doesDirectoryExist input
-          if isDirectory
-            then filter isHsFile <$> contents recurse input
-            else return [input]
-
-        forM (zip [0..] files) $ \(i :: Int, fn) -> do
+    newTags <- fmap (processAll . concat) $
+        forM (zip [0..] inputs) $ \(i :: Int, fn) -> do
             tags <- processFile fn
             -- This has the side-effect of forcing the tags, which is
             -- essential if I'm tagging a lot of files at once.
