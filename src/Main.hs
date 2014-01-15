@@ -578,7 +578,13 @@ functionName constructors text
 -- | * = X *
 newtypeTags :: SrcPos -> [Token] -> [Tag]
 newtypeTags prevPos tokens = case dropUntil "=" tokens of
-    Pos pos (Token prefix name) : _ -> [mktag pos prefix name Constructor]
+    Pos pos (Token prefix name) : rest ->
+        let constructor = mktag pos prefix name Constructor
+        in  case rest of
+            Pos _ (Token _ "{"): Pos funcPos (Token funcPrefix funcName): _ ->
+                [constructor, mktag funcPos funcPrefix funcName Function]
+            _ ->
+                [constructor]
     rest -> unexpected prevPos (UnstrippedTokens tokens) rest "newtype * ="
 
 -- | [] (empty data declaration)

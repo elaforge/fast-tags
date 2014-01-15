@@ -132,6 +132,14 @@ test_data = do
     equal assert (f "data (:*:) u v z = X") [":*:", "X"]
     equal assert (f "data (u `W` v) z = X") ["W", "X"]
 
+    equal assert
+        (f "newtype X a = Z {\n -- TODO blah\n foo :: [a] }")
+        ["X", "Z", "foo"]
+    equal assert
+        (f "newtype (u :*: v) z = X {\n -- my insightful comment\n extract :: (u (v z)) }")
+        [":*:", "X", "extract"]
+
+
 test_gadt = do
     let f = process
     equal assert (f "data X where A :: X\n") ["X", "A"]
