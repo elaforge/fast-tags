@@ -124,13 +124,49 @@ test_data = do
     equal assert (f "data X = Y :+: !Z | !X `Mult` X") ["X", ":+:", "Mult"]
     equal assert (f "data X = !Y `Add` !Z") ["X", "Add"]
 
+    equal assert (f "data X a = Add a ") ["X", "Add"]
+    equal assert (f "data Eq a => X a = Add a") ["X", "Add"]
+    equal assert (f "data (Eq a) => X a = Add a") ["X", "Add"]
+    equal assert (f "data (Eq a, Ord a) => X a = Add a") ["X", "Add"]
+    equal assert (f "data (Eq (a), Ord (a)) => X a = Add a") ["X", "Add"]
+
+    equal assert (f "data Ref :<: f => X f = RRef f") ["X", "RRef"]
+    equal assert (f "data a :<: b => X a b = Add a") ["X", "Add"]
+    equal assert (f "data (a :<: b) => X a b = Add a") ["X", "Add"]
+
+    equal assert (f "newtype Eq a => X a = Add a") ["X", "Add"]
+    equal assert (f "newtype (Eq a) => X a = Add a") ["X", "Add"]
+    equal assert (f "newtype (Eq a, Ord a) => X a = Add a") ["X", "Add"]
+
     equal assert (f "newtype (u :*: v) z = X") [":*:", "X"]
     equal assert (f "data (u :*: v) z = X") [":*:", "X"]
     equal assert (f "type (u :*: v) z = (u, v, z)") [":*:"]
 
+    equal assert (f "newtype ((u :: (* -> *) -> *) :*: v) z = X") [":*:", "X"]
+    equal assert (f "data ((u :: (* -> *) -> *) :*: v) z = X") [":*:", "X"]
+    equal assert (f "type ((u :: (* -> *) -> *) :*: v) z = (u, v, z)") [":*:"]
+
+    equal assert (f "newtype (Eq (v z)) => ((u :: (* -> *) -> *) :*: v) z = X") [":*:", "X"]
+    equal assert (f "data (Eq (v z)) => ((u :: (* -> *) -> *) :*: v) z = X") [":*:", "X"]
+    equal assert (f "type (Eq (v z)) => ((u :: (* -> *) -> *) :*: v) z = (u, v, z)") [":*:"]
+
+    equal assert (f "newtype Eq (v z) => ((u :: (* -> *) -> *) :*: v) z = X") [":*:", "X"]
+    equal assert (f "data Eq (v z) => ((u :: (* -> *) -> *) :*: v) z = X") [":*:", "X"]
+    equal assert (f "type Eq (v z) => ((u :: (* -> *) -> *) :*: v) z = (u, v, z)") [":*:"]
+
+    equal assert (f "newtype (Eq (v z)) => ((u :: (* -> *) -> *) `Foo` v) z = X") ["Foo", "X"]
+    equal assert (f "data (Eq (v z)) => ((u :: (* -> *) -> *) `Foo` v) z = X") ["Foo", "X"]
+    equal assert (f "type (Eq (v z)) => ((u :: (* -> *) -> *) `Foo` v) z = (u, v, z)") ["Foo"]
+
+    equal assert (f "newtype Eq (v z) => ((u :: (* -> *) -> *) `Foo` v) z = X") ["Foo", "X"]
+    equal assert (f "data Eq (v z) => ((u :: (* -> *) -> *) `Foo` v) z = X") ["Foo", "X"]
+    equal assert (f "type Eq (v z) => ((u :: (* -> *) -> *) `Foo` v) z = (u, v, z)") ["Foo"]
+
 
     equal assert (f "data (:*:) u v z = X") [":*:", "X"]
+    equal assert (f "data (Eq (u v), Ord (z)) => (:*:) u v z = X") [":*:", "X"]
     equal assert (f "data (u `W` v) z = X") ["W", "X"]
+    equal assert (f "data (Eq (u v), Ord (z)) => (u `W` v) z = X") ["W", "X"]
 
     equal assert
         (f "newtype X a = Z {\n -- TODO blah\n foo :: [a] }")
@@ -146,11 +182,19 @@ test_gadt = do
     equal assert (f "data X where\n\tA :: X\n") ["X", "A"]
     equal assert (f "data X where\n\tA :: X\n\tB :: X\n") ["X", "A", "B"]
     equal assert (f "data X where\n\tA, B :: X\n") ["X", "A", "B"]
+    equal assert (f "data X :: * -> * -> * where\n\tA, B :: Int -> Int -> X\n") ["X", "A", "B"]
+
+
+    equal assert (f "data NatSing (n :: Nat) where\n    ZeroSing :: 'Zero\n    SuccSing :: NatSing n -> NatSing ('Succ n)\n") ["NatSing", "ZeroSing", "SuccSing"]
 
 test_families = do
     let f = process
     equal assert (f "type family X :: *\n") ["X"]
     equal assert (f "data family X :: * -> *\n") ["X"]
+
+    equal assert (f "type family a :<: b\n") [":<:"]
+    equal assert (f "type family (a :: Nat) :<: (b :: Nat) :: Nat\n") [":<:"]
+
     equal assert (f "class C where\n\ttype X y :: *\n") ["C", "X"]
     equal assert (f "class C where\n\tdata X y :: *\n") ["C", "X"]
 
@@ -179,6 +223,24 @@ test_class = do
         ["X", "a", "b", "c"]
     equal assert (f "class X\n\twhere\n\ta ::\n\t\tX\n\tb :: Y")
         ["X", "a", "b"]
+
+    equal assert (f "class a :<: b where\n    f :: a -> b")
+        [":<:", "f"]
+    equal assert (f "class (:<:) a b where\n    f :: a -> b")
+        [":<:", "f"]
+    equal assert (f "class Eq a => a :<: b where\n    f :: a -> b")
+        [":<:", "f"]
+    equal assert (f "class a :<<<: b => a :<: b where\n    f :: a -> b")
+        [":<:", "f"]
+    equal assert (f "class (a :<<<: b) => a :<: b where\n    f :: a -> b")
+        [":<:", "f"]
+    equal assert (f "class (Eq a, Ord b) => a :<: b where\n    f :: a -> b")
+        [":<:", "f"]
+    equal assert (f "class (Eq a, Ord b) => (a :: (* -> *) -> *) :<: b where\n    f :: a -> b")
+        [":<:", "f"]
+    -- this is bizzarre
+    equal assert (f "class (Eq (a), Ord (f a [a])) => f `Z` a") ["Z"]
+
 
 test_literate = do
     let f = map untag . Main.process "fn.lhs"

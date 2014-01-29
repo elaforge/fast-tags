@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings, PatternGuards, ScopedTypeVariables #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, ViewPatterns #-}
 
 {-# OPTIONS_GHC -funbox-strict-fields #-}
 
@@ -27,6 +27,7 @@ import qualified Control.Exception as Exception
 import qualified Data.Char as Char
 import qualified Data.IntSet as IntSet
 import qualified Data.List as List
+import qualified Data.Map as Map
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
 import qualified Data.Text as T
@@ -40,8 +41,6 @@ import qualified System.IO.Error as IO.Error
 import System.Directory (doesDirectoryExist, getDirectoryContents)
 import System.FilePath ((</>))
 
-
-import qualified Data.Map as Map
 
 main :: IO ()
 main = do
@@ -263,6 +262,10 @@ data Type = Module | Function | Class | Type | Constructor | Operator
 data TokenVal = Token !Text !Text | Newline !Int
     deriving (Eq, Show)
 
+tokenName :: TokenVal -> Text
+tokenName (Token _ name) = name
+tokenName _              = error "cannot extract name from non-Token TokenVal"
+
 type Tag = Either String (Pos TagVal)
 
 type Token = Pos TokenVal
@@ -405,6 +408,9 @@ haskellOpChar c = IntSet.member (Char.ord c) opChars
     opChars :: IntSet.IntSet
     opChars = IntSet.fromList $ map Char.ord "-!#$%&*+./<=>?@^|~:\\"
 
+isTypeVarStart :: Char -> Bool
+isTypeVarStart c = Char.isLower c || c == '_'
+
 -- | Span a symbol, making sure to not eat comments.
 spanSymbol :: Bool -> Text -> (Text, Text)
 spanSymbol considerColon text
@@ -490,55 +496,69 @@ breakBlock [] = ([], [])
 blockTags :: UnstrippedTokens -> [Tag]
 blockTags tokens = case stripNewlines tokens of
     [] -> []
-    Pos _ (Token _ "module") : Pos pos (Token prefix name) : _ ->
+    Pos _ (Token _ "module"): Pos pos (Token prefix name): _ ->
         [mktag pos prefix (snd (T.breakOnEnd "." name)) Module]
     -- newtype X * = X *
-    Pos _ (Token _ "newtype") : Pos pos (Token prefix name) : rest
-        | isTypeName name -> mktag pos prefix name Type : newtypeTags pos rest
-        | otherwise -> let (pos', _, tok, rest') = recordInfixType rest
-                       in tok: newtypeTags pos' rest'
+    Pos _ (Token _ "newtype"): (dropDataContext -> tok@(Pos pos (Token _ name)): rest) ->
+        if isTypeName name
+        then tokToTag tok Type : newtypeTags pos rest
+        else let (pos', tok, rest') = recordInfixName Type rest
+             in tok: newtypeTags pos' rest'
     -- type family X ...
-    Pos _ (Token _ "type") : Pos _ (Token _ "family") : Pos pos (Token prefix name) : _ ->
-        [mktag pos prefix name Type]
+    Pos _ (Token _ "type"): Pos _ (Token _ "family"): (dropDataContext -> tok@(Pos pos (Token _ name)): rest) ->
+        if isTypeName name
+        then [tokToTag tok Type]
+        else let (_, tok, _) = recordInfixName Type rest
+             in [tok]
     -- type X * = ...
-    Pos _ (Token _ "type") : Pos pos (Token prefix name) : rest
-        | isTypeName name -> [mktag pos prefix name Type]
-        | otherwise -> let (_, _, tok, _) = recordInfixType rest in [tok]
+    Pos _ (Token _ "type"): (dropDataContext -> tok@(Pos pos (Token _ name)): rest) ->
+        if isTypeName name
+        then [tokToTag tok Type]
+        else let (_, tok, _) = recordInfixName Type rest
+             in [tok]
     -- data family X ...
-    Pos _ (Token _ "data") : Pos _ (Token _ "family") : Pos pos (Token prefix name) : _ ->
-        [mktag pos prefix name Type]
+    Pos _ (Token _ "data"): Pos _ (Token _ "family"): (dropDataContext -> tok@(Pos pos (Token _ name)): rest) ->
+        if isTypeName name
+        then [tokToTag tok Type]
+        else let (_, tok, _) = recordInfixName Type rest
+             in [tok]
     -- data X * = X { X :: *, X :: * }
     -- data X * where ...
-    Pos _ (Token _ "data") : Pos pos (Token prefix name) : rest
-        | isTypeName name ->
-            mktag pos prefix name Type : dataTags pos (mapTokens (drop 2) tokens)
+    Pos _ (Token _ "data"): (dropDataContext -> tok@(Pos pos (Token _ name)): rest) ->
+        if isTypeName name
+        then tokToTag tok Type : dataTags pos (mapTokens (drop 2) tokens)
         -- if token after data is not a type name then it isn't
         -- infix type as well since it may be only '(' or some
         -- lowercase name, either of which is not type constructor
-        | otherwise -> let (pos', n, tok, _) = recordInfixType rest
-                       in tok: dataTags pos' (mapTokens (drop $! n + 2) tokens)
+        else let (pos', tok, _) = recordInfixName Type rest
+             in tok: dataTags pos' (mapTokens (drop 1) tokens)
     -- class * => X where X :: * ...
     Pos pos (Token _ "class") : _ -> classTags pos (mapTokens (drop 1) tokens)
     -- x, y, z :: *
     stripped -> fst $ functionTags False stripped
+
+
+isTypeName :: Text -> Bool
+isTypeName x = Char.isUpper c || c == ':' where c = T.head x
+
+dropDataContext :: [Token] -> [Token]
+dropDataContext = stripParensKindsTypeVars . stripOptContext
+
+recordInfixName :: Type -> [Token] -> (SrcPos, Tag, [Token])
+recordInfixName tokenType tokens = (pos, tokToTag tok tokenType, rest)
   where
-    isTypeName        x = Char.isUpper c || c == ':' where c = T.head x
+    (tok@(Pos pos _) : rest) = dropInfixTypeStart tokens
+
+-- same as dropWhile with counting
+dropInfixTypeStart :: [Token] -> [Token]
+dropInfixTypeStart tokens = dropWhile f tokens
+  where
+    f (Pos _ (Token _ name)) = isInfixTypePrefix name ||
+                               (T.length name == 1 && T.head name == '`')
+    f _                      = False
+
+    isInfixTypePrefix :: Text -> Bool
     isInfixTypePrefix x = Char.isLower c || c == '(' where c = T.head x
-
-    recordInfixType :: [Token] -> (SrcPos, Int, Tag, [Token])
-    recordInfixType tokens = (pos, n, mktag pos prefix name Type, rest)
-      where
-        (n, Pos pos (Token prefix name) : rest) = dropInfixTypeStart tokens
-
-    -- same as dropWhile with counting
-    dropInfixTypeStart :: [Token] -> (Int, [Token])
-    dropInfixTypeStart tokens = go tokens 0
-      where
-        go toks@(Pos _ (Token _ name): rest) n
-            | isInfixTypePrefix name                   = go rest $! n + 1
-            | T.length name == 1 && T.head name == '`' = go rest $! n + 1
-            | otherwise                                = (n, toks)
-        go xs                                n = (n, xs)
 
 
 -- | It's easier to scan for tokens without pesky newlines popping up
@@ -573,7 +593,7 @@ functionName constructors text
     isFunction text = case T.uncons text of
         Just (c, cs) -> firstChar c && startIdentChar c && T.all identChar cs
         Nothing -> False
-    firstChar = if constructors then Char.isUpper else not . Char.isUpper
+    firstChar = if constructors then Char.isUpper else Char.isLower
 
 -- | * = X *
 newtypeTags :: SrcPos -> [Token] -> [Tag]
@@ -599,13 +619,12 @@ dataTags prevPos unstripped
     -- plain ADT
     | otherwise = case stripOptBang $ dropUntil "=" (stripNewlines unstripped) of
         [] -> [] -- empty data declaration
-        _ : rest
-            | Just (Pos pos (Token prefix name), rest') <- extractInfixConstructor rest ->
-                mktag pos prefix name Constructor : collectRest rest'
+        _ : rest | Just (Pos pos (Token prefix name), rest') <- extractInfixConstructor rest ->
+            mktag pos prefix name Constructor : collectRest rest'
         Pos pos (Token prefix name) : rest ->
             mktag pos prefix name Constructor : collectRest rest
         rest -> unexpected prevPos unstripped rest "data * ="
-    where
+  where
     collectRest tokens
         | (tags@(_:_), rest) <- functionTags False tokens =
             tags ++ collectRest rest
@@ -632,21 +651,65 @@ dataTags prevPos unstripped
         Just (tok, rest)
     extractInfixConstructor _ = Nothing
 
+stripParensKindsTypeVars :: [Token] -> [Token]
+stripParensKindsTypeVars (Pos _ (Token _ "("): xs)  =
+    stripParensKindsTypeVars xs
+-- stripParensKindsTypeVars (Pos _ (Token _ ")"): xs)  =
+--     stripParensKindsTypeVars xs
+stripParensKindsTypeVars (Pos _ (Token _ "::"): xs) =
+    stripParensKindsTypeVars $ tail $ dropWithParens (/= ')') xs
+stripParensKindsTypeVars (Pos _ (Token _ name): xs)
+    | isTypeVarStart $ T.head name =
+        stripParensKindsTypeVars xs
+stripParensKindsTypeVars xs = xs
+
+
+stripOptContext :: [Token] -> [Token]
+stripOptContext (stripBalancedParens -> Pos _ (Token _ "=>"): xs) = xs
+stripOptContext (stripSingleClassContext -> Pos _ (Token _ "=>"): xs) = xs
+stripOptContext xs = xs
+
+stripSingleClassContext :: [Token] -> [Token]
+stripSingleClassContext (Pos _ (Token _ name): xs)
+    | Char.isUpper $ T.head name = dropWithParens isTypeVarStart xs
+stripSingleClassContext xs = xs
+
+-- drop all tokens for which @pred@ returns True, also drop
+-- any parenthesized expressions
+dropWithParens :: (Char -> Bool) -> [Token] -> [Token]
+dropWithParens pred input@(Pos _ (Token _ name): xs)
+    | c == '(' = dropWithParens pred $ stripBalancedParens input
+    | pred c   = dropWithParens pred xs
+  where
+    c = T.head name
+dropWithParens _ xs = xs
+
+stripBalancedParens :: [Token] -> [Token]
+stripBalancedParens (Pos _ (Token _ "("): xs) = go 1 xs
+  where
+    go :: Int -> [Token] -> [Token]
+    go 0 xs                         = xs
+    go n (Pos _ (Token _ name): xs) | name == "(" = go (n + 1) xs
+                                    | name == ")" = go (n - 1) xs
+                                    | otherwise   = go n       xs
+stripBalancedParens xs = xs
+
+
 gadtTags :: UnstrippedTokens -> [Tag]
 gadtTags = fst . functionTags True . stripNewlines
 
 -- | * => X where X :: * ...
 classTags :: SrcPos -> UnstrippedTokens -> [Tag]
-classTags prevPos unstripped = case dropContext classHeader of
-    Pos pos (Token prefix name) : _ ->
-        -- Drop the where and start expecting functions.
-        mktag pos prefix name Class : concatMap classBodyTags (whereBlock unstripped)
-    rest -> unexpected prevPos unstripped rest "class * =>"
-    where
-    classHeader = takeWhile (not . (`hasName` "where") . valOf) $
-                  stripNewlines unstripped
-    dropContext tokens = if any ((`hasName` "=>") . valOf) tokens
-        then dropUntil "=>" tokens else tokens
+classTags prevPos unstripped =
+    case dropDataContext $ stripNewlines unstripped of
+        tok@(Pos pos (Token _ name)): rest ->
+            -- Drop the where and start expecting functions.
+            let cont = concatMap classBodyTags (whereBlock unstripped)
+            in  if isTypeName name
+                then tokToTag tok Class: cont
+                else let (_, tok, _) = recordInfixName Class rest
+                     in tok: concatMap classBodyTags (whereBlock unstripped)
+        rest -> unexpected prevPos unstripped rest "class * =>"
 
 classBodyTags :: UnstrippedTokens -> [Tag]
 classBodyTags unstripped = case stripNewlines unstripped of
@@ -663,6 +726,9 @@ whereBlock = breakBlocks . mapTokens (dropUntil "where")
 
 mktag :: SrcPos -> Text -> Text -> Type -> Tag
 mktag pos prefix name typ = Right $ Pos pos (Tag prefix name typ)
+
+tokToTag :: Token -> Type -> Tag
+tokToTag (Pos pos (Token prefix name)) t = mktag pos prefix name t
 
 warning :: SrcPos -> String -> Tag
 warning pos warn = Left $ show pos ++ ": " ++ warn
@@ -691,7 +757,6 @@ hasName _ _ = False
 
 dropUntil :: Text -> [Token] -> [Token]
 dropUntil token = drop 1 . dropWhile (not . (`hasName` token) . valOf)
-
 
 -- * misc
 
