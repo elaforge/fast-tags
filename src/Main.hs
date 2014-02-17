@@ -499,32 +499,32 @@ blockTags tokens = case stripNewlines tokens of
     Pos _ (Token _ "module"): Pos pos (Token prefix name): _ ->
         [mktag pos prefix (snd (T.breakOnEnd "." name)) Module]
     -- newtype X * = X *
-    Pos _ (Token _ "newtype"): (dropDataContext -> tok@(Pos pos (Token _ name)): rest) ->
+    Pos _ (Token _ "newtype"): (dropDataContext -> whole@(tok@(Pos pos (Token _ name)): rest)) ->
         if isTypeName name
         then tokToTag tok Type : newtypeTags pos rest
-        else let (pos', tok, rest') = recordInfixName Type rest
+        else let (pos', tok, rest') = recordInfixName Type whole
              in tok: newtypeTags pos' rest'
     -- type family X ...
-    Pos _ (Token _ "type"): Pos _ (Token _ "family"): (dropDataContext -> tok@(Pos pos (Token _ name)): rest) ->
+    Pos _ (Token _ "type"): Pos _ (Token _ "family"): (dropDataContext -> whole@(tok@(Pos pos (Token _ name)): rest)) ->
         if isTypeName name
         then [tokToTag tok Type]
-        else let (_, tok, _) = recordInfixName Type rest
+        else let (_, tok, _) = recordInfixName Type whole
              in [tok]
     -- type X * = ...
-    Pos _ (Token _ "type"): (dropDataContext -> tok@(Pos pos (Token _ name)): rest) ->
+    Pos _ (Token _ "type"): (dropDataContext -> whole@(tok@(Pos pos (Token _ name)): rest)) ->
         if isTypeName name
         then [tokToTag tok Type]
-        else let (_, tok, _) = recordInfixName Type rest
+        else let (_, tok, _) = recordInfixName Type whole
              in [tok]
     -- data family X ...
-    Pos _ (Token _ "data"): Pos _ (Token _ "family"): (dropDataContext -> tok@(Pos pos (Token _ name)): rest) ->
+    Pos _ (Token _ "data"): Pos _ (Token _ "family"): (dropDataContext -> whole@(tok@(Pos pos (Token _ name)): rest)) ->
         if isTypeName name
         then [tokToTag tok Type]
         else let (_, tok, _) = recordInfixName Type rest
              in [tok]
     -- data X * = X { X :: *, X :: * }
     -- data X * where ...
-    Pos _ (Token _ "data"): (dropDataContext -> tok@(Pos pos (Token _ name)): rest) ->
+    Pos _ (Token _ "data"): (dropDataContext -> whole@(tok@(Pos pos (Token _ name)): rest)) ->
         if isTypeName name
         then tokToTag tok Type : dataTags pos (mapTokens (drop 2) tokens)
         -- if token after data is not a type name then it isn't
@@ -705,12 +705,12 @@ gadtTags = fst . functionTags True . stripNewlines
 classTags :: SrcPos -> UnstrippedTokens -> [Tag]
 classTags prevPos unstripped =
     case dropDataContext $ stripNewlines unstripped of
-        tok@(Pos pos (Token _ name)): rest ->
+        whole@(tok@(Pos pos (Token _ name)): rest) ->
             -- Drop the where and start expecting functions.
             let cont = concatMap classBodyTags (whereBlock unstripped)
             in  if isTypeName name
                 then tokToTag tok Class: cont
-                else let (_, tok, _) = recordInfixName Class rest
+                else let (_, tok, _) = recordInfixName Class whole
                      in tok: concatMap classBodyTags (whereBlock unstripped)
         rest -> unexpected prevPos unstripped rest "class * =>"
 
