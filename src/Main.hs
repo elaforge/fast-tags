@@ -593,7 +593,9 @@ functionName constructors text
     isFunction text = case T.uncons text of
         Just (c, cs) -> firstChar c && startIdentChar c && T.all identChar cs
         Nothing -> False
-    firstChar = if constructors then Char.isUpper else Char.isLower
+    firstChar = if constructors
+                then Char.isUpper
+                else \c -> Char.isLower c || c == '_'
 
 -- | * = X *
 newtypeTags :: SrcPos -> [Token] -> [Tag]
@@ -692,6 +694,7 @@ stripBalancedParens (Pos _ (Token _ "("): xs) = go 1 xs
     go n (Pos _ (Token _ name): xs) | name == "(" = go (n + 1) xs
                                     | name == ")" = go (n - 1) xs
                                     | otherwise   = go n       xs
+    go _ [] = []
 stripBalancedParens xs = xs
 
 

@@ -194,6 +194,7 @@ test_families = do
 
     equal assert (f "type family a :<: b\n") [":<:"]
     equal assert (f "type family (a :: Nat) :<: (b :: Nat) :: Nat\n") [":<:"]
+    equal assert (f "type family (a :: Nat) `Family` (b :: Nat) :: Nat\n") ["Family"]
 
     equal assert (f "class C where\n\ttype X y :: *\n") ["C", "X"]
     equal assert (f "class C where\n\tdata X y :: *\n") ["C", "X"]
@@ -209,6 +210,9 @@ test_functions = do
 
     -- plain functions and operators
     equal assert (f "(.::) :: X -> Y") [".::"]
+
+    equal assert (f "_g :: X -> Y") ["_g"]
+
 
 test_class = do
     let f = process
