@@ -524,7 +524,7 @@ blockTags tokens = case stripNewlines tokens of
              in [tok]
     -- data X * = X { X :: *, X :: * }
     -- data X * where ...
-    Pos _ (Token _ "data"): (dropDataContext -> whole@(tok@(Pos pos (Token _ name)): rest)) ->
+    Pos _ (Token _ "data"): (dropDataContext . dropDataInstance -> whole@(tok@(Pos pos (Token _ name)): rest)) ->
         if isTypeName name
         then tokToTag tok Type : dataTags pos (mapTokens (drop 2) tokens)
         -- if token after data is not a type name then it isn't
@@ -536,6 +536,10 @@ blockTags tokens = case stripNewlines tokens of
     Pos pos (Token _ "class") : _ -> classTags pos (mapTokens (drop 1) tokens)
     -- x, y, z :: *
     stripped -> fst $ functionTags False stripped
+  where
+    dropDataInstance :: [Token] -> [Token]
+    dropDataInstance (Pos _ (Token _ "instance") : xs) = xs
+    dropDataInstance xs                                = xs
 
 
 isTypeName :: Text -> Bool
