@@ -53,6 +53,11 @@ test_stripComments = do
     equal assert (f "hello {- there -} fred") ["nl 0", "hello", "fred"]
     equal assert (f "{-# LANG #-} hello {- there {- nested -} comment -} fred")
         ["nl 0", "hello", "fred"]
+    equal assert (f "hello {-\nthere\n------}\n fred") ["nl 0", "hello",  "nl 1", "fred"]
+    equal assert (f "hello {-  \nthere\n  ------}  \n fred") ["nl 0", "hello",  "nl 1", "fred"]
+    equal assert (f "hello {-\nthere\n-----}\n fred") ["nl 0", "hello", "nl 1", "fred"]
+    equal assert (f "hello {-  \nthere\n  -----}  \n fred") ["nl 0", "hello",  "nl 1", "fred"]
+    equal assert (f "hello {-\n-- there -}") ["nl 0", "hello"]
 
 test_breakBlocks = do
     let f = map (extractTokens . Main.UnstrippedTokens . Main.stripNewlines)

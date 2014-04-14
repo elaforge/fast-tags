@@ -362,6 +362,10 @@ tokenize (Pos pos line) = UnstrippedTokens $ map (Pos pos) (tokenizeLine line)
 
 spanToken :: Text -> (Text, Text)
 spanToken text
+    -- ☡ special case to fight "--" biting too much input so that closing "-}"
+    -- becomes unavailable
+    | "--}" `T.isPrefixOf` text
+    = ("-}", T.drop 3 text)
     | Just sym <- List.find (`T.isPrefixOf` text) symbols
     = (sym, T.drop (T.length sym) text)
     | c == '\''
@@ -380,13 +384,14 @@ spanToken text
         (token, rest) -> (token, rest)
   where
     Just (c, cs) = T.uncons text
-    symbols = ["--", "{-", "-}", "=>", "->", "::"]
+    symbols = ["-}", "--", "{-", "=>", "->", "::"]
 
 tokenizeLine :: Text -> [TokenVal]
 tokenizeLine text = Newline nspaces : go spaces line
   where
     nspaces = T.count " " spaces + T.count "\t" spaces * 8
     (spaces, line) = T.break (not . Char.isSpace) text
+    go :: Text -> Text -> [TokenVal]
     go oldPrefix unstripped
       | T.null stripped = []
       | otherwise       = let (token, rest) = spanToken stripped
@@ -456,11 +461,11 @@ stripComments = mapTokens (go 0)
     go :: Int -> [Token] -> [Token]
     go _ [] = []
     go nest (pos@(Pos _ token) : rest)
-        | token `hasName` "--" = go nest (dropLine rest)
-        | token `hasName` "{-" = go (nest+1) rest
-        | token `hasName` "-}" = go (nest-1) rest
-        | nest > 0 = go nest rest
-        | otherwise = pos : go nest rest
+        | token `nameStartsWith` "{-"              = go (nest + 1) rest
+        | token `nameEndsWith` "-}"                = go (nest - 1) rest
+        | nest == 0 && token `nameStartsWith` "--" = go nest (dropLine rest)
+        | nest > 0                                 = go nest rest
+        | otherwise                                = pos: go nest rest
 
 -- | Break the input up into blocks based on indentation.
 breakBlocks :: UnstrippedTokens -> [UnstrippedTokens]
@@ -759,8 +764,17 @@ isNewline (Pos _ (Newline _)) = True
 isNewline _ = False
 
 hasName :: TokenVal -> Text -> Bool
-hasName (Token _ name) text = name == text
-hasName _ _ = False
+hasName tok text = tokenNameSatisfies tok (== text)
+
+nameStartsWith :: TokenVal -> Text -> Bool
+nameStartsWith tok text = tokenNameSatisfies tok (text `T.isPrefixOf`)
+
+nameEndsWith :: TokenVal -> Text -> Bool
+nameEndsWith tok text = tokenNameSatisfies tok (text `T.isSuffixOf`)
+
+tokenNameSatisfies :: TokenVal -> (Text -> Bool) -> Bool
+tokenNameSatisfies (Token _ name) pred = pred name
+tokenNameSatisfies _              _    = False
 
 dropUntil :: Text -> [Token] -> [Token]
 dropUntil token = drop 1 . dropWhile (not . (`hasName` token) . valOf)
