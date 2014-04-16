@@ -467,6 +467,9 @@ stripComments = mapTokens (go 0)
         | nest > 0                                 = go nest rest
         | otherwise                                = pos: go nest rest
 
+    dropLine :: [Token] -> [Token]
+    dropLine = dropWhile (not . isNewline)
+
 -- | Break the input up into blocks based on indentation.
 breakBlocks :: UnstrippedTokens -> [UnstrippedTokens]
 breakBlocks = map UnstrippedTokens . filter (not . null) . go . filterBlank
@@ -755,9 +758,6 @@ unexpected prevPos (UnstrippedTokens tokensBefore) tokensHere declaration =
         | not (null tokensHere) = posOf (head tokensHere)
         | not (null tokensBefore) = posOf (last tokensBefore)
         | otherwise = prevPos
-
-dropLine :: [Token] -> [Token]
-dropLine = drop 1 . dropWhile (not . isNewline)
 
 isNewline :: Token -> Bool
 isNewline (Pos _ (Newline _)) = True

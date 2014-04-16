@@ -255,6 +255,14 @@ test_class = do
     -- this is bizzarre
     equal assert (f "class (Eq (a), Ord (f a [a])) => f `Z` a") ["Z"]
 
+    equal assert (f "class A f where\n  data F f :: *\n  g :: a -> f a\n  h :: f a -> a")
+        ["A", "F", "g", "h"]
+    equal assert (f "class A f where\n  data F f :: *\n  mkF :: f -> F f\n  getF :: F f -> f")
+        ["A", "F", "mkF", "getF"]
+    equal assert (f "class A f where\n  data F f :: * -- foo\n                -- bar\n                -- baz\n  mkF :: f -> F f\n  getF :: F f -> f")
+        ["A", "F", "mkF", "getF"]
+
+
 
 test_literate = do
     let f = map untag . Main.process "fn.lhs"
