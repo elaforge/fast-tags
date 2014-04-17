@@ -90,6 +90,7 @@ test_processAll = do
 test_process = sequence_
     [ test_misc, test_data, test_gadt, test_families, test_functions
     , test_class
+    , test_instance
     , test_literate
     ]
 
@@ -121,7 +122,10 @@ test_data = do
     equal assert (f "data R = R {\n\ta::X\n\t, b::Y\n\t}") ["R", "R", "a", "b"]
     equal assert (f "data R = R {\n\ta,b::X\n\t}") ["R", "R", "a", "b"]
 
-    equal assert (f "data R = R {\n\ta :: !RealTime\n\t, b :: !RealTime\n\t}")
+    equal assert (f "data R = R {\n\
+                    \a :: !RealTime\n\
+                    \, b :: !RealTime\n\
+                    \}")
         ["R", "R", "a", "b"]
 
     equal assert (f "data X = X !Int") ["X", "X"]
@@ -177,7 +181,9 @@ test_data = do
         (f "newtype X a = Z {\n -- TODO blah\n foo :: [a] }")
         ["X", "Z", "foo"]
     equal assert
-        (f "newtype (u :*: v) z = X {\n -- my insightful comment\n extract :: (u (v z)) }")
+        (f "newtype (u :*: v) z = X {\n\
+           \ -- my insightful comment\n\
+           \ extract :: (u (v z)) }")
         [":*:", "X", "extract"]
 
 
@@ -187,7 +193,9 @@ test_gadt = do
     equal assert (f "data X where\n\tA :: X\n") ["X", "A"]
     equal assert (f "data X where\n\tA :: X\n\tB :: X\n") ["X", "A", "B"]
     equal assert (f "data X where\n\tA, B :: X\n") ["X", "A", "B"]
-    equal assert (f "data X :: * -> * -> * where\n\tA, B :: Int -> Int -> X\n") ["X", "A", "B"]
+    equal assert (f "data X :: * -> * -> * where\n\
+                    \  A, B :: Int -> Int -> X\n")
+          ["X", "A", "B"]
 
 
     equal assert (f "data NatSing (n :: Nat) where\n    ZeroSing :: 'Zero\n    SuccSing :: NatSing n -> NatSing ('Succ n)\n") ["NatSing", "ZeroSing", "SuccSing"]
@@ -259,10 +267,31 @@ test_class = do
         ["A", "F", "g", "h"]
     equal assert (f "class A f where\n  data F f :: *\n  mkF :: f -> F f\n  getF :: F f -> f")
         ["A", "F", "mkF", "getF"]
-    equal assert (f "class A f where\n  data F f :: * -- foo\n                -- bar\n                -- baz\n  mkF :: f -> F f\n  getF :: F f -> f")
+    equal assert (f "class A f where\n\
+                    \  data F f :: * -- foo\n\
+                    \                -- bar\n\
+                    \                -- baz\n\
+                    \  mkF  :: f -> F f\n\
+                    \  getF :: F f -> f")
         ["A", "F", "mkF", "getF"]
 
-
+test_instance = do
+    return ()
+    let f = process
+    equal assert (f "instance Foo Quux where\n\
+                    \  data Bar Quux a = QBar { frob :: a }\n\
+                    \                  | QBaz { fizz :: String }\n\
+                    \                  deriving (Show)")
+        ["QBar", "frob", "QBaz", "fizz"]
+    equal assert (f "instance Foo Quux where\n\
+                    \  data Bar Quux a = QBar a | QBaz String deriving (Show)")
+        ["QBar", "QBaz"]
+    equal assert (f "instance Foo Quux where\n\
+                    \  data Bar Quux a = QBar { frob :: a }\n\
+                    \                  | QBaz { fizz :: String }\n\
+                    \                  deriving (Show)\n\
+                    \  data IMRuunningOutOfNamesHere Quux = Whatever")
+        ["QBar", "frob", "QBaz", "fizz", "Whatever"]
 
 test_literate = do
     let f = map untag . Main.process "fn.lhs"

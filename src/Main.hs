@@ -534,14 +534,17 @@ blockTags tokens = case stripNewlines tokens of
     -- data X * where ...
     Pos _ (Token _ "data"): (dropDataContext . dropDataInstance -> whole@(tok@(Pos pos (Token _ name)): rest)) ->
         if isTypeName name
-        then tokToTag tok Type : dataTags pos (mapTokens (drop 2) tokens)
+        then tokToTag tok Type : dataConstructorTags pos (mapTokens (drop 2) tokens)
         -- if token after data is not a type name then it isn't
         -- infix type as well since it may be only '(' or some
         -- lowercase name, either of which is not type constructor
         else let (pos', tok, _) = recordInfixName Type rest
-             in tok: dataTags pos' (mapTokens (drop 1) tokens)
+             in tok: dataConstructorTags pos' (mapTokens (drop 1) tokens)
     -- class * => X where X :: * ...
     Pos pos (Token _ "class") : _ -> classTags pos (mapTokens (drop 1) tokens)
+
+    -- instance * where data * = X :: * ...
+    Pos pos (Token _ "instance") : _ -> instanceTags pos (mapTokens (drop 1) tokens)
     -- x, y, z :: *
     stripped -> fst $ functionTags False stripped
   where
@@ -628,8 +631,8 @@ newtypeTags prevPos tokens = case dropUntil "=" tokens of
 -- * = X { X :: *, X :: * }
 -- * where X :: * X :: *
 -- * = X | X
-dataTags :: SrcPos -> UnstrippedTokens -> [Tag]
-dataTags prevPos unstripped
+dataConstructorTags :: SrcPos -> UnstrippedTokens -> [Tag]
+dataConstructorTags prevPos unstripped
     -- GADT
     | any ((`hasName` "where") . valOf) (unstrippedTokensOf unstripped) =
         concatMap gadtTags (whereBlock unstripped)
@@ -739,6 +742,11 @@ classBodyTags unstripped = case stripNewlines unstripped of
 whereBlock :: UnstrippedTokens -> [UnstrippedTokens]
 whereBlock = breakBlocks . mapTokens (dropUntil "where")
 
+instanceTags :: SrcPos -> UnstrippedTokens -> [Tag]
+instanceTags prevPos unstripped =
+  -- instances can offer nothing but some fresh data constructors since
+  -- the actual datatype is really declared in the class declaration
+  concatMap (dataConstructorTags prevPos) $ whereBlock unstripped
 
 -- * util
 
