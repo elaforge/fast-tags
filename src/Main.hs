@@ -581,20 +581,23 @@ stripNewlines = filter (not . isNewline) . (\(UnstrippedTokens t) -> t)
 
 -- | Get tags from a function type declaration: token , token , token ::
 -- Return the tokens left over.
-functionTags :: Bool -- ^ expect constructors, not functions
-    -> [Token] -> ([Tag], [Token])
+functionTags :: Bool -> -- ^ expect constructors, not functions
+                [Token] ->
+                ([Tag], [Token])
 functionTags constructors = go []
     where
+    opTag = if constructors then Constructor else Operator
+    funcTag = if constructors then Constructor else Function
     go tags (Pos _ (Token _ "(") : Pos pos (Token _ name) : Pos _ (Token prefix ")") : Pos _ (Token _ "::") : rest) =
-        (reverse $ mktag pos prefix name Operator : tags, rest)
+        (reverse $ mktag pos prefix name opTag : tags, rest)
     go tags (Pos pos (Token prefix name) : Pos _ (Token _ "::") : rest)
         | Just name <- functionName constructors name =
-            (reverse $ mktag pos prefix name Function : tags, rest)
+            (reverse $ mktag pos prefix name funcTag : tags, rest)
     go tags (Pos _ (Token _ "(") : Pos pos (Token _ name) : Pos _ (Token prefix ")") : Pos _ (Token _ ",") : rest) =
-        go (mktag pos prefix name Operator : tags) rest
+        go (mktag pos prefix name opTag : tags) rest
     go tags (Pos pos (Token prefix name) : Pos _ (Token _ ",") : rest)
         | Just name <- functionName constructors name =
-            go (mktag pos prefix name Function : tags) rest
+            go (mktag pos prefix name funcTag : tags) rest
     go tags tokens = (tags, tokens)
 
 functionName :: Bool -> Text -> Maybe Text
