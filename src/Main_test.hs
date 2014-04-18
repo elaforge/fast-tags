@@ -123,8 +123,8 @@ test_data = do
     equal assert (f "data R = R {\n\ta,b::X\n\t}") ["R", "R", "a", "b"]
 
     equal assert (f "data R = R {\n\
-                    \a :: !RealTime\n\
-                    \, b :: !RealTime\n\
+                    \    a :: !RealTime\n\
+                    \  , b :: !RealTime\n\
                     \}")
         ["R", "R", "a", "b"]
 
@@ -292,6 +292,14 @@ test_instance = do
                     \                  deriving (Show)\n\
                     \  data IMRuunningOutOfNamesHere Quux = Whatever")
         ["QBar", "frob", "QBaz", "fizz", "Whatever"]
+    -- in this test foo function should not affect tags found
+    equal assert (f "instance Foo Quux where\n\
+                    \  data Bar Quux a = QBar { frob :: a }\n\
+                    \                  | QBaz { fizz :: String }\n\
+                    \                  deriving (Show)\n\
+                    \\n\
+                    \  foo _ = QBaz \"hey there\"")
+        ["QBar", "frob", "QBaz", "fizz"]
 
 test_literate = do
     let f = map untag . Main.process "fn.lhs"

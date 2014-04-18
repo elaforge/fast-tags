@@ -474,11 +474,13 @@ stripComments = mapTokens (go 0)
 breakBlocks :: UnstrippedTokens -> [UnstrippedTokens]
 breakBlocks = map UnstrippedTokens . filter (not . null) . go . filterBlank
     . unstrippedTokensOf
-    where
-    go [] = []
+  where
+    go :: [Token] -> [[Token]]
+    go []     = []
     go tokens = pre : go post
         where (pre, post) = breakBlock tokens
     -- Blank lines mess up the indentation.
+    filterBlank :: [Token] -> [Token]
     filterBlank [] = []
     filterBlank (Pos _ (Newline _) : xs@(Pos _ (Newline _) : _)) =
         filterBlank xs
@@ -502,7 +504,7 @@ breakBlock [] = ([], [])
 
 -- | Get all the tags in one indented block.
 blockTags :: UnstrippedTokens -> [Tag]
-blockTags tokens = case stripNewlines tokens of
+blockTags unstripped = case stripNewlines unstripped of
     [] -> []
     Pos _ (Token _ "module"): Pos pos (Token prefix name): _ ->
         [mktag pos prefix (snd (T.breakOnEnd "." name)) Module]
@@ -525,26 +527,26 @@ blockTags tokens = case stripNewlines tokens of
         else let (_, tok, _) = recordInfixName Type whole
              in [tok]
     -- data family X ...
-    Pos _ (Token _ "data"): Pos _ (Token _ "family"): (dropDataContext -> whole@(tok@(Pos pos (Token _ name)): rest)) ->
+    Pos _ (Token _ "data"): Pos _ (Token _ "family"): (dropDataContext -> (tok@(Pos pos (Token _ name)): rest)) ->
         if isTypeName name
         then [tokToTag tok Type]
         else let (_, tok, _) = recordInfixName Type rest
              in [tok]
     -- data X * = X { X :: *, X :: * }
     -- data X * where ...
-    Pos _ (Token _ "data"): (dropDataContext . dropDataInstance -> whole@(tok@(Pos pos (Token _ name)): rest)) ->
+    Pos _ (Token _ "data"): (dropDataContext . dropDataInstance -> (tok@(Pos pos (Token _ name)): rest)) ->
         if isTypeName name
-        then tokToTag tok Type : dataConstructorTags pos (mapTokens (drop 2) tokens)
+        then tokToTag tok Type : dataConstructorTags pos (mapTokens (drop 2) unstripped)
         -- if token after data is not a type name then it isn't
         -- infix type as well since it may be only '(' or some
         -- lowercase name, either of which is not type constructor
         else let (pos', tok, _) = recordInfixName Type rest
-             in tok: dataConstructorTags pos' (mapTokens (drop 1) tokens)
+             in tok: dataConstructorTags pos' (mapTokens (drop 1) unstripped)
     -- class * => X where X :: * ...
-    Pos pos (Token _ "class") : _ -> classTags pos (mapTokens (drop 1) tokens)
+    Pos pos (Token _ "class") : _ -> classTags pos (mapTokens (drop 1) unstripped)
 
     -- instance * where data * = X :: * ...
-    Pos pos (Token _ "instance") : _ -> instanceTags pos (mapTokens (drop 1) tokens)
+    Pos pos (Token _ "instance") : _ -> instanceTags pos (mapTokens (drop 1) unstripped)
     -- x, y, z :: *
     stripped -> fst $ functionTags False stripped
   where
@@ -589,8 +591,9 @@ functionTags :: Bool -> -- ^ expect constructors, not functions
                 ([Tag], [Token])
 functionTags constructors = go []
     where
-    opTag = if constructors then Constructor else Operator
+    opTag   = if constructors then Constructor else Operator
     funcTag = if constructors then Constructor else Function
+    go :: [Tag] -> [Token] -> ([Tag], [Token])
     go tags (Pos _ (Token _ "(") : Pos pos (Token _ name) : Pos _ (Token prefix ")") : Pos _ (Token _ "::") : rest) =
         (reverse $ mktag pos prefix name opTag : tags, rest)
     go tags (Pos pos (Token prefix name) : Pos _ (Token _ "::") : rest)
@@ -746,7 +749,13 @@ instanceTags :: SrcPos -> UnstrippedTokens -> [Tag]
 instanceTags prevPos unstripped =
   -- instances can offer nothing but some fresh data constructors since
   -- the actual datatype is really declared in the class declaration
-  concatMap (dataConstructorTags prevPos) $ whereBlock unstripped
+  concatMap (dataConstructorTags prevPos) $
+  filter isDataDecl $
+  whereBlock unstripped
+  where
+    isDataDecl :: UnstrippedTokens -> Bool
+    isDataDecl (unstrippedTokensOf -> Pos _ (Token _ "data"): _) = True
+    isDataDecl _                                                 = False
 
 -- * util
 
