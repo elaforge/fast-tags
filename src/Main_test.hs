@@ -127,6 +127,13 @@ test_data = do
                     \  , b :: !RealTime\n\
                     \}")
         ["R", "R", "a", "b"]
+    equal assert (f "data Rec = Rec {\n\
+                    \  a :: Int\n\
+                    \, b :: !Double\n\
+                    \, c :: Maybe Rec\
+                    \\n\
+                    \}")
+        ["Rec", "Rec", "a", "b", "c"]
 
     equal assert (f "data X = X !Int") ["X", "X"]
     equal assert (f "data X = Y !Int !X | Z") ["X", "Y", "Z"]
@@ -178,7 +185,9 @@ test_data = do
     equal assert (f "data (Eq (u v), Ord (z)) => (u `W` v) z = X") ["W", "X"]
 
     equal assert
-        (f "newtype X a = Z {\n -- TODO blah\n foo :: [a] }")
+        (f "newtype X a = Z {\n\
+           \ -- TODO blah\n\
+           \ foo :: [a] }")
         ["X", "Z", "foo"]
     equal assert
         (f "newtype (u :*: v) z = X {\n\

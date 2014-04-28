@@ -487,18 +487,38 @@ breakBlocks = map UnstrippedTokens . filter (not . null) . go . filterBlank
     filterBlank (x:xs) = x : filterBlank xs
 
 -- | Take until a newline, then take lines until the indent established after
--- that newline decreases.
+-- that newline decreases. Or, alternatively, if "{" is encountered then count
+-- it as a block until closing "}" is found taking nesting into account.
 breakBlock :: [Token] -> ([Token], [Token])
 breakBlock (t@(Pos _ tok):ts) = case tok of
     Newline indent -> collectIndented indent ts
-    _ -> let (pre, post) = breakBlock ts in (t:pre, post)
-    where
-    collectIndented indent (t@(Pos _ tok) : ts) = case tok of
-        Newline n | n <= indent -> ([], t:ts)
-        _ -> let (pre, post) = collectIndented indent ts in (t:pre, post)
+    Token _ "{"    -> collectBracedBlock breakBlock ts 1
+    _              -> remember t $ breakBlock ts
+  where
+    collectIndented :: Int -> [Token] -> ([Token], [Token])
+    collectIndented indent tsFull@(t@(Pos _ tok): ts) =
+      case tok of
+        Newline n | n <= indent -> ([], tsFull)
+        Token _ "{" -> remember t $ collectBracedBlock (collectIndented indent) ts 1
+        _           -> remember t $ collectIndented indent ts
     collectIndented _ [] = ([], [])
-breakBlock [] = ([], [])
 
+    collectBracedBlock :: ([Token] -> ([Token], [Token])) ->
+                          [Token] ->
+                          Int ->
+                          ([Token], [Token])
+    collectBracedBlock _    []                           _ = ([], [])
+    collectBracedBlock cont ts                           0 = cont ts
+    collectBracedBlock cont (t@(Pos _ (Token _ "{")):ts) n =
+      remember t $ collectBracedBlock cont ts $! n + 1
+    collectBracedBlock cont (t@(Pos _ (Token _ "}")):ts) n =
+      remember t $ collectBracedBlock cont ts $! n - 1
+    collectBracedBlock cont (t:ts)                       n =
+      remember t $ collectBracedBlock cont ts n
+
+    remember :: Token -> ([Token], [Token]) -> ([Token], [Token])
+    remember t (xs, ys) = (t: xs, ys)
+breakBlock [] = ([], [])
 
 -- * extract tags
 
