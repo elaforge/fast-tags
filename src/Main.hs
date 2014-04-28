@@ -266,6 +266,10 @@ tokenName :: TokenVal -> Text
 tokenName (Token _ name) = name
 tokenName _              = error "cannot extract name from non-Token TokenVal"
 
+tokenNameSafe :: TokenVal -> Text
+tokenNameSafe (Token _ name) = name
+tokenNameSafe _              = "<newline>"
+
 type Tag = Either String (Pos TagVal)
 
 type Token = Pos TokenVal
@@ -275,7 +279,7 @@ type Token = Pos TokenVal
 -- newlines might be anywhere.  A newtype makes sure that the tokens only get
 -- stripped once and that I don't do any pattern matching on unstripped tokens.
 newtype UnstrippedTokens = UnstrippedTokens [Token]
-    deriving (Show, Monoid.Monoid)
+    deriving (Show, Monoid.Monoid, Eq)
 
 mapTokens :: ([Token] -> [Token]) -> UnstrippedTokens -> UnstrippedTokens
 mapTokens f (UnstrippedTokens tokens) = UnstrippedTokens (f tokens)
@@ -289,6 +293,7 @@ data Pos a = Pos
     { posOf :: !SrcPos
     , valOf :: !a
     }
+    deriving (Eq)
 
 data SrcPos = SrcPos
     { posFile :: !FilePath
@@ -535,19 +540,19 @@ blockTags unstripped = case stripNewlines unstripped of
         else let (pos', tok, rest') = recordInfixName Type whole
              in tok: newtypeTags pos' rest'
     -- type family X ...
-    Pos _ (Token _ "type"): Pos _ (Token _ "family"): (dropDataContext -> whole@(tok@(Pos pos (Token _ name)): rest)) ->
+    Pos _ (Token _ "type"): Pos _ (Token _ "family"): (dropDataContext -> whole@(tok@(Pos _ (Token _ name)): _)) ->
         if isTypeName name
         then [tokToTag tok Type]
         else let (_, tok, _) = recordInfixName Type whole
              in [tok]
     -- type X * = ...
-    Pos _ (Token _ "type"): (dropDataContext -> whole@(tok@(Pos pos (Token _ name)): rest)) ->
+    Pos _ (Token _ "type"): (dropDataContext -> whole@(tok@(Pos _ (Token _ name)): _)) ->
         if isTypeName name
         then [tokToTag tok Type]
         else let (_, tok, _) = recordInfixName Type whole
              in [tok]
     -- data family X ...
-    Pos _ (Token _ "data"): Pos _ (Token _ "family"): (dropDataContext -> (tok@(Pos pos (Token _ name)): rest)) ->
+    Pos _ (Token _ "data"): Pos _ (Token _ "family"): (dropDataContext -> (tok@(Pos _ (Token _ name)): rest)) ->
         if isTypeName name
         then [tokToTag tok Type]
         else let (_, tok, _) = recordInfixName Type rest
@@ -660,7 +665,8 @@ dataConstructorTags prevPos unstripped
     | any ((`hasName` "where") . valOf) (unstrippedTokensOf unstripped) =
         concatMap gadtTags (whereBlock unstripped)
     -- plain ADT
-    | otherwise = case stripOptBang $ dropUntil "=" (stripNewlines unstripped) of
+    | otherwise =
+      case stripOptBang $ dropUntil "=" $ stripNewlines unstripped of
         [] -> [] -- empty data declaration
         _ : rest | Just (Pos pos (Token prefix name), rest') <- extractInfixConstructor rest ->
             mktag pos prefix name Constructor : collectRest rest'
@@ -735,7 +741,8 @@ stripBalancedParens (Pos _ (Token _ "("): xs) = go 1 xs
     go n (Pos _ (Token _ name): xs) | name == "(" = go (n + 1) xs
                                     | name == ")" = go (n - 1) xs
                                     | otherwise   = go n       xs
-    go _ [] = []
+    go n (_: xs)                    = go n xs
+    go _ []                         = []
 stripBalancedParens xs = xs
 
 
@@ -746,7 +753,7 @@ gadtTags = fst . functionTags True . stripNewlines
 classTags :: SrcPos -> UnstrippedTokens -> [Tag]
 classTags prevPos unstripped =
     case dropDataContext $ stripNewlines unstripped of
-        whole@(tok@(Pos pos (Token _ name)): rest) ->
+        whole@(tok@(Pos _ (Token _ name)): _) ->
             -- Drop the where and start expecting functions.
             let cont = concatMap classBodyTags (whereBlock unstripped)
             in  if isTypeName name
