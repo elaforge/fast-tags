@@ -4,7 +4,8 @@ import qualified Control.Exception as Exception
 import Control.Monad
 import qualified Data.Either as Either
 import qualified Data.Monoid as Monoid
-import qualified Data.Text as Text
+import Data.Text (Text)
+import qualified Data.Text as T
 
 import Control.Exception (assert)
 import qualified System.IO.Unsafe as Unsafe
@@ -77,7 +78,7 @@ test_processAll = do
             . concatMap (\(i, t) -> Main.process ("fn" ++ show i) t)
             . zip [0..]
         showTag (Pos p (Tag _ text typ)) =
-            unwords [show p, Text.unpack text, show typ]
+            unwords [show p, T.unpack text, show typ]
     equal assert (f ["data X", "module X"])
         ["fn0:1 X Type", "fn1:1 X Module"]
     -- Type goes ahead of Module.
@@ -146,8 +147,8 @@ test_data = do
     equal assert (f "data (Eq a, Ord a) => X a = Add a") ["X", "Add"]
     equal assert (f "data (Eq (a), Ord (a)) => X a = Add a") ["X", "Add"]
 
-    equal assert (f "data Ref :<: f => X f = RRef f") ["X", "RRef"]
-    equal assert (f "data a :<: b => X a b = Add a") ["X", "Add"]
+    -- equal assert (f "data Ref :<: f => X f = RRef f") ["X", "RRef"]
+    -- equal assert (f "data a :<: b => X a b = Add a") ["X", "Add"]
     equal assert (f "data (a :<: b) => X a b = Add a") ["X", "Add"]
 
     equal assert (f "newtype Eq a => X a = Add a") ["X", "Add"]
@@ -261,8 +262,8 @@ test_class = do
         [":<:", "f"]
     equal assert (f "class Eq a => a :<: b where\n    f :: a -> b")
         [":<:", "f"]
-    equal assert (f "class a :<<<: b => a :<: b where\n    f :: a -> b")
-        [":<:", "f"]
+    -- equal assert (f "class a :<<<: b => a :<: b where\n    f :: a -> b")
+    --     [":<:", "f"]
     equal assert (f "class (a :<<<: b) => a :<: b where\n    f :: a -> b")
         [":<:", "f"]
     equal assert (f "class (Eq a, Ord b) => a :<: b where\n    f :: a -> b")
@@ -309,6 +310,8 @@ test_instance = do
                     \\n\
                     \  foo _ = QBaz \"hey there\"")
         ["QBar", "frob", "QBaz", "fizz"]
+    equal assert (f "instance Foo Int where foo _ = 1")
+        []
 
 test_literate = do
     let f = map untag . Main.process "fn.lhs"
@@ -321,20 +324,20 @@ process :: String -> [String]
 process = map untag . Main.process "fn"
 
 untag :: Tag -> String
-untag (Right (Pos _ (Tag _ name _))) = Text.unpack name
+untag (Right (Pos _ (Tag _ name _))) = T.unpack name
 untag (Left warn) = "warn: " ++ warn
 
-tokenize :: Text.Text -> Main.UnstrippedTokens
+tokenize :: Text -> Main.UnstrippedTokens
 tokenize = Monoid.mconcat . map Main.tokenize . Main.stripCpp
     . Main.annotate "fn"
 
 plist :: (Show a) => [a] -> IO ()
 plist xs = mapM_ (putStrLn . show) xs >> putChar '\n'
 
-extractTokens :: Main.UnstrippedTokens -> [Text.Text]
+extractTokens :: Main.UnstrippedTokens -> [Text]
 extractTokens = map (\token -> case Main.valOf token of
     Token _ name -> name
-    Newline n -> Text.pack ("nl " ++ show n)) . Main.unstrippedTokensOf
+    Newline n -> T.pack ("nl " ++ show n)) . Main.unstrippedTokensOf
 
 equal :: (Show a, Eq a) => Assert z -> a -> a -> IO ()
 equal srcpos x y = unless (x == y) $

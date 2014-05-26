@@ -15,10 +15,13 @@
 module Main where
 
 import Control.Applicative
+import Control.Arrow
 import Control.Monad
 import Data.Either
+import Data.Monoid
 import Data.Text (Text)
 import System.Console.GetOpt
+import System.Exit
 
 import Language.Preprocessor.Unlit
 import Text.Printf (printf)
@@ -28,13 +31,11 @@ import qualified Data.Char as Char
 import qualified Data.IntSet as IntSet
 import qualified Data.List as List
 import qualified Data.Map as Map
-import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.IO as Text.IO
 import qualified Debug.Trace as Trace
 import qualified System.Environment as Environment
-import qualified System.Exit
 import qualified System.IO as IO
 import qualified System.IO.Error as IO.Error
 
@@ -116,8 +117,7 @@ main = do
 
     where
 
-    usage msg = putStr (usageInfo msg options)
-        >> System.Exit.exitSuccess
+    usage msg = putStr (usageInfo msg options) >> exitSuccess
 
     contents recurse = if recurse
                          then getRecursiveDirContents
@@ -279,7 +279,7 @@ type Token = Pos TokenVal
 -- newlines might be anywhere.  A newtype makes sure that the tokens only get
 -- stripped once and that I don't do any pattern matching on unstripped tokens.
 newtype UnstrippedTokens = UnstrippedTokens [Token]
-    deriving (Show, Monoid.Monoid, Eq)
+    deriving (Show, Monoid, Eq)
 
 mapTokens :: ([Token] -> [Token]) -> UnstrippedTokens -> UnstrippedTokens
 mapTokens f (UnstrippedTokens tokens) = UnstrippedTokens (f tokens)
@@ -343,14 +343,18 @@ processFile fn = fmap (process fn) (IO.readFile fn)
         -- all haskell source file are.
         IO.hPutStrLn IO.stderr $
              "exception reading " ++ show fn ++ ": " ++ show exc
+        void $ exitFailure
         return []
 
 -- | Process one file's worth of tags.
 process :: FilePath -> String -> [Tag]
 process fn = concatMap blockTags . breakBlocks . stripComments
-    . Monoid.mconcat . map tokenize . stripCpp . annotate fn . T.pack . unlit'
+    . mconcat . map tokenize . stripCpp . annotate fn . unlit'
   where
-    unlit' = if isLiterateFile fn then unlit fn else id
+    unlit' :: String -> Text
+    unlit' s = if isLiterateFile fn
+               then T.pack $ unlit fn s
+               else T.pack s
 
 -- * tokenize
 
@@ -394,13 +398,13 @@ spanToken text
 tokenizeLine :: Text -> [TokenVal]
 tokenizeLine text = Newline nspaces : go spaces line
   where
-    nspaces = T.count " " spaces + T.count "\t" spaces * 8
+    nspaces = fromIntegral $ T.count " " spaces + T.count "\t" spaces * 8
     (spaces, line) = T.break (not . Char.isSpace) text
     go :: Text -> Text -> [TokenVal]
     go oldPrefix unstripped
       | T.null stripped = []
       | otherwise       = let (token, rest) = spanToken stripped
-                              newPrefix = oldPrefix <> spaces <> token
+                              newPrefix     = oldPrefix <> spaces <> token
                           in Token newPrefix token : go newPrefix rest
       where
         (spaces, stripped) = T.break (not . Char.isSpace) unstripped
@@ -424,12 +428,12 @@ isTypeVarStart c = Char.isLower c || c == '_'
 -- | Span a symbol, making sure to not eat comments.
 spanSymbol :: Bool -> Text -> (Text, Text)
 spanSymbol considerColon text
-    | any (`T.isPrefixOf` post) [",", "--", "-}", "{-"] = (pre, post)
-    | Just (c, cs) <- T.uncons post, c == '-' || c == '{' =
-        let (pre2, post2) = spanSymbol considerColon cs
-        in (pre <> T.cons c pre2, post2)
-    | otherwise = (pre, post)
-    where
+  | any (`T.isPrefixOf` post) [",", "--", "-}", "{-"] = (pre, post)
+  | Just (c, cs) <- T.uncons post, c == '-' || c == '{' =
+      let (pre2, post2) = spanSymbol considerColon cs
+      in (pre <> T.cons c pre2, post2)
+  | otherwise = (pre, post)
+  where
     (pre, post) = T.break (\c -> T.any (==c) "-{," || not (symbolChar considerColon c)) text
 
 symbolChar :: Bool -> Char -> Bool
@@ -439,9 +443,9 @@ symbolChar considerColon c = (Char.isSymbol c || Char.isPunctuation c) &&
 
 breakChar :: Text -> (Text, Text)
 breakChar text
-    | T.null text = ("", "")
-    | T.head text == '\\' = T.splitAt 3 text
-    | otherwise = T.splitAt 2 text
+  | T.null text = ("", "")
+  | T.head text == '\\' = T.splitAt 3 text
+  | otherwise = T.splitAt 2 text
 
 -- TODO \ continuation isn't supported.  I'd have to tokenize at the file
 -- level instead of the line level.
@@ -462,15 +466,15 @@ breakString text = case T.uncons post of
 
 stripComments :: UnstrippedTokens -> UnstrippedTokens
 stripComments = mapTokens (go 0)
-    where
+  where
     go :: Int -> [Token] -> [Token]
     go _ [] = []
     go nest (pos@(Pos _ token) : rest)
-        | token `nameStartsWith` "{-"              = go (nest + 1) rest
-        | token `nameEndsWith` "-}"                = go (nest - 1) rest
-        | nest == 0 && token `nameStartsWith` "--" = go nest (dropLine rest)
-        | nest > 0                                 = go nest rest
-        | otherwise                                = pos: go nest rest
+      | token `nameStartsWith` "{-"              = go (nest + 1) rest
+      | token `nameEndsWith` "-}"                = go (nest - 1) rest
+      | nest == 0 && token `nameStartsWith` "--" = go nest (dropLine rest)
+      | nest > 0                                 = go nest rest
+      | otherwise                                = pos: go nest rest
 
     dropLine :: [Token] -> [Token]
     dropLine = dropWhile (not . isNewline)
@@ -483,13 +487,13 @@ breakBlocks = map UnstrippedTokens . filter (not . null) . go . filterBlank
     go :: [Token] -> [[Token]]
     go []     = []
     go tokens = pre : go post
-        where (pre, post) = breakBlock tokens
+      where
+        (pre, post) = breakBlock tokens
     -- Blank lines mess up the indentation.
     filterBlank :: [Token] -> [Token]
-    filterBlank [] = []
-    filterBlank (Pos _ (Newline _) : xs@(Pos _ (Newline _) : _)) =
-        filterBlank xs
-    filterBlank (x:xs) = x : filterBlank xs
+    filterBlank []                                             = []
+    filterBlank (Pos _ (Newline _): xs@(Pos _ (Newline _): _)) = filterBlank xs
+    filterBlank (x:xs)                                         = x: filterBlank xs
 
 -- | Take until a newline, then take lines until the indent established after
 -- that newline decreases. Or, alternatively, if "{" is encountered then count
@@ -830,9 +834,6 @@ dropUntil token = drop 1 . dropWhile (not . (`hasName` token) . valOf)
 
 tracem :: (Show a) => String -> a -> a
 tracem msg x = Trace.trace (msg ++ ": " ++ show x) x
-
-(<>) :: (Monoid.Monoid a) => a -> a -> a
-(<>) = Monoid.mappend
 
 -- | If @op@ raised ENOENT, return Nothing.
 catchENOENT :: IO a -> IO (Maybe a)
