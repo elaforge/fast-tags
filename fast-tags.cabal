@@ -66,13 +66,19 @@ source-repository head
     type: git
     location: git://github.com/elaforge/fast-tags.git
 
+flag fast
+  description: Spend more time optimizing a program (may yield up to 25% speedup)
+  default:     False
+
 executable fast-tags
     main-is: Main.hs
     hs-source-dirs: src
     build-depends: base >= 3 && < 5, containers, cpphs >1.18, filepath, directory,
         -- text 0.11.1.12 has a bug.
         text (> 0.11.1.12 || < 0.11.1.12)
-    ghc-options: -Wall -fno-warn-name-shadowing
+    ghc-options: -Wall -fno-warn-name-shadowing -O2 -rtsopts
+    if flag(fast)
+        ghc-options: -funfolding-creation-threshold=10000 -funfolding-use-threshold=2500
 
 test-suite test-fast-tags
     type: exitcode-stdio-1.0
