@@ -353,8 +353,19 @@ process fn = concatMap blockTags . breakBlocks . stripComments
   where
     unlit' :: String -> Text
     unlit' s = if isLiterateFile fn
-               then T.pack $ unlit fn s
+               then T.pack $ unlit fn s'
                else T.pack s
+      where
+        s' :: String
+        s' = if "\\begin{code}" `List.isInfixOf` s &&
+                "\\end{code}" `List.isInfixOf` s
+             then unlines $ filter (not . birdLiterateLine) $ lines s
+             else s
+        birdLiterateLine :: String -> Bool
+        birdLiterateLine [] = False
+        birdLiterateLine xs = case dropWhile Char.isSpace xs of
+                                ('>':_) -> True
+                                _       -> False
 
 -- * tokenize
 
