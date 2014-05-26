@@ -461,19 +461,13 @@ breakChar text
 -- TODO \ continuation isn't supported.  I'd have to tokenize at the file
 -- level instead of the line level.
 breakString :: Text -> (Text, Text)
-breakString text = case T.uncons post of
-        Nothing -> (text, "")
-        Just (c, cs)
-            | c == '\\' && T.null cs -> (T.snoc pre c, "")
-            | c == '\\' && T.head cs == '"' ->
-                let (pre', post') = breakString (T.tail cs)
-                in (pre <> "\\\"" <> pre', post')
-            | c == '\\' ->
-                let (pre', post') = breakString cs
-                in (T.snoc pre c <> pre', post')
-            | otherwise -> (T.snoc pre c, cs)
-    where
-    (pre, post) = T.break (\c -> c == '\\' || c == '"') text
+breakString = (T.pack . reverse *** T.pack) . go [] . T.unpack
+  where
+    go :: String -> String -> (String, String)
+    go s []            = (s, [])
+    go s ('\\':[])     = (s, "\\")
+    go s ('\\':x:xs)   = go (x: '\\': s) xs
+    go s (x:xs)        = go (x: s) xs
 
 stripComments :: UnstrippedTokens -> UnstrippedTokens
 stripComments = mapTokens (go 0)
