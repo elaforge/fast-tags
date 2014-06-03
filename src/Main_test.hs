@@ -220,9 +220,14 @@ test_families = do
     equal assert (f "type family (a :: Nat) `Family` (b :: Nat) :: Nat\n") ["Family"]
     equal assert (f "type family (m :: Nat) <=? (n :: Nat) :: Bool") ["<=?"]
 
-    equal assert (f "data instance X a b = Y a | Z { unZ :: b }") ["X", "Y", "Z", "unZ"]
-    equal assert (f "data instance (Eq a, Eq b) => X a b = Y a | Z { unZ :: b }") ["X", "Y", "Z", "unZ"]
-    equal assert (f "data instance XList Char = XCons !Char !(XList Char) | XNil") ["XList", "XCons", "XNil"]
+    equal assert (f "data instance X a b = Y a | Z { unZ :: b }") ["Y", "Z", "unZ"]
+    equal assert (f "data instance (Eq a, Eq b) => X a b = Y a | Z { unZ :: b }") ["Y", "Z", "unZ"]
+    equal assert (f "data instance XList Char = XCons !Char !(XList Char) | XNil") ["XCons", "XNil"]
+    equal assert (f "newtype instance Cxt x => T [x] = A (B x) deriving (Z,W)") ["A"]
+    equal assert (f "data instance G [a] b where\n\
+                    \   G1 :: c -> G [Int] b\n\
+                    \   G2 :: G [a] Bool")
+                 ["G1", "G2"]
 
     equal assert (f "class C where\n\ttype X y :: *\n") ["C", "X"]
     equal assert (f "class C where\n\tdata X y :: *\n") ["C", "X"]

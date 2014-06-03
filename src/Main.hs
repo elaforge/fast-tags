@@ -542,6 +542,9 @@ blockTags unstripped = case stripNewlines unstripped of
     [] -> []
     Pos _ (Token _ "module"): Pos pos (Token prefix name): _ ->
         [mktag pos prefix (snd (T.breakOnEnd "." name)) Module]
+    -- newtype instance * = ...
+    Pos _ (Token _ "newtype"): Pos _ (Token _ "instance"): (dropDataContext -> (Pos pos _: rest)) ->
+      newtypeTags pos rest
     -- newtype X * = X *
     Pos _ (Token _ "newtype"): (dropDataContext -> whole@(tok@(Pos pos (Token _ name)): rest)) ->
         if isTypeName name
@@ -566,9 +569,13 @@ blockTags unstripped = case stripNewlines unstripped of
         then [tokToTag tok Type]
         else let (_, tok, _) = recordInfixName Type rest
              in [tok]
+    -- data instance * = ...
+    -- data instance * where ...
+    Pos _ (Token _ "data"): Pos _ (Token _ "instance"): (dropDataContext -> (Pos pos _: _)) ->
+      dataConstructorTags pos (mapTokens (drop 2) unstripped)
     -- data X * = X { X :: *, X :: * }
     -- data X * where ...
-    Pos _ (Token _ "data"): (dropDataContext . dropDataInstance -> (tok@(Pos pos (Token _ name)): rest)) ->
+    Pos _ (Token _ "data"): (dropDataContext -> (tok@(Pos pos (Token _ name)): rest)) ->
         if isTypeName name
         then tokToTag tok Type : dataConstructorTags pos (mapTokens (drop 2) unstripped)
         -- if token after data is not a type name then it isn't
@@ -583,11 +590,6 @@ blockTags unstripped = case stripNewlines unstripped of
     Pos pos (Token _ "instance") : _ -> instanceTags pos (mapTokens (drop 1) unstripped)
     -- x, y, z :: *
     stripped -> fst $ functionTags False stripped
-  where
-    dropDataInstance :: [Token] -> [Token]
-    dropDataInstance (Pos _ (Token _ "instance") : xs) = xs
-    dropDataInstance xs                                = xs
-
 
 isTypeName :: Text -> Bool
 isTypeName x = Char.isUpper c || c == ':' where c = T.head x
