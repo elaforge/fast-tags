@@ -41,12 +41,13 @@ test_tokenize = do
 
 test_skipString = do
     let f = snd . Main.breakString
+        f' = Main.breakString
     equal assert (f "hi \" there") " there"
     equal assert (f "hi \\a \" there") " there"
     equal assert (f "hi \\\" there\"") ""
     equal assert (f "hi") ""
-    -- String continuation isn't implemented yet.
-    equal assert (f "hi \\") ""
+    -- String continuation
+    equal assert (f' "hi \\\n    \\bar\" baz") ("hi bar\"", " baz")
 
 test_stripComments = do
     let f = extractTokens . Main.stripComments . tokenize

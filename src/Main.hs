@@ -464,10 +464,17 @@ breakString :: Text -> (Text, Text)
 breakString = (T.pack . reverse *** T.pack) . go [] . T.unpack
   where
     go :: String -> String -> (String, String)
-    go s []            = (s, [])
-    go s ('\\':[])     = (s, "\\")
-    go s ('\\':x:xs)   = go (x: '\\': s) xs
-    go s (x:xs)        = go (x: s) xs
+    go s []             = (s, [])
+    go s ('"':xs)       = ('"': s, xs)
+    go s ('\\':[])      = (s, "\\")
+    -- handle string continuation
+    go s ('\\':'\n':xs) = go s $ dropBackslash $ dropWhile (\c -> c /= '\\' && c /= '"') xs
+    go s ('\\':x:xs)    = go (x: '\\': s) xs
+    go s (x:xs)         = go (x: s) xs
+
+    dropBackslash :: String -> String
+    dropBackslash ('\\':xs) = xs
+    dropBackslash xs        = xs
 
 stripComments :: UnstrippedTokens -> UnstrippedTokens
 stripComments = mapTokens (go 0)
