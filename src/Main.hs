@@ -385,14 +385,18 @@ spanToken text
     -- ☡ special case to fight "--" biting too much input so that closing "-}"
     -- becomes unavailable
     | "--}" `T.isPrefixOf` text
-    = ("-}", T.drop 3 text)
+    = ("-}", T.drop 2 cs) -- T.drop 3 text)
+    | Just sym <- List.find (`T.isPrefixOf` text) comments
+    = (sym, T.tail cs) -- T.drop 2 text)
     | Just sym <- List.find (`T.isPrefixOf` text) symbols
-    = (sym, T.drop (T.length sym) text)
+    , let t = T.tail cs -- T.drop 2 text
+    , T.null t || not (haskellOpChar $ T.head t)
+    = (sym, t)
     | c == '\''
     = let (token, rest) = breakChar   cs in (T.cons c token, rest)
     | c == '"'
     = let (token, rest) = breakString cs in (T.cons c token, rest)
-    | state@(token, _) <- spanSymbol (c == ':' || haskellOpChar c) text,
+    | state@(token, _) <- spanSymbol (haskellOpChar c) text,
       not (T.null token)
     = state
     | otherwise
@@ -404,7 +408,8 @@ spanToken text
         (token, rest) -> (token, rest)
   where
     Just (c, cs) = T.uncons text
-    symbols = ["-}", "--", "{-", "=>", "->", "::"]
+    comments = ["{-", "-}"]
+    symbols = ["--", "=>", "->", "::"]
 
 tokenizeLine :: Text -> [TokenVal]
 tokenizeLine text = Newline nspaces : go spaces line
@@ -428,7 +433,7 @@ identChar c = Char.isAlphaNum c || c == '.' || c == '\'' || c == '_' || c == '#'
 
 -- unicode operators are not supported yet
 haskellOpChar :: Char -> Bool
-haskellOpChar c = IntSet.member (Char.ord c) opChars
+haskellOpChar = \c -> IntSet.member (Char.ord c) opChars
   where
     opChars :: IntSet.IntSet
     opChars = IntSet.fromList $ map Char.ord "-!#$%&*+./<=>?@^|~:\\"
@@ -439,13 +444,27 @@ isTypeVarStart c = Char.isLower c || c == '_'
 -- | Span a symbol, making sure to not eat comments.
 spanSymbol :: Bool -> Text -> (Text, Text)
 spanSymbol considerColon text
-  | any (`T.isPrefixOf` post) [",", "--", "-}", "{-"] = (pre, post)
-  | Just (c, cs) <- T.uncons post, c == '-' || c == '{' =
-      let (pre2, post2) = spanSymbol considerColon cs
-      in (pre <> T.cons c pre2, post2)
-  | otherwise = (pre, post)
+  | Just res <- haskellOp text [] =
+    res
+  | any (`T.isPrefixOf` post) [",", "--", "-}", "{-"] =
+    split
+  | Just (c, cs) <- T.uncons post
+  , c == '-' || c == '{' =
+    let (pre2, post2) = spanSymbol considerColon cs
+    in (pre <> T.cons c pre2, post2)
+  | otherwise = split
   where
-    (pre, post) = T.break (\c -> T.any (==c) "-{," || not (symbolChar considerColon c)) text
+    split@(pre, post) = T.break (\c -> T.any (==c) "-{," || not (symbolChar considerColon c)) text
+
+    haskellOp :: Text -> [Char] -> Maybe (Text, Text)
+    haskellOp txt op | Just (c, cs) <- T.uncons txt
+                     , haskellOpChar c
+                     , not $ "-}" `T.isPrefixOf` txt =
+                       haskellOp cs $ c: op
+                     | null op   = Nothing
+                     | otherwise = Just (T.pack $ reverse op, txt)
+
+
 
 symbolChar :: Bool -> Char -> Bool
 symbolChar considerColon c = (Char.isSymbol c || Char.isPunctuation c) &&
@@ -482,19 +501,19 @@ stripComments = mapTokens (go 0)
     go :: Int -> [Token] -> [Token]
     go _ [] = []
     go nest (pos@(Pos _ token) : rest)
-      | token `nameStartsWith` "{-"              = go (nest + 1) rest
-      | token `nameEndsWith` "-}"                = go (nest - 1) rest
-      | nest == 0 && token `nameStartsWith` "--" = go nest (dropLine rest)
-      | nest > 0                                 = go nest rest
-      | otherwise                                = pos: go nest rest
+      | token `nameStartsWith` "{-"     = go (nest + 1) rest
+      | token `nameEndsWith` "-}"       = go (nest - 1) rest
+      | nest == 0 && hasName token "--" = go nest (dropLine rest)
+      | nest > 0                        = go nest rest
+      | otherwise                       = pos: go nest rest
 
     dropLine :: [Token] -> [Token]
     dropLine = dropWhile (not . isNewline)
 
 -- | Break the input up into blocks based on indentation.
 breakBlocks :: UnstrippedTokens -> [UnstrippedTokens]
-breakBlocks = map UnstrippedTokens . filter (not . null) . go . filterBlank
-    . unstrippedTokensOf
+breakBlocks = map UnstrippedTokens . filter (not . null) .
+              go . filterBlank . unstrippedTokensOf
   where
     go :: [Token] -> [[Token]]
     go []     = []
@@ -512,9 +531,9 @@ breakBlocks = map UnstrippedTokens . filter (not . null) . go . filterBlank
 -- it as a block until closing "}" is found taking nesting into account.
 breakBlock :: [Token] -> ([Token], [Token])
 breakBlock (t@(Pos _ tok):ts) = case tok of
-    Newline indent -> collectIndented indent ts
-    Token _ "{"    -> collectBracedBlock breakBlock ts 1
-    _              -> remember t $ breakBlock ts
+  Newline indent -> collectIndented indent ts
+  Token _ "{"    -> collectBracedBlock breakBlock ts 1
+  _              -> remember t $ breakBlock ts
   where
     collectIndented :: Int -> [Token] -> ([Token], [Token])
     collectIndented indent tsFull@(t@(Pos _ tok): ts) =
@@ -633,7 +652,7 @@ functionTags :: Bool -> -- ^ expect constructors, not functions
                 [Token] ->
                 ([Tag], [Token])
 functionTags constructors = go []
-    where
+  where
     opTag   = if constructors then Constructor else Operator
     funcTag = if constructors then Constructor else Function
     go :: [Tag] -> [Token] -> ([Tag], [Token])
@@ -654,7 +673,8 @@ functionName constructors text
     | isFunction text = Just text
     | otherwise       = Nothing
     where
-    isFunction text = case T.uncons text of
+    isFunction text =
+      case T.uncons text of
         Just (c, cs) -> firstChar c && startIdentChar c && T.all identChar cs
         Nothing -> False
     firstChar = if constructors

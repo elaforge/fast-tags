@@ -207,6 +207,22 @@ test_gadt = do
     equal assert (f "data X :: * -> * -> * where\n\
                     \  A, B :: Int -> Int -> X\n")
           ["X", "A", "B"]
+    equal assert (f "data Vec ix where\n\
+                    \  Nil   :: Int -> Foo Int\n\
+                    \  (:::) :: Int -> Vec Int -> Vec Int\n\
+                    \  (.+.) :: Int -> Int -> Vec Int -> Vec Int\n")
+          ["Vec", "Nil", ":::", ".+."]
+    equal assert (f "data Vec ix where\n\
+                    \  Nil   :: Int -> Foo Int\n\
+                    \  -- foo\n\
+                    \  (:::) :: Int -> Vec Int -> Vec Int\n\
+                    \-- bar\n\
+                    \  (.+.) :: Int     -> \n\
+                    \           -- ^ baz\n\
+                    \           Int     -> \n\
+                    \           Vec Int -> \n\
+                    \Vec Int\n")
+          ["Vec", "Nil", ":::", ".+."]
 
 
     equal assert (f "data NatSing (n :: Nat) where\n    ZeroSing :: 'Zero\n    SuccSing :: NatSing n -> NatSing ('Succ n)\n") ["NatSing", "ZeroSing", "SuccSing"]
@@ -244,6 +260,10 @@ test_functions = do
 
     -- plain functions and operators
     equal assert (f "(.::) :: X -> Y") [".::"]
+    equal assert (f "(:::) :: X -> Y") [":::"]
+    equal assert (f "(->:) :: X -> Y") ["->:"]
+    equal assert (f "(--+) :: X -> Y") ["--+"]
+    equal assert (f "(=>>) :: X -> Y") ["=>>"]
 
     equal assert (f "_g :: X -> Y") ["_g"]
 
