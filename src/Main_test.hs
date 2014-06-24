@@ -32,7 +32,10 @@ test_tokenize = do
     -- equal assert (f "9x") ["nl 0", "9", "x"]
     equal assert (f "x :+: y") ["x", ":+:", "y"]
     equal assert (f "(#$)") ["(", "#$", ")"]
-    equal assert (f "$#-- hi") ["$#", "--", "hi"]
+    equal assert (f "Data.Map.map") ["Data.Map.map"]
+    equal assert (f "Map.map") ["Map.map"]
+    equal assert (f "forall a. f a") ["forall", "a", ".", "f", "a"]
+    equal assert (f "$#-- hi") ["$#--", "hi"]
     equal assert (f "(*), (-)") ["(", "*", ")", ",", "(", "-", ")"]
     equal assert (f "(.::)") ["(", ".::", ")"]
     -- we rely on this behavior
@@ -142,12 +145,27 @@ test_data = do
     equal assert (f "data X = Y :+: !Z | !X `Mult` X") ["X", ":+:", "Mult"]
     equal assert (f "data X = !Y `Add` !Z") ["X", "Add"]
 
+    equal assert (f "data X = forall a. Y a") ["X", "Y"]
+    equal assert (f "data X = forall a . Y a") ["X", "Y"]
+    equal assert (f "data X = forall a .Y a") ["X", "Y"]
+    equal assert (f "data X = forall a.Y a") ["X", "Y"]
+    equal assert (f "data X = forall a. Eq a => Y a") ["X", "Y"]
+    equal assert (f "data X = forall a. (Eq a) => Y a") ["X", "Y"]
+    equal assert (f "data X = forall a. (Eq a, Ord a) => Y a") ["X", "Y"]
+    -- equal assert (f "data X = forall a. Ref :<: a => Y a") ["X", "Y"]
+    -- equal assert (f "data X = forall a. (:<:) Ref a => Y a") ["X", "Y"]
+    equal assert (f "data X = forall a. ((:<:) Ref a) => Y a") ["X", "Y"]
+    equal assert (f "data X = forall a. Y !a") ["X", "Y"]
+    equal assert (f "data X = forall a. (Eq a, Ord a) => Y !a") ["X", "Y"]
+
     equal assert (f "data X a = Add a ") ["X", "Add"]
     equal assert (f "data Eq a => X a = Add a") ["X", "Add"]
     equal assert (f "data (Eq a) => X a = Add a") ["X", "Add"]
     equal assert (f "data (Eq a, Ord a) => X a = Add a") ["X", "Add"]
     equal assert (f "data (Eq (a), Ord (a)) => X a = Add a") ["X", "Add"]
 
+    -- These are hard-to-deal-with uses of contexts, which are probably not that
+    -- common and therefoce can be ignored.
     -- equal assert (f "data Ref :<: f => X f = RRef f") ["X", "RRef"]
     -- equal assert (f "data a :<: b => X a b = Add a") ["X", "Add"]
     equal assert (f "data (a :<: b) => X a b = Add a") ["X", "Add"]
