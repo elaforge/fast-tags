@@ -356,6 +356,16 @@ test_instance = do
         ["QBar", "frob", "QBaz", "fizz"]
     equal assert (f "instance Foo Int where foo _ = 1")
         []
+    equal assert (f "instance Foo Quux where\n\
+                    \  newtype Bar Quux a = QBar a \n\
+                    \                     deriving (Show)\n\
+                    \\n\
+                    \  foo _ = QBaz \"hey there\"")
+        ["QBar"]
+    equal assert (f "instance Foo Quux where\n\
+                    \  newtype Bar Quux a = QBar { frob :: a }")
+        ["QBar", "frob"]
+
 
 test_literate = do
     let f = map untag . Main.process "fn.lhs"

@@ -358,7 +358,7 @@ processFile fn = fmap (process fn) (IO.readFile fn)
 -- | Process one file's worth of tags.
 process :: FilePath -> String -> [Tag]
 process fn = concatMap blockTags . breakBlocks . stripComments
-    . mconcat . map tokenize . stripCpp . annotate fn . unlit'
+  . mconcat . map tokenize . stripCpp . annotate fn . unlit'
   where
     unlit' :: String -> Text
     unlit' s = if isLiterateFile fn
@@ -832,13 +832,21 @@ instanceTags :: SrcPos -> UnstrippedTokens -> [Tag]
 instanceTags prevPos unstripped =
   -- instances can offer nothing but some fresh data constructors since
   -- the actual datatype is really declared in the class declaration
-  concatMap (dataConstructorTags prevPos) $
-  filter isDataDecl $
-  whereBlock unstripped
+  concatMap (newtypeTags prevPos . unstrippedTokensOf)
+            (filter isNewtypeDecl block)
+  ++
+  concatMap (dataConstructorTags prevPos)
+            (filter isDataDecl block)
   where
+    block = whereBlock unstripped
+
+    isNewtypeDecl :: UnstrippedTokens -> Bool
+    isNewtypeDecl (UnstrippedTokens (Pos _ (Token _ "newtype"): _)) = True
+    isNewtypeDecl _                                                 = False
+
     isDataDecl :: UnstrippedTokens -> Bool
-    isDataDecl (unstrippedTokensOf -> Pos _ (Token _ "data"): _) = True
-    isDataDecl _                                                 = False
+    isDataDecl (UnstrippedTokens (Pos _ (Token _ "data"): _)) = True
+    isDataDecl _                                              = False
 
 -- * util
 
@@ -855,8 +863,9 @@ unexpected :: SrcPos -> UnstrippedTokens -> [Token] -> String -> [Tag]
 unexpected prevPos (UnstrippedTokens tokensBefore) tokensHere declaration =
     [warning pos ("unexpected " ++ thing ++ " after " ++ declaration)]
     where
-    thing = if null tokensHere then "end of block"
-        else show (valOf (head tokensHere))
+    thing = if null tokensHere
+            then "end of block"
+            else show (valOf (head tokensHere))
     pos
         | not (null tokensHere) = posOf (head tokensHere)
         | not (null tokensBefore) = posOf (last tokensBefore)
