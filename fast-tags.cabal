@@ -11,7 +11,7 @@ description:
     In addition, it will load an existing tags file and merge generated tags.
     .
     The intent is to bind it to vim's BufWrite autocommand to automatically
-    keep the tags file up to date.  This only works for files changed be the
+    keep the tags file up to date.  This only works for files changed by the
     editor of course, so you may want to bind 'rm tags' to a 'pull' posthook.
     .
     Changes since 0.0.4:
