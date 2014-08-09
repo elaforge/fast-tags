@@ -7,6 +7,7 @@ import Control.Monad
 import qualified Data.Char as Char
 import qualified Data.List as List
 import qualified Data.Monoid as Monoid
+import Data.Monoid ((<>))
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Text (Text)
@@ -90,7 +91,7 @@ data SrcPos = SrcPos {
     , posLine :: !Int
     } deriving (Eq)
 
-instance (Show a) => Show (Pos a) where
+instance Show a => Show (Pos a) where
     show (Pos pos val) = show pos ++ ":" ++ show val
 instance Show SrcPos where
     show (SrcPos fn line) = fn ++ ":" ++ show line
@@ -404,11 +405,8 @@ dropUntil token = drop 1 . dropWhile ((/= Token token) . valOf)
 
 -- * misc
 
-tracem :: (Show a) => String -> a -> a
+tracem :: Show a => String -> a -> a
 tracem msg x = Trace.trace (msg ++ ": " ++ show x) x
-
-(<>) :: (Monoid.Monoid a) => a -> a -> a
-(<>) = Monoid.mappend
 
 -- | If @op@ raised ENOENT, return Nothing.
 catchENOENT :: IO a -> IO (Maybe a)
