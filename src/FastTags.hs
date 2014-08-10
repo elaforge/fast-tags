@@ -359,8 +359,10 @@ classTags prevPos unstripped = case dropContext (stripNewlines unstripped) of
         mktag pos name Class : concatMap classBodyTags (whereBlock unstripped)
     rest -> unexpected prevPos unstripped rest "class * =>"
     where
-    dropContext tokens = if any ((== Token "=>") . valOf) tokens
-        then dropUntil "=>" tokens else tokens
+    dropContext tokens
+        | any ((== Token "=>") . valOf) (takeUntil "where" tokens) =
+            dropUntil "=>" tokens
+        | otherwise = tokens
 
 classBodyTags :: UnstrippedTokens -> [Tag]
 classBodyTags unstripped = case stripNewlines unstripped of
@@ -399,8 +401,13 @@ isNewline :: Token -> Bool
 isNewline (Pos _ (Newline _)) = True
 isNewline _ = False
 
+-- | Drop until a token, then drop that token.
 dropUntil :: Text -> [Token] -> [Token]
 dropUntil token = drop 1 . dropWhile ((/= Token token) . valOf)
+
+-- | Take until, but not including, a token.
+takeUntil :: Text -> [Token] -> [Token]
+takeUntil token = takeWhile ((/= Token token) . valOf)
 
 
 -- * misc

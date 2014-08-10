@@ -51,7 +51,7 @@ license: BSD3
 license-file: LICENSE
 author: Evan Laforge
 maintainer: Evan Laforge <qdunkan@gmail.com>
-stability: experimental
+stability: stable
 tested-with: GHC>=7.0.3
 data-files: README
 extra-source-files: src/*.hs
