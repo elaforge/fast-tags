@@ -1,24 +1,40 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Main_test where
+import qualified Control.Concurrent.MVar as MVar
 import qualified Control.Exception as Exception
 import Control.Monad
+
 import qualified Data.Either as Either
 import qualified Data.Monoid as Monoid
 import qualified Data.Text as Text
 
 import Exception (assert)
+import qualified System.Exit as Exit
 import qualified System.IO.Unsafe as Unsafe
 
-import qualified Main as Main
-import Main (TokenVal(..), TagVal(..), Type(..), Tag, Pos(..))
+import qualified FastTags as FastTags
+import FastTags (TokenVal(..), TagVal(..), Type(..), Tag, Pos(..))
 
+
+-- | Record number of failures so I can tell the caller about it.  It would be
+-- better to use a shell script and grep, but cabal test doesn't seem to
+-- support that easily.
+failures :: MVar.MVar Int
+failures = Unsafe.unsafePerformIO (MVar.newMVar 0)
+{-# NOINLINE failures #-}
 
 -- This is kind of annoying without automatic test_* collection...
-main = sequence_
-    [ test_tokenize, test_skipString, test_stripComments
-    , test_breakBlocks, test_processAll
-    , test_process
-    ]
+main :: IO ()
+main = do
+    sequence_
+        [ test_tokenize, test_skipString, test_stripComments
+        , test_breakBlocks, test_processAll
+        , test_process
+        ]
+    exit =<< MVar.readMVar failures
+
+exit :: Int -> IO a
+exit 0 = Exit.exitSuccess
+exit n = Exit.exitWith $ Exit.ExitFailure n
 
 test_tokenize = do
     -- drop leading "nl 0"
@@ -28,14 +44,13 @@ test_tokenize = do
         ["x", "{-", "nl 2", "bc", "#", "-}"]
     equal assert (f "X.Y") ["X.Y"]
     equal assert (f "x9") ["x9"]
-    -- equal assert (f "9x") ["nl 0", "9", "x"]
     equal assert (f "x :+: y") ["x", ":+:", "y"]
     equal assert (f "(#$)") ["(#$)"]
     equal assert (f "$#-- hi") ["$#", "--", "hi"]
     equal assert (f "(*), (-)") ["(*)", ",", "(-)"]
 
 test_skipString = do
-    let f = Main.skipString
+    let f = FastTags.skipString
     equal assert (f "hi \" there") " there"
     equal assert (f "hi \\a \" there") " there"
     equal assert (f "hi \\\" there\"") ""
@@ -44,15 +59,16 @@ test_skipString = do
     equal assert (f "hi \\") ""
 
 test_stripComments = do
-    let f = extractTokens . Main.stripComments . tokenize
+    let f = extractTokens . FastTags.stripComments . tokenize
     equal assert (f "hello -- there") ["nl 0", "hello"]
     equal assert (f "hello {- there -} fred") ["nl 0", "hello", "fred"]
     equal assert (f "{-# LANG #-} hello {- there {- nested -} comment -} fred")
         ["nl 0", "hello", "fred"]
 
 test_breakBlocks = do
-    let f = map (extractTokens . Main.UnstrippedTokens . Main.stripNewlines)
-            . Main.breakBlocks . tokenize
+    let f = map
+            (extractTokens . FastTags.UnstrippedTokens . FastTags.stripNewlines)
+            . FastTags.breakBlocks . tokenize
     equal assert (f "1\n2\n") [["1"], ["2"]]
     equal assert (f "1\n 1\n2\n") [["1", "1"], ["2"]]
     equal assert (f "1\n 1\n 1\n2\n") [["1", "1", "1"], ["2"]]
@@ -64,8 +80,8 @@ test_breakBlocks = do
     equal assert (f " 11\n 11\n") [["11"], ["11"]]
 
 test_processAll = do
-    let f = map showTag . Main.processAll . Either.rights
-            . concatMap (\(i, t) -> Main.process ("fn" ++ show i) t)
+    let f = map showTag . FastTags.processAll . Either.rights
+            . concatMap (\(i, t) -> FastTags.process ("fn" ++ show i) t)
             . zip [0..]
         showTag (Pos p (Tag text typ)) =
             unwords [show p, Text.unpack text, show typ]
@@ -84,7 +100,7 @@ test_process = sequence_
     ]
 
 test_misc = do
-    let f text = [tag | Right (Pos _ tag) <- Main.process "fn" text]
+    let f text = [tag | Right (Pos _ tag) <- FastTags.process "fn" text]
     equal assert (f "module Bar.Foo where\n") [Tag "Foo" Module]
     equal assert (f "newtype Foo a b =\n\tBar x y z\n")
         [Tag "Foo" Type, Tag "Bar" Constructor]
@@ -149,35 +165,38 @@ test_class = do
         ["X", "a", "b", "c"]
     equal assert (f "class X\n\twhere\n\ta ::\n\t\tX\n\tb :: Y")
         ["X", "a", "b"]
+    -- Not confused by a class context on a method.
+    equal assert (f "class X a where\n\tfoo :: Eq a => a -> a\n")
+        ["X", "foo"]
 
 process :: Text.Text -> [String]
-process = map untag . Main.process "fn"
+process = map untag . FastTags.process "fn"
 
 untag :: Tag -> String
 untag (Right (Pos _ (Tag name _))) = Text.unpack name
 untag (Left warn) = "warn: " ++ warn
 
-tokenize :: Text.Text -> Main.UnstrippedTokens
-tokenize = Monoid.mconcat . map Main.tokenize . Main.stripCpp
-    . Main.annotate "fn"
+tokenize :: Text.Text -> FastTags.UnstrippedTokens
+tokenize = Monoid.mconcat . map FastTags.tokenize . FastTags.stripCpp
+    . FastTags.annotate "fn"
 
 plist :: (Show a) => [a] -> IO ()
 plist xs = mapM_ (putStrLn . show) xs >> putChar '\n'
 
-extractTokens :: Main.UnstrippedTokens -> [Text.Text]
-extractTokens = map (\token -> case Main.valOf token of
+extractTokens :: FastTags.UnstrippedTokens -> [Text.Text]
+extractTokens = map (\token -> case FastTags.valOf token of
     Token name -> name
-    Newline n -> Text.pack ("nl " ++ show n)) . Main.unstrippedTokensOf
+    Newline n -> Text.pack ("nl " ++ show n)) . FastTags.unstrippedTokensOf
 
 equal :: (Show a, Eq a) => Assert z -> a -> a -> IO ()
-equal srcpos x y = unless (x == y) $
+equal srcpos x y = unless (x == y) $ do
     putStrLn $ "__ " ++ getSourceLoc srcpos ++ " " ++ show x ++ " /= " ++ show y
+    MVar.modifyMVar_ failures (return . (+1))
 
 type Assert a = Bool -> a -> String
 
 -- | Awful ghc hack to get source line location.
 getSourceLoc :: Assert a -> String
 getSourceLoc assert_ = takeWhile (/=' ') $ Unsafe.unsafePerformIO $
-    Exception.evaluate (assert_ False (error "Impossible"))
+    Exception.evaluate (assert_ False (error "srcloc hack failed"))
         `Exception.catch` (\(Exception.AssertionFailed s) -> return s)
-

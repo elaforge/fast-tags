@@ -67,3 +67,14 @@ executable fast-tags
         -- text 0.11.1.12 has a bug.
         text (> 0.11.1.12 || < 0.11.1.12)
     ghc-options: -Wall -fno-warn-name-shadowing
+
+test-suite tests
+    type: exitcode-stdio-1.0
+    hs-source-dirs: src
+    main-is: Main_test.hs
+    build-depends: ghc,
+        base >= 3 && < 5, containers,
+        -- text 0.11.1.12 has a bug.
+        text (> 0.11.1.12 || < 0.11.1.12)
+    -- Needed for the srcloc hack.
+    ghc-options: -fno-ignore-asserts
