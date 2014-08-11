@@ -27,6 +27,8 @@ main = do
     (flags, inputs) <- case GetOpt.getOpt GetOpt.Permute options args of
         (flags, inputs, []) -> return (flags, inputs)
         (_, _, errs) -> usage $ "flag errors:\n" ++ List.intercalate ", " errs
+    when (null inputs) $
+        usage "no input files\n"
     let output = last $ "tags" : [fn | Output fn <- flags]
         verbose = Verbose `elem` flags
     oldTags <- fmap (maybe [vimMagicLine] Text.lines) $
@@ -56,8 +58,10 @@ main = do
             else Text.IO.writeFile output
     write $ Text.unlines (mergeTags inputs oldTags newTags)
     where
-    usage msg = putStr (GetOpt.usageInfo msg options)
-        >> System.Exit.exitSuccess
+    usage msg = do
+        putStr $ GetOpt.usageInfo
+            (msg ++ "\nusage: fast-tags file1 file2 ...") options
+        System.Exit.exitFailure
 
 data Flag = Output FilePath | Verbose
     deriving (Eq, Show)
