@@ -56,6 +56,7 @@ tested-with: GHC>=7.0.3
 data-files: README
 extra-source-files: src/*.hs
 
+homepage: https://github.com/elaforge/fast-tags
 source-repository head
     type: git
     location: git://github.com/elaforge/fast-tags.git
