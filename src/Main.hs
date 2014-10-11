@@ -738,7 +738,7 @@ dataConstructorTags prevPos unstripped
           mktag pos prefix name Constructor : collectRest rest''
       | otherwise = error (printf "syntax error@%d: | not followed by tokens\n" (posLine pipePos))
       where
-        rest' = stripOptBang rest
+        rest' = stripOptBang $ stripOptContext $ stripOptForall rest
     collectRest (_ : rest) = collectRest rest
     collectRest [] = []
 

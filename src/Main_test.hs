@@ -35,12 +35,17 @@ test_tokenize = do
     equal assert (f "Data.Map.map") ["Data.Map.map"]
     equal assert (f "Map.map") ["Map.map"]
     equal assert (f "forall a. f a") ["forall", "a", ".", "f", "a"]
+    equal assert (f "forall a . Foo") ["forall", "a", ".", "Foo"]
+    equal assert (f "forall a. Foo") ["forall", "a", ".", "Foo"]
+    equal assert (f "forall a .Foo") ["forall", "a", ".", "Foo"]
+    equal assert (f "forall a.Foo") ["forall", "a", ".", "Foo"]
     equal assert (f "$#-- hi") ["$#--", "hi"]
     equal assert (f "(*), (-)") ["(", "*", ")", ",", "(", "-", ")"]
     equal assert (f "(.::)") ["(", ".::", ")"]
     -- we rely on this behavior
     equal assert (f "data (:+) a b") ["data", "(", ":+", ")", "a", "b"]
     equal assert (f "data (.::+::) a b") ["data", "(", ".::+::", ")", "a", "b"]
+    equal assert (f "{#call foo#}") ["{#", "call", "foo", "#}"]
 
 test_skipString = do
     let f = snd . Main.breakString
@@ -158,6 +163,15 @@ test_data = do
     equal assert (f "data X = forall a. Y !a") ["X", "Y"]
     equal assert (f "data X = forall a. (Eq a, Ord a) => Y !a") ["X", "Y"]
 
+    equal assert
+        (f "data Foo a = \n\
+           \    Plain Int\n\
+           \  | forall a. Bar a Int\n\
+           \  | forall a b. Baz b a\n\
+           \  | forall a . Quux a \
+           \  | forall a .Quuz a")
+        ["Foo", "Plain", "Bar", "Baz", "Quux", "Quuz"]
+
     equal assert (f "data X a = Add a ") ["X", "Add"]
     equal assert (f "data Eq a => X a = Add a") ["X", "Add"]
     equal assert (f "data (Eq a) => X a = Add a") ["X", "Add"]
@@ -214,7 +228,6 @@ test_data = do
            \ -- my insightful comment\n\
            \ extract :: (u (v z)) }")
         [":*:", "X", "extract"]
-
 
 test_gadt = do
     let f = process
@@ -330,7 +343,6 @@ test_class = do
         ["A", "F", "mkF", "getF"]
 
 test_instance = do
-    return ()
     let f = process
     equal assert (f "instance Foo Quux where\n\
                     \  data Bar Quux a = QBar { frob :: a }\n\
