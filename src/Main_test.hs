@@ -102,6 +102,8 @@ test_process = sequence_
     , test_class
     , test_instance
     , test_literate
+    , test_patterns
+    , test_ffi
     ]
 
 test_misc = do
@@ -385,6 +387,23 @@ test_literate = do
         ["C", "m", "n"]
     equal assert (f "Test\n\\begin{code}\nclass (X x) => C a b where\n\tm :: a->b\n\tn :: c\n\\end{code}")
         ["C", "m", "n"]
+
+test_patterns = do
+    let f = map untag . Main.process "fn.hs"
+    equal assert (f "pattern Arrow a b = ConsT \"->\" [a, b]")
+        ["Arrow"]
+    equal assert (f "pattern Arrow a b = ConsT \"->\" [a, b]\n\
+                    \pattern Pair a b = [a, b]" )
+        ["Arrow", "Pair"]
+
+test_ffi = do
+    let f = map untag . Main.process "fn.hs"
+    equal assert (f "foreign import ccall foo :: Double -> IO Double")
+        ["foo"]
+    equal assert (f "foreign import unsafe java foo :: Double -> IO Double")
+        ["foo"]
+    equal assert (f "foreign import safe stdcall foo :: Double -> IO Double")
+        ["foo"]
 
 process :: String -> [String]
 process = map untag . Main.process "fn"

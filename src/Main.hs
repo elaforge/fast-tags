@@ -18,7 +18,9 @@ import Control.Applicative
 import Control.Arrow
 import Control.Monad
 import Data.Either
+import Data.Map (Map)
 import Data.Monoid
+import Data.Set (Set)
 import Data.Text (Text)
 import System.Console.GetOpt
 import System.Exit
@@ -149,7 +151,7 @@ getRecursiveDirContents topdir = do
   return (concat paths')
 
 
-type TagsTable = Map.Map FilePath [Pos TagVal]
+type TagsTable = Map FilePath [Pos TagVal]
 
 prepareEmacsTags :: [Pos TagVal] -> [Text]
 prepareEmacsTags = printTagsTable . classifyTagsByFile
@@ -221,7 +223,7 @@ options =
 vimMagicLine :: Text
 vimMagicLine = "!_TAG_FILE_SORTED\t1\t~"
 
-isNewTag :: Set.Set Text -> Text -> Bool
+isNewTag :: Set Text -> Text -> Bool
 isNewTag textFns line = Set.member fn textFns
     where fn = T.takeWhile (/='\t') $ T.drop 1 $ T.dropWhile (/='\t') line
 
@@ -249,13 +251,14 @@ showType typ = case typ of
     Type        -> 't'
     Constructor -> 'C'
     Operator    -> 'o'
+    Pattern     -> 'p'
 
 -- * types
 
 data TagVal = Tag !Text !Text !Type
     deriving (Eq, Show)
 
-data Type = Module | Function | Class | Type | Constructor | Operator
+data Type = Module | Function | Class | Type | Constructor | Operator | Pattern
     deriving (Eq, Show)
 
 data TokenVal = Token !Text !Text | Newline !Int
@@ -340,6 +343,7 @@ sortDups = concat . sort . List.groupBy (\a b -> tagText a == tagText b)
         Class       -> 3
         Module      -> 4
         Operator    -> 5
+        Pattern     -> 6
 
 tagText :: Pos TagVal -> Text
 tagText (Pos _ (Tag _ text _)) = text
@@ -375,6 +379,28 @@ process fn = concatMap blockTags . breakBlocks . stripComments
         birdLiterateLine xs = case dropWhile Char.isSpace xs of
                                 ('>':_) -> True
                                 _       -> False
+
+processBenchmark :: FilePath -> String -> [Token]
+processBenchmark fn =
+  unstrippedTokensOf . mconcat . map tokenize . stripCpp . annotate fn . unlit'
+  where
+    unlit' :: String -> Text
+    unlit' s = if isLiterateFile fn
+               then T.pack $ unlit fn s'
+               else T.pack s
+      where
+        s' :: String
+        s' = if "\\begin{code}" `List.isInfixOf` s &&
+                "\\end{code}" `List.isInfixOf` s
+             then unlines $ filter (not . birdLiterateLine) $ lines s
+             else s
+        birdLiterateLine :: String -> Bool
+        birdLiterateLine [] = False
+        birdLiterateLine xs = case dropWhile Char.isSpace xs of
+                                ('>':_) -> True
+                                _       -> False
+
+
 
 -- * tokenize
 
@@ -581,6 +607,10 @@ blockTags unstripped = case stripNewlines unstripped of
     [] -> []
     Pos _ (Token _ "module"): Pos pos (Token prefix name): _ ->
         [mktag pos prefix (snd (T.breakOnEnd "." name)) Module]
+    Pos _ (Token _ "pattern"): Pos pos (Token prefix name): _
+      | not (T.null name) && Char.isUpper (T.head name) ->
+        [mktag pos prefix name Pattern]
+    Pos _ (Token _ "foreign"): decl -> foreignTags decl
     -- newtype instance * = ...
     Pos _ (Token _ "newtype"): Pos _ (Token _ "instance"): (dropDataContext -> Pos pos _: rest) ->
        newtypeTags pos rest
@@ -631,7 +661,7 @@ blockTags unstripped = case stripNewlines unstripped of
     stripped -> fst $ functionTags False stripped
 
 isTypeName :: Text -> Bool
-isTypeName x = Char.isUpper c || c == ':' where c = T.head x
+isTypeName x = not (T.null x) && (Char.isUpper c || c == ':') where c = T.head x
 
 dropDataContext :: [Token] -> [Token]
 dropDataContext = stripParensKindsTypeVars . stripOptContext
@@ -658,6 +688,30 @@ dropInfixTypeStart tokens = dropWhile f tokens
 -- and need to call 'breakBlocks' again.
 stripNewlines :: UnstrippedTokens -> [Token]
 stripNewlines = filter (not . isNewline) . (\(UnstrippedTokens t) -> t)
+
+-- | introduce tags for foreign imports
+foreignTags :: [Token] -> [Tag]
+foreignTags = \decl ->
+  case decl of
+    Pos _ (Token _ "import"): decl' ->
+      let name = last $
+                 takeWhile ((/= "::") . tokenName . valOf) $
+                 dropMember safety $
+                 dropMember callConv decl'
+      in [tokToTag name Pattern]
+    _ -> []
+  where
+    dropMember :: Set Text -> [Token] -> [Token]
+    dropMember dropNames ts@(Pos _ (Token _ name): rest)
+      | Set.member name dropNames = rest
+      | otherwise               = ts
+    dropMember _ ts = ts
+
+    safety :: Set Text
+    safety = Set.fromList ["safe", "unsafe"]
+
+    callConv :: Set Text
+    callConv = Set.fromList ["ccall", "stdcall", "cplusplus", "jvm", "dotnet"]
 
 -- | Get tags from a function type declaration: token , token , token ::
 -- Return the tokens left over.
