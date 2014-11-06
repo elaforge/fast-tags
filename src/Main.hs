@@ -626,7 +626,7 @@ blockTags unstripped = case stripNewlines unstripped of
            in tok: newtypeTags pos' rest'
     -- type family X ...
     Pos _ (Token _ "type"): Pos _ (Token _ "family"): (dropDataContext -> whole@(tok@(Pos _ (Token _ name)): _)) ->
-      if isTypeName name
+      if isTypeFamilyName name
       then [tokToTag tok Type]
       else let (_, tok, _) = recordInfixName Type whole
            in [tok]
@@ -638,7 +638,7 @@ blockTags unstripped = case stripNewlines unstripped of
            in [tok]
     -- data family X ...
     Pos _ (Token _ "data"): Pos _ (Token _ "family"): (dropDataContext -> tok@(Pos _ (Token _ name)): rest) ->
-      if isTypeName name
+      if isTypeFamilyName name
       then [tokToTag tok Type]
       else let (_, tok, _) = recordInfixName Type rest
            in [tok]
@@ -664,7 +664,10 @@ blockTags unstripped = case stripNewlines unstripped of
     -- x, y, z :: *
     stripped -> fst $ functionTags False stripped
 
-isTypeName :: Text -> Bool
+isTypeFamilyName :: Text -> Bool
+isTypeFamilyName x = not (T.null x) && (Char.isUpper c || haskellOpChar c) where c = T.head x
+
+isTypeName  :: Text -> Bool
 isTypeName x = not (T.null x) && (Char.isUpper c || c == ':') where c = T.head x
 
 dropDataContext :: [Token] -> [Token]

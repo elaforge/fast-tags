@@ -264,6 +264,7 @@ test_families = do
     let f = process
     equal assert (f "type family X :: *\n") ["X"]
     equal assert (f "data family X :: * -> *\n") ["X"]
+    equal assert (f "data family a ** b") ["**"]
 
     equal assert (f "type family a :<: b\n") [":<:"]
     equal assert (f "type family (a :: Nat) :<: (b :: Nat) :: Nat\n") [":<:"]
