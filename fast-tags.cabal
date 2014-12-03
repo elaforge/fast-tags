@@ -91,4 +91,4 @@ test-suite test-fast-tags
     ghc-options: -main-is Main_test -O0
     hs-source-dirs: src
     build-depends: base >= 3 && < 5, containers, cpphs, filepath, directory,
-        text >= 1.0
+        text >= 1.0, tasty, tasty-hunit
