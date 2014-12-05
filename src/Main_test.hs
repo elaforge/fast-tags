@@ -59,7 +59,7 @@ testTokenize = testGroup "tokenize"
   ]
   where
     (==>) = test f
-    f = drop 1 . extractTokens . tokenize
+    f = tail . extractTokens . tokenize
 
 testSkipString :: TestTree
 testSkipString = testGroup "skipString"
@@ -78,13 +78,16 @@ testSkipString = testGroup "skipString"
 testStripComments :: TestTree
 testStripComments = testGroup "stripComments"
   [ "hello -- there"                                           ==> ["nl 0", "hello"]
+  , "hello --there"                                            ==> ["nl 0", "hello"]
   , "hello {- there -} fred"                                   ==> ["nl 0", "hello", "fred"]
+  , "hello -- {- there -}\nfred"                               ==> ["nl 0", "hello", "nl 0", "fred"]
   , "{-# LANG #-} hello {- there {- nested -} comment -} fred" ==> ["nl 0", "hello", "fred"]
   , "hello {-\nthere\n------}\n fred"                          ==> ["nl 0", "hello",  "nl 1", "fred"]
   , "hello {-  \nthere\n  ------}  \n fred"                    ==> ["nl 0", "hello",  "nl 1", "fred"]
   , "hello {-\nthere\n-----}\n fred"                           ==> ["nl 0", "hello", "nl 1", "fred"]
   , "hello {-  \nthere\n  -----}  \n fred"                     ==> ["nl 0", "hello",  "nl 1", "fred"]
   , "hello {-\n-- there -}"                                    ==> ["nl 0", "hello"]
+  , "foo --- my comment\n--- my other comment\nbar"            ==> ["nl 0", "foo", "nl 0", "nl 0", "bar"]
   ]
   where
     (==>) = test f
@@ -111,17 +114,26 @@ testProcessAll :: TestTree
 testProcessAll = testGroup "processAll"
   [ ["data X", "module X"]     ==> ["fn0:1 X Type", "fn1:1 X Module"]
   -- Type goes ahead of Module.
-  , ["module X\ndata X"]       ==> ["fn0:2 X Type", "fn0:1 X Module"]
+  , ["module X\n\
+     \data X"]       ==> ["fn0:2 X Type", "fn0:1 X Module"]
   -- Extra X was filtered.
-  , ["module X\ndata X = X\n"] ==> ["fn0:2 X Type", "fn0:1 X Module"]
+  , ["module X\n\
+     \data X = X\n"] ==> ["fn0:2 X Type", "fn0:1 X Module"]
+  , ["module X\n\
+     \data X a =\n\
+     \  X a\n"] ==> ["fn0:2 X Type", "fn0:1 X Module"]
+  , ["newtype A f a b = A\n\
+     \  { unA :: f (a -> b) }"]
+    ==> ["fn0:1 A Type", "fn0:2 unA Function"]
   ]
   where
     (==>) = test f
-    f = map showTag . Main.processAll . Either.rights
-        . concatMap (\(i, t) -> Main.process ("fn" ++ show i) t)
+    f = map showTag
+        . Main.processAll
+        . map (\(i, t) -> fst $ Main.process ("fn" ++ show i) t)
         . zip [0..]
-    showTag (Pos p (Tag _ text typ)) =
-        unwords [show p, T.unpack text, show typ]
+    showTag (Pos p (TagVal _ text typ)) =
+      unwords [show p, T.unpack text, show typ]
 
 testProcess :: TestTree
 testProcess = testGroup "process"
@@ -142,32 +154,38 @@ testMisc :: TestTree
 testMisc = testGroup "misc"
   [ "module Bar.Foo where\n"
     ==>
-    [Tag "module Bar.Foo" "Foo" Module]
-  , "newtype Foo a b =\n\tBar x y z\n"
+    [TagVal "module Bar.Foo" "Foo" Module]
+  , "newtype Foo a b =\n\
+    \\tBar x y z\n"
     ==>
-    [ Tag "newtype Foo" "Foo" Type
-    , Tag "\tBar" "Bar" Constructor
+    [ TagVal "\tBar" "Bar" Constructor
+    ,  TagVal "newtype Foo" "Foo" Type
     ]
-  , "f :: A -> B\ng :: C -> D\ndata D = C {\n\tf :: A\n\t}\n"
+  , "f :: A -> B\n\
+    \g :: C -> D\n\
+    \data D = C {\n\
+    \\tf :: A\n\
+    \\t}\n"
     ==>
-    [ Tag "f" "f" Function, Tag "g" "g" Function
-    , Tag "data D" "D" Type
-    , Tag "data D = C" "C" Constructor
-    , Tag "\tf" "f" Function
+    [ TagVal "data D = C" "C" Constructor
+    , TagVal "data D" "D" Type
+    , TagVal "\tf" "f" Function
+    , TagVal "f" "f" Function
+    , TagVal "g" "g" Function
     ]
   ]
   where
     (==>) = test f
-    f text = [tag | Right (Pos _ tag) <- Main.process "fn" text]
+    f = map valOf . fst . Main.process "fn.hs"
 
 testData :: TestTree
 testData = testGroup "data"
   [ "data X\n"                            ==> ["X"]
   , "data X = X Int\n"                    ==> ["X", "X"]
-  , "data Foo = Bar | Baz"                ==> ["Foo", "Bar", "Baz"]
-  , "data Foo =\n\tBar\n\t| Baz"          ==> ["Foo", "Bar", "Baz"]
+  , "data Foo = Bar | Baz"                ==> ["Bar", "Baz", "Foo"]
+  , "data Foo =\n\tBar\n\t| Baz"          ==> ["Bar", "Baz", "Foo"]
   -- Records.
-  , "data Foo a = Bar { field :: Field }" ==> ["Foo", "Bar", "field"]
+  , "data Foo a = Bar { field :: Field }" ==> ["Bar", "Foo", "field"]
   , "data R = R { a::X, b::Y }"           ==> ["R", "R", "a", "b"]
   , "data R = R {\n\ta::X\n\t, b::Y\n\t}" ==> ["R", "R", "a", "b"]
   , "data R = R {\n\ta,b::X\n\t}"         ==> ["R", "R", "a", "b"]
@@ -189,8 +207,8 @@ testData = testGroup "data"
 
   , "data X = X !Int"                 ==> ["X", "X"]
   , "data X = Y !Int !X | Z"          ==> ["X", "Y", "Z"]
-  , "data X = Y :+: !Z | !X `Mult` X" ==> ["X", ":+:", "Mult"]
-  , "data X = !Y `Add` !Z"            ==> ["X", "Add"]
+  , "data X = Y :+: !Z | !X `Mult` X" ==> [":+:", "Mult", "X"]
+  , "data X = !Y `Add` !Z"            ==> ["Add", "X"]
 
   , "data X = forall a. Y a"                   ==> ["X", "Y"]
   , "data X = forall a . Y a"                  ==> ["X", "Y"]
@@ -212,23 +230,23 @@ testData = testGroup "data"
     \  | forall a . Quux a \
     \  | forall a .Quuz a"
     ==>
-    ["Foo", "Plain", "Bar", "Baz", "Quux", "Quuz"]
+    ["Bar", "Baz", "Foo", "Plain", "Quux", "Quuz"]
 
-  , "data X a = Add a "                     ==> ["X", "Add"]
-  , "data Eq a => X a = Add a"              ==> ["X", "Add"]
-  , "data (Eq a) => X a = Add a"            ==> ["X", "Add"]
-  , "data (Eq a, Ord a) => X a = Add a"     ==> ["X", "Add"]
-  , "data (Eq (a), Ord (a)) => X a = Add a" ==> ["X", "Add"]
+  , "data X a = Add a "                     ==> ["Add", "X"]
+  , "data Eq a => X a = Add a"              ==> ["Add", "X"]
+  , "data (Eq a) => X a = Add a"            ==> ["Add", "X"]
+  , "data (Eq a, Ord a) => X a = Add a"     ==> ["Add", "X"]
+  , "data (Eq (a), Ord (a)) => X a = Add a" ==> ["Add", "X"]
 
   -- These are hard-to-deal-with uses of contexts, which are probably not that
   -- common and therefoce can be ignored.
   -- "data Ref :<: f => X f = RRef f" ==> ["X", "RRef"]
   -- "data a :<: b => X a b = Add a" ==> ["X", "Add"]
-  , "data (a :<: b) => X a b = Add a" ==> ["X", "Add"]
+  , "data (a :<: b) => X a b = Add a" ==> ["Add", "X"]
 
-  , "newtype Eq a => X a = Add a"          ==> ["X", "Add"]
-  , "newtype (Eq a) => X a = Add a"        ==> ["X", "Add"]
-  , "newtype (Eq a, Ord a) => X a = Add a" ==> ["X", "Add"]
+  , "newtype Eq a => X a = Add a"          ==> ["Add", "X"]
+  , "newtype (Eq a) => X a = Add a"        ==> ["Add", "X"]
+  , "newtype (Eq a, Ord a) => X a = Add a" ==> ["Add", "X"]
 
   , "newtype (u :*: v) z = X"      ==> [":*:", "X"]
   , "data (u :*: v) z = X"         ==> [":*:", "X"]
@@ -269,27 +287,74 @@ testData = testGroup "data"
     \ extract :: (u (v z)) }"
     ==>
     [":*:", "X", "extract"]
+
+  , "data Hadron a b = Science { f :: a, g :: a, h :: b }"
+    ==>
+    ["Hadron", "Science", "f", "g", "h"]
+  , "data Hadron a b = Science { f :: a, g :: (a, b), h :: b }"
+    ==>
+    ["Hadron", "Science", "f", "g", "h"]
+  , "data Hadron a b = forall x. Science { f :: x, h :: b }"
+    ==>
+    ["Hadron", "Science", "f", "h"]
+  , "data Hadron a b = forall x. Science { f :: [x], h :: b }"
+    ==>
+    ["Hadron", "Science", "f", "h"]
+  , "data Hadron a b = forall x y. Science { f :: (x, y), h :: b }"
+    ==>
+    ["Hadron", "Science", "f", "h"]
+  , "data Hadron a b = forall x y. Science { f :: [(x, y)], h :: b }"
+    ==>
+    ["Hadron", "Science", "f", "h"]
+  , "data Hadron a b = forall x y. Science { f :: [(Box x, Map x y)], h :: b }"
+    ==>
+    ["Hadron", "Science", "f", "h"]
+  , "data Hadron a b = forall x y z. Science\n\
+    \  { f :: x\n\
+    \  , g :: [(Box x, Map x y, z)] \
+    \  }"
+    ==>
+    ["Hadron", "Science", "f", "g"]
+  , "data Hadron a b = forall x y z. Science\n\
+    \  { f :: x\n\
+    \  , g :: [(Box x, Map x y, z)] \
+    \  , h :: b\n\
+    \  }"
+    ==>
+    ["Hadron", "Science", "f", "g", "h"]
+  , "data Hadron a b = Science { h :: b }"
+    ==>
+    ["Hadron", "Science", "h"]
+  , "data Test a b =\n\
+    \    Foo a\n\
+    \  | Bar [(Maybe a, Map a b, b)]"
+    ==>
+    ["Bar", "Foo", "Test"]
+  , "data Test a b =\n\
+    \    Foo a\n\
+    \  | [(Maybe b, Map b a, a)] `Bar` [(Maybe a, Map a b, b)]"
+    ==>
+    ["Bar", "Foo", "Test"]
   ]
   where
-    (==>) = test f
-    f = process
+    (==>) = test process
 
 testGADT :: TestTree
 testGADT = testGroup "gadt"
-  [ "data X where A :: X\n"              ==> ["X", "A"]
-  , "data X where\n\tA :: X\n"           ==> ["X", "A"]
-  , "data X where\n\tA :: X\n\tB :: X\n" ==> ["X", "A", "B"]
-  , "data X where\n\tA, B :: X\n"        ==> ["X", "A", "B"]
+  [ "data X where A :: X\n"              ==> ["A", "X"]
+  , "data X where\n\tA :: X\n"           ==> ["A", "X"]
+  , "data X where\n\tA :: X\n\tB :: X\n" ==> ["A", "B", "X"]
+  , "data X where\n\tA, B :: X\n"        ==> ["A", "B", "X"]
   , "data X :: * -> * -> * where\n\
     \  A, B :: Int -> Int -> X\n"
     ==>
-    ["X", "A", "B"]
+    ["A", "B", "X"]
   , "data Vec ix where\n\
     \  Nil   :: Int -> Foo Int\n\
     \  (:::) :: Int -> Vec Int -> Vec Int\n\
     \  (.+.) :: Int -> Int -> Vec Int -> Vec Int\n"
     ==>
-    ["Vec", "Nil", ":::", ".+."]
+    [".+.", ":::", "Nil", "Vec"]
   , "data Vec ix where\n\
     \  Nil   :: Int -> Foo Int\n\
     \  -- foo\n\
@@ -301,14 +366,13 @@ testGADT = testGroup "gadt"
     \           Vec Int -> \n\
     \Vec Int\n"
     ==>
-    ["Vec", "Nil", ":::", ".+."]
+    [".+.", ":::", "Nil", "Vec"]
   , "data NatSing (n :: Nat) where\n    ZeroSing :: 'Zero\n    SuccSing :: NatSing n -> NatSing ('Succ n)\n"
     ==>
-    ["NatSing", "ZeroSing", "SuccSing"]
+    ["NatSing", "SuccSing", "ZeroSing"]
   ]
   where
-    (==>) = test f
-    f = process
+    (==>) = test process
 
 testFamilies :: TestTree
 testFamilies = testGroup "families"
@@ -334,8 +398,7 @@ testFamilies = testGroup "families"
   , "class C where\n\tdata X y :: *\n" ==> ["C", "X"]
   ]
   where
-    (==>) = test f
-    f = process
+    (==>) = test process
 
 testFunctions :: TestTree
 testFunctions = testGroup "functions"
@@ -355,30 +418,30 @@ testFunctions = testGroup "functions"
   , "(=>>) :: X -> Y" ==> ["=>>"]
 
   , "_g :: X -> Y" ==> ["_g"]
-
+  , toplevelFunctionsWithoutSignatures
   , toplevelFunctionsWithoutSignatures
   ]
   where
-    (==>) = test f
-    f = process
+    (==>) = test process
     toplevelFunctionsWithoutSignatures =
       testGroup "toplevel functions without signatures"
-        [ "f = g" ==> ["f"]
+        [ "infix 5 |+|"  ==> []
+        , "infixl 5 |+|" ==> []
+        , "infixr 5 |+|" ==> []
+        , "f = g"        ==> ["f"]
         , "f :: a -> b -> a\n\
           \f x y = x"
           ==>
           ["f"]
         , "f x y = x"   ==> ["f"]
-        , "f !x y = x"  ==> ["f"]
-        , "f x !y = x"  ==> ["f"]
-        , "f !x !y = x" ==> ["f"]
-        , "f ! x y = x" ==> ["f"]
-        -- this one is a bit controversial but it seems to be the way ghc parses it
-        , "f ! x = x"   ==> ["f"]
-        , "(!) :: a -> b -> a\n\
-          \(!) x y = x"
-          ==>
-          ["!"]
+        , "f (x :+: y) z = x" ==> ["f"]
+        , "(x :+: y) `f` z = x" ==> ["f"]
+        , "(x :+: y) :*: z = x" ==> [":*:"]
+        , "((:+:) x y) :*: z = x" ==> [":*:"]
+        , "(:*:) (x :+: y) z = x" ==> [":*:"]
+        , "(:*:) ((:+:) x y) z = x" ==> [":*:"]
+        , strictMatchTests
+        , lazyMatchTests
         , "f x Nothing = x\n\
           \f x (Just y) = y"
           ==>
@@ -391,14 +454,55 @@ testFunctions = testGroup "functions"
         , "x `f` y = x"   ==> ["f"]
         , "(|+|) x y = x" ==> ["|+|"]
         , "x |+| y = x"   ==> ["|+|"]
+        , "(!) x y = x" ==> ["!"]
+        , "--- my comment" ==> []
         ]
+    strictMatchTests = testGroup "strict match (!)"
+      [ "f !x y = x"  ==> ["f"]
+      , "f x !y = x"  ==> ["f"]
+      , "f !x !y = x" ==> ["f"]
+      , "f ! x y = x" ==> ["f"]
+      -- this one is a bit controversial but it seems to be the way ghc parses it
+      , "f ! x = x"   ==> ["f"]
+      , "(:*:) !(x :+: y) z = x" ==> [":*:"]
+      , "(:*:) !(!x :+: !y) !z = x" ==> [":*:"]
+      , "(:*:) !((:+:) x y) z = x" ==> [":*:"]
+      , "(:*:) !((:+:) !x !y) !z = x" ==> [":*:"]
+      , "(!) :: a -> b -> a\n\
+        \(!) x y = x"
+        ==>
+        ["!"]
+      -- this is a degenerate case since even ghc treats ! here as
+      -- a BangPatterns instead of operator
+      , "x ! y = x" ==> ["x"]
+      ]
+    lazyMatchTests = testGroup "lazy match (~)"
+      [ "f ~x y = x"  ==> ["f"]
+      , "f x ~y = x"  ==> ["f"]
+      , "f ~x ~y = x" ==> ["f"]
+      , "f ~ x y = x" ==> ["f"]
+      -- this one is a bit controversial but it seems to be the way ghc parses it
+      , "f ~ x = x"   ==> ["f"]
+      , "(:*:) ~(x :+: y) z = x" ==> [":*:"]
+      , "(:*:) ~(~x :+: ~y) ~z = x" ==> [":*:"]
+      , "(:*:) ~((:+:) x y) z = x" ==> [":*:"]
+      , "(:*:) ~((:+:) ~x ~y) ~z = x" ==> [":*:"]
+      , "(~) :: a -> b -> a\n\
+        \(~) x y = x"
+        ==>
+        ["~"]
+      -- this is a degenerate case since even ghc treats ~ here as
+      -- a BangPatterns instead of operator
+      , "x ~ y = x" ==> ["x"]
+      ]
+
 
 testClass :: TestTree
 testClass = testGroup "class"
   [ "class (X x) => C a b where\n\tm :: a->b\n\tn :: c\n" ==> ["C", "m", "n"]
   , "class A a where f :: X\n"                            ==> ["A", "f"]
     -- indented inside where
-  , "class X where\n\ta, (+) :: X\n"            ==> ["X", "a", "+"]
+  , "class X where\n\ta, (+) :: X\n"            ==> ["+", "X", "a"]
   , "class X where\n\ta :: X\n\tb, c :: Y"      ==> ["X", "a", "b", "c"]
   , "class X\n\twhere\n\ta :: X\n\tb, c :: Y"   ==> ["X", "a", "b", "c"]
   , "class X\n\twhere\n\ta ::\n\t\tX\n\tb :: Y" ==> ["X", "a", "b"]
@@ -422,7 +526,7 @@ testClass = testGroup "class"
     ["A", "F", "g", "h"]
   , "class A f where\n  data F f :: *\n  mkF :: f -> F f\n  getF :: F f -> f"
     ==>
-    ["A", "F", "mkF", "getF"]
+    ["A", "F", "getF", "mkF"]
   , "class A f where\n\
     \  data F f :: * -- foo\n\
     \                -- bar\n\
@@ -430,11 +534,10 @@ testClass = testGroup "class"
     \  mkF  :: f -> F f\n\
     \  getF :: F f -> f"
     ==>
-    ["A", "F", "mkF", "getF"]
+    ["A", "F", "getF", "mkF"]
   ]
   where
-    (==>) = test f
-    f = process
+    (==>) = test process
 
 testInstance :: TestTree
 testInstance = testGroup "instance"
@@ -443,7 +546,7 @@ testInstance = testGroup "instance"
     \                  | QBaz { fizz :: String }\n\
     \                  deriving (Show)"
     ==>
-    ["QBar", "frob", "QBaz", "fizz"]
+    ["QBar", "QBaz", "fizz", "frob"]
   , "instance Foo Quux where\n\
     \  data Bar Quux a = QBar a | QBaz String deriving (Show)"
     ==>
@@ -454,7 +557,7 @@ testInstance = testGroup "instance"
     \                  deriving (Show)\n\
     \  data IMRuunningOutOfNamesHere Quux = Whatever"
     ==>
-    ["QBar", "frob", "QBaz", "fizz", "Whatever"]
+    ["QBar", "QBaz", "Whatever", "fizz", "frob"]
     -- in this test foo function should not affect tags found
   , "instance Foo Quux where\n\
     \  data Bar Quux a = QBar { frob :: a }\n\
@@ -463,7 +566,7 @@ testInstance = testGroup "instance"
     \\n\
     \  foo _ = QBaz \"hey there\""
     ==>
-    ["QBar", "frob", "QBaz", "fizz"]
+    ["QBar", "QBaz", "fizz", "frob"]
   , "instance Foo Int where foo _ = 1"
     ==>
     []
@@ -480,8 +583,7 @@ testInstance = testGroup "instance"
     ["QBar", "frob"]
   ]
   where
-    (==>) = test f
-    f = process
+    (==>) = test process
 
 testLiterate :: TestTree
 testLiterate = testGroup "literate"
@@ -494,7 +596,7 @@ testLiterate = testGroup "literate"
   ]
   where
     (==>) = test f
-    f = map untag . Main.process "fn.lhs"
+    f = map untag . fst . Main.process "fn.lhs"
 
 testPatterns :: TestTree
 testPatterns = testGroup "patterns"
@@ -507,8 +609,7 @@ testPatterns = testGroup "patterns"
     ["Arrow", "Pair"]
   ]
   where
-    (==>) = test f
-    f = map untag . Main.process "fn.hs"
+    (==>) = test process
 
 testFFI :: TestTree
 testFFI = testGroup "ffi"
@@ -517,8 +618,7 @@ testFFI = testGroup "ffi"
   , "foreign import safe stdcall foo :: Double -> IO Double" ==> ["foo"]
   ]
   where
-    (==>) = test f
-    f = map untag . Main.process "fn.hs"
+    (==>) = test process
 
 testC2HS :: TestTree
 testC2HS = testGroup "c2hs"
@@ -535,20 +635,19 @@ testC2HS = testGroup "c2hs"
   ]
   where
     (==>) = test f
-    f = map untag . Main.process "fn.c2hs"
+    f = map untag . fst . Main.process "fn.c2hs"
 
 process :: Text -> [String]
-process = map untag . Main.process "fn"
+process = map untag . fst . Main.process "fn.hs"
 
-untag :: Tag -> String
-untag (Right (Pos _ (Tag _ name _))) = T.unpack name
-untag (Left warn) = "warn: " ++ warn
+untag :: Pos TagVal -> String
+untag (Pos _ (TagVal _ name _)) = T.unpack name
 
 tokenize :: Text -> Main.UnstrippedTokens
-tokenize = Monoid.mconcat . map Main.tokenize . Main.stripCpp
-    . Main.annotate "fn"
+tokenize =
+  Monoid.mconcat . map Main.tokenize . Main.stripCpp . Main.annotate "fn"
 
 extractTokens :: Main.UnstrippedTokens -> [Text]
 extractTokens = map (\token -> case Main.valOf token of
-    Token _ name -> name
-    Newline n -> T.pack ("nl " ++ show n)) . Main.unstrippedTokensOf
+  Token _ name -> name
+  Newline n -> T.pack ("nl " ++ show n)) . Main.unstrippedTokensOf
