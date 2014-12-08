@@ -385,7 +385,7 @@ processAll :: [[Pos TagVal]] -> [Pos TagVal]
 processAll =
   sortDups .
   dropDups isDuplicatePair .
-  foldr (mergeOn tagSortingKey) [] .
+  combineBalanced (mergeOn tagSortingKey) .
   map (dropDups isDuplicatePair)
   where
     isDuplicatePair :: Pos TagVal -> Pos TagVal -> Bool
@@ -402,6 +402,21 @@ processAll =
       where
         SrcPos f  l  = posOf t
         SrcPos f' l' = posOf t'
+
+combineBalanced :: forall a. (a -> a -> a) -> [a] -> a
+combineBalanced f xs = go xs
+  where
+    go :: [a] -> a
+    go [] = error "cannot combine empty list"
+    go xs@(_:_) =
+      case combine xs of
+        []  -> error "unexpected empty list when combining nonempty lists"
+        [x] -> x
+        xs' -> go xs'
+    combine :: [a] -> [a]
+    combine []        = []
+    combine [x]       = [x]
+    combine (x:x':xs) = f x x' : combine xs
 
 -- | Given multiple matches, vim will jump to the first one.  So sort adjacent
 -- tags with the same text by their type.

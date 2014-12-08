@@ -76,8 +76,10 @@ executable fast-tags
     build-depends: base >= 3 && < 5, containers, cpphs >1.18, filepath, directory,
         text >= 1.0
     ghc-options: -Wall -fno-warn-name-shadowing -O2 -rtsopts
+    ghc-prof-options: -Wall -fno-warn-name-shadowing -O2 -rtsopts -auto-all
     if flag(fast)
         ghc-options: -funfolding-creation-threshold=10000 -funfolding-use-threshold=2500
+
 
 test-suite test-fast-tags
     type: exitcode-stdio-1.0
