@@ -130,7 +130,7 @@ testProcessAll = testGroup "processAll"
     (==>) = test f
     f = map showTag
         . Main.processAll
-        . map (\(i, t) -> fst $ Main.process ("fn" ++ show i) t)
+        . map (\(i, t) -> fst $ Main.process ("fn" ++ show i) False t)
         . zip [0..]
     showTag (Pos p (TagVal _ text typ)) =
       unwords [show p, T.unpack text, show typ]
@@ -176,7 +176,7 @@ testMisc = testGroup "misc"
   ]
   where
     (==>) = test f
-    f = map valOf . fst . Main.process "fn.hs"
+    f = map valOf . fst . Main.process "fn.hs" False
 
 testData :: TestTree
 testData = testGroup "data"
@@ -596,7 +596,7 @@ testLiterate = testGroup "literate"
   ]
   where
     (==>) = test f
-    f = map untag . fst . Main.process "fn.lhs"
+    f = map untag . fst . Main.process "fn.lhs" False
 
 testPatterns :: TestTree
 testPatterns = testGroup "patterns"
@@ -638,14 +638,14 @@ testC2HS = testGroup "c2hs"
     f = map untag . fst . Main.process "fn.c2hs"
 
 process :: Text -> [String]
-process = map untag . fst . Main.process "fn.hs"
+process = map untag . fst . Main.process "fn.hs" False
 
 untag :: Pos TagVal -> String
 untag (Pos _ (TagVal _ name _)) = T.unpack name
 
 tokenize :: Text -> Main.UnstrippedTokens
 tokenize =
-  Monoid.mconcat . map Main.tokenize . Main.stripCpp . Main.annotate "fn"
+  Monoid.mconcat . map (Main.tokenize False) . Main.stripCpp . Main.annotate "fn"
 
 extractTokens :: Main.UnstrippedTokens -> [Text]
 extractTokens = map (\token -> case Main.valOf token of

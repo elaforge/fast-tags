@@ -80,6 +80,7 @@ main = do
     let verbose       = Verbose `elem` flags
         emacs         = ETags `elem` flags
         vim           = not emacs
+        trackPrefixes = emacs
         recurse       = Recurse `elem` flags
         output        = last $ defaultOutput : [fn | Output fn <- flags]
         noMerge       = NoMerge `elem` flags
@@ -116,7 +117,7 @@ main = do
     -- TODO try it and see if it really hurts performance that much.
     newTags <- fmap processAll $
       forM (zip [0..] inputs) $ \(i :: Int, fn) -> do
-        (newTags, warnings) <- processFile ignoreEncErrs fn
+        (newTags, warnings) <- processFile ignoreEncErrs fn trackPrefixes
         forM_ warnings printErr
         when verbose $ do
           let line = take 78 $ show i ++ ": " ++ fn
@@ -440,8 +441,9 @@ tagLine :: Pos TagVal -> Int
 tagLine (Pos (SrcPos _ line) _) = line
 
 -- | Read tags from one file.
-processFile :: Bool -> FilePath -> IO ([Pos TagVal], [String])
-processFile ignoreEncodingErrors fn = fmap (process fn) (T.readFile fn)
+processFile :: Bool -> FilePath -> Bool -> IO ([Pos TagVal], [String])
+processFile ignoreEncodingErrors fn trackPrefixes =
+  fmap (process fn trackPrefixes) (T.readFile fn)
   `Exception.catch` \(exc :: Exception.SomeException) -> do
     -- readFile will crash on files that are not UTF8.  Unfortunately not
     -- all haskell source file are.
@@ -455,9 +457,9 @@ tagSortingKey :: Pos TagVal -> (Text, Type)
 tagSortingKey (Pos _ (TagVal _ name t)) = (name, t)
 
 -- | Process one file's worth of tags.
-process :: FilePath -> Text -> ([Pos TagVal], [String])
-process fn = splitAndRemoveRepeats . concatMap blockTags . breakBlocks . stripComments
-  . mconcat . map tokenize . stripCpp . annotate fn . unlit'
+process :: FilePath -> Bool -> Text -> ([Pos TagVal], [String])
+process fn trackPrefixes = splitAndRemoveRepeats . concatMap blockTags . breakBlocks . stripComments
+  . mconcat . map (tokenize trackPrefixes) . stripCpp . annotate fn . unlit'
   where
     splitAndRemoveRepeats :: [Tag] -> ([Pos TagVal], [String])
     splitAndRemoveRepeats tags =
@@ -500,8 +502,9 @@ annotate fn text =
 stripCpp :: [Line] -> [Line]
 stripCpp = filter $ not . ("#" `T.isPrefixOf`) . valOf
 
-tokenize :: Line -> UnstrippedTokens
-tokenize (Pos pos line) = UnstrippedTokens $ map (Pos pos) (tokenizeLine line)
+tokenize :: Bool -> Line -> UnstrippedTokens
+tokenize trackPrefixes (Pos pos line) =
+  UnstrippedTokens $ map (Pos pos) (tokenizeLine trackPrefixes line)
 
 spanToken :: Text -> (Text, Text)
 spanToken text
@@ -534,8 +537,8 @@ spanToken text
     comments = ["{-", "-}"]
     symbols = ["--", "=>", "->", "::"]
 
-tokenizeLine :: Text -> [TokenVal]
-tokenizeLine text = Newline nspaces : go spaces line
+tokenizeLine :: Bool -> Text -> [TokenVal]
+tokenizeLine trackPrefixes text = Newline nspaces : go spaces line
   where
     nspaces = fromIntegral $ T.count " " spaces + T.count "\t" spaces * 8
     (spaces, line) = T.break (not . Char.isSpace) text
@@ -543,7 +546,9 @@ tokenizeLine text = Newline nspaces : go spaces line
     go oldPrefix unstripped
       | T.null stripped = []
       | otherwise       = let (token, rest) = spanToken stripped
-                              newPrefix     = oldPrefix <> spaces <> token
+                              newPrefix     = if trackPrefixes
+                                              then oldPrefix <> spaces <> token
+                                              else T.empty
                           in Token newPrefix token : go newPrefix rest
       where
         (spaces, stripped) = T.break (not . Char.isSpace) unstripped
