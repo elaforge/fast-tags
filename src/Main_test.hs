@@ -405,7 +405,7 @@ test_ffi = do
     equal assert (f "foreign import safe stdcall foo :: Double -> IO Double")
         ["foo"]
 
-process :: String -> [String]
+process :: Text -> [String]
 process = map untag . Main.process "fn"
 
 untag :: Tag -> String

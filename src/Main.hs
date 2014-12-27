@@ -12,7 +12,26 @@
     do it on save, since I'd have to invoke the build system to de-hsc.
 -}
 
-module Main where
+module Main
+  ( main
+  , TokenVal(..)
+  , TagVal(..)
+  , Type(..)
+  , Tag
+  , Pos(..)
+  , UnstrippedTokens(..)
+  , breakString
+  , stripComments
+  , processAll
+  , process
+  , tokenize
+  , stripCpp
+  , annotate
+  , stripNewlines
+  , breakBlocks
+  , unstrippedTokensOf
+  )
+where
 
 import Control.Applicative
 import Control.Arrow
@@ -23,7 +42,9 @@ import Data.Monoid
 import Data.Set (Set)
 import Data.Text (Text)
 import System.Console.GetOpt
+import System.Directory (doesFileExist, doesDirectoryExist, getDirectoryContents)
 import System.Exit
+import System.FilePath ((</>))
 
 import Language.Preprocessor.Unlit
 import Text.Printf (printf)
@@ -35,14 +56,9 @@ import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
-import qualified Data.Text.IO as Text.IO
+import qualified Data.Text.IO as T
 import qualified System.Environment as Environment
 import qualified System.IO as IO
-import qualified System.IO.Error as IO.Error
-
-import System.Directory (doesDirectoryExist, getDirectoryContents)
-import System.FilePath ((</>))
-
 
 main :: IO ()
 main = do
@@ -63,6 +79,7 @@ main = do
         output        = last $ defaultOutput : [fn | Output fn <- flags]
         noMerge       = NoMerge `elem` flags
         useZeroSep    = ZeroSep `elem` flags
+        ignoreEncErrs = IgnoreEncodingErrors `elem` flags
         sep           = if useZeroSep then '\0' else '\n'
         defaultOutput = if vim then "tags" else "TAGS"
         inputsM       = if null inputFiles
@@ -78,8 +95,11 @@ main = do
 
     oldTags <-
       if vim && not noMerge
-         then maybe [vimMagicLine] T.lines <$>
-              (catchENOENT $ Text.IO.readFile output)
+         then do
+              exists <- doesFileExist output
+              if exists
+                then T.lines <$> T.readFile output
+                else return [vimMagicLine]
          else return [] -- we do not support tags merging for emacs
                         -- for now
 
@@ -91,7 +111,7 @@ main = do
     -- TODO try it and see if it really hurts performance that much.
     newTags <- fmap (processAll . concat) $
         forM (zip [0..] inputs) $ \(i :: Int, fn) -> do
-            tags <- processFile fn
+            tags <- processFile ignoreEncErrs fn
             -- This has the side-effect of forcing the tags, which is
             -- essential if I'm tagging a lot of files at once.
             let (warnings, newTags) = partitionEithers tags
@@ -108,8 +128,8 @@ main = do
 
     let write =
           if output == "-"
-            then Text.IO.hPutStr IO.stdout
-            else Text.IO.writeFile output
+            then T.hPutStr IO.stdout
+            else T.writeFile output
 
     write $
       if vim
@@ -192,6 +212,7 @@ data Flag = Output FilePath
           | Recurse
           | NoMerge
           | ZeroSep
+          | IgnoreEncodingErrors
     deriving (Eq, Show)
 
 help :: String
@@ -215,6 +236,8 @@ options =
         "expect list of file names in stdin to be 0-separated."
     , Option [] ["nomerge"] (NoArg NoMerge)
         "do not merge tag files"
+    , Option [] ["ignore-encoding-errors"] (NoArg IgnoreEncodingErrors)
+        "do exit on utf8 encoding error and continue processing other files"
     ]
 
 -- | Documented in vim :h tags-file-format.
@@ -268,9 +291,9 @@ tokenName :: TokenVal -> Text
 tokenName (Token _ name) = name
 tokenName _              = error "cannot extract name from non-Token TokenVal"
 
-tokenNameSafe :: TokenVal -> Text
-tokenNameSafe (Token _ name) = name
-tokenNameSafe _              = "<newline>"
+-- tokenNameSafe :: TokenVal -> Text
+-- tokenNameSafe (Token _ name) = name
+-- tokenNameSafe _              = "<newline>"
 
 type Tag = Either String (Pos TagVal)
 
@@ -308,8 +331,8 @@ data Pos a = Pos
     deriving (Eq)
 
 data SrcPos = SrcPos
-    { posFile :: !FilePath
-    , posLine :: !Int
+    { _posFile :: !FilePath
+    , posLine  :: !Int
     } deriving (Eq)
 
 instance (Show a) => Show (Pos a) where
@@ -349,58 +372,39 @@ tagText :: Pos TagVal -> Text
 tagText (Pos _ (Tag _ text _)) = text
 
 -- | Read tags from one file.
-processFile :: FilePath -> IO [Tag]
-processFile fn = fmap (process fn) (IO.readFile fn)
+processFile :: Bool -> FilePath -> IO [Tag]
+processFile ignoreEncodingErrors fn = fmap (process fn) (T.readFile fn)
     `Exception.catch` \(exc :: Exception.SomeException) -> do
         -- readFile will crash on files that are not UTF8.  Unfortunately not
         -- all haskell source file are.
         IO.hPutStrLn IO.stderr $
              "exception reading " ++ show fn ++ ": " ++ show exc
-        void $ exitFailure
+        unless ignoreEncodingErrors $
+          void $ exitFailure
         return []
 
 -- | Process one file's worth of tags.
-process :: FilePath -> String -> [Tag]
+process :: FilePath -> Text -> [Tag]
 process fn = concatMap blockTags . breakBlocks . stripComments
   . mconcat . map tokenize . stripCpp . annotate fn . unlit'
   where
-    unlit' :: String -> Text
+    unlit' :: Text -> Text
     unlit' s = if isLiterateFile fn
-               then T.pack $ unlit fn s'
-               else T.pack s
+               then T.pack $ unlit fn $ T.unpack s'
+               else s
       where
-        s' :: String
-        s' = if "\\begin{code}" `List.isInfixOf` s &&
-                "\\end{code}" `List.isInfixOf` s
-             then unlines $ filter (not . birdLiterateLine) $ lines s
+        s' :: Text
+        s' = if "\\begin{code}" `T.isInfixOf` s &&
+                "\\end{code}"   `T.isInfixOf` s
+             then T.unlines $ filter (not . birdLiterateLine) $ T.lines s
              else s
-        birdLiterateLine :: String -> Bool
-        birdLiterateLine [] = False
-        birdLiterateLine xs = case dropWhile Char.isSpace xs of
-                                ('>':_) -> True
-                                _       -> False
-
-processBenchmark :: FilePath -> String -> [Token]
-processBenchmark fn =
-  unstrippedTokensOf . mconcat . map tokenize . stripCpp . annotate fn . unlit'
-  where
-    unlit' :: String -> Text
-    unlit' s = if isLiterateFile fn
-               then T.pack $ unlit fn s'
-               else T.pack s
-      where
-        s' :: String
-        s' = if "\\begin{code}" `List.isInfixOf` s &&
-                "\\end{code}" `List.isInfixOf` s
-             then unlines $ filter (not . birdLiterateLine) $ lines s
-             else s
-        birdLiterateLine :: String -> Bool
-        birdLiterateLine [] = False
-        birdLiterateLine xs = case dropWhile Char.isSpace xs of
-                                ('>':_) -> True
-                                _       -> False
-
-
+        birdLiterateLine :: Text -> Bool
+        birdLiterateLine xs
+          | T.null xs = False
+          | otherwise =
+            case T.uncons $ T.dropWhile Char.isSpace xs of
+              Just ('>', _) -> True
+              _             -> False
 
 -- * tokenize
 
@@ -949,11 +953,6 @@ dropUntil token = tailSafe . dropWhile (not . (`hasName` token) . valOf)
 
 -- tracem :: (Show a) => String -> a -> a
 -- tracem msg x = Trace.trace (msg ++ ": " ++ show x) x
-
--- | If @op@ raised ENOENT, return Nothing.
-catchENOENT :: IO a -> IO (Maybe a)
-catchENOENT op = Exception.handleJust (guard . IO.Error.isDoesNotExistError)
-    (const (return Nothing)) (fmap Just op)
 
 dropDups :: (Eq k) => (a -> k) -> [a] -> [a]
 dropDups key (x:xs) = go x xs
