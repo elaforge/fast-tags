@@ -1,69 +1,106 @@
-{-# LANGUAGE OverloadedStrings, PatternGuards, ScopedTypeVariables #-}
+{-# LANGUAGE BangPatterns               #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE PatternGuards              #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE ViewPatterns               #-}
+
 {-# OPTIONS_GHC -funbox-strict-fields #-}
-module FastTags where
-import qualified Control.Exception as Exception
+
+module FastTags
+  ( isHsFile
+  , isLiterateFile
+  , merge
+  , TokenVal(..)
+  , TagVal(..)
+  , Type(..)
+  , Tag(..)
+  , Pos(..)
+  , SrcPos(..)
+  , UnstrippedTokens(..)
+  , breakString
+  , stripComments
+  , processFile
+  , processAll
+  , process
+  , tokenize
+  , stripCpp
+  , annotate
+  , stripNewlines
+  , breakBlocks
+  , unstrippedTokensOf
+  , split
+  )
+where
+
+import Control.Arrow
 import Control.Monad
-import qualified Data.Char as Char
-import qualified Data.List as List
-import qualified Data.Monoid as Monoid
-import Data.Monoid ((<>))
-import qualified Data.Set as Set
-import qualified Data.Text as T
+import Data.IntSet (IntSet)
+import Data.Function (on)
+import Data.Monoid
+import Data.Set (Set)
 import Data.Text (Text)
-import qualified Data.Text.IO as Text.IO
+import System.Exit
 
-import qualified Debug.Trace as Trace
+import Language.Preprocessor.Unlit
+import Text.Printf (printf)
+
+import qualified Control.Exception as Exception
+import qualified Data.Char as Char
+import qualified Data.IntSet as IS
+import qualified Data.List as L
+import qualified Data.Map as M
+import qualified Data.Set as S
+import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import qualified System.IO as IO
-import qualified System.IO.Error as IO.Error
-
-
-mergeTags :: [FilePath] -> [Text] -> [Pos TagVal] -> [Text]
-mergeTags inputs old new =
-    -- 'new' was already been sorted by 'process', but then I just concat
-    -- the tags from each file, so they need sorting again.
-    merge (map showTag new) (filter (not . isNewTag textFns) old)
-    where textFns = Set.fromList $ map T.pack inputs
-
--- | Documented in vim :h tags-file-format.
--- This tells vim that the file is sorted (but not case folded) so that
--- it can do a bsearch and never needs to fall back to linear search.
-vimMagicLine :: Text
-vimMagicLine = "!_TAG_FILE_SORTED\t1\t~"
-
-isNewTag :: Set.Set Text -> Text -> Bool
-isNewTag textFns line = Set.member fn textFns
-    where fn = T.takeWhile (/='\t') $ T.drop 1 $ T.dropWhile (/='\t') line
-
--- | Convert a Tag to text, e.g.: AbsoluteMark\tCmd/TimeStep.hs 67 ;" f
-showTag :: Pos TagVal -> Text
-showTag (Pos (SrcPos fn lineno) (Tag text typ)) =
-    T.concat [text, "\t", T.pack fn, "\t", T.pack (show lineno), " ;\" ",
-        T.singleton (showType typ)]
-
--- | Vim takes this to be the \"kind:\" annotation.  It's just an arbitrary
--- string and these letters conform to no standard.  Presumably there are some
--- vim extensions that can make use of it.
-showType :: Type -> Char
-showType typ = case typ of
-    Module -> 'm'
-    Function -> 'f'
-    Class -> 'c'
-    Type -> 't'
-    Constructor -> 'C'
 
 -- * types
 
-data TagVal = Tag !Text !Type
-    deriving (Eq, Show)
+data TagVal = TagVal !Text !Text !Type
+  deriving (Show)
 
-data Type = Module | Function | Class | Type | Constructor
-    deriving (Eq, Show)
+instance Eq TagVal where
+  TagVal _ name t == TagVal _ name' t' = name == name' && t == t'
 
-data TokenVal = Token !Text | Newline !Int
-    deriving (Eq, Show)
+instance Ord TagVal where
+  compare (TagVal _ name t) (TagVal _ name' t') =
+    name `compare` name' <> t `compare` t'
 
-type Tag = Either String (Pos TagVal)
+-- don't swap constructors since we rely that Type < Constructor == True holds
+data Type =
+    Function
+  | Type
+  | Constructor
+  | Class
+  | Module
+  | Operator
+  | Pattern
+  deriving (Eq, Ord, Show)
+
+data TokenVal =
+    Token !Text !Text
+  | Newline !Int -- ^ indentation
+  deriving (Show)
+
+tokenName :: TokenVal -> Text
+tokenName (Token _ name) = name
+tokenName _              = error "cannot extract name from non-Token TokenVal"
+
+data Tag =
+    Tag !(Pos TagVal)
+  | RepeatableTag !(Pos TagVal)
+  | Warning !String
+  deriving (Show, Eq, Ord)
+
+partitionTags :: [Tag] -> ([Pos TagVal], [Pos TagVal], [String])
+partitionTags ts = go ts [] [] []
+  where
+    go []                    xs ys zs = (xs, ys, reverse zs)
+    go (Tag t: ts)           xs ys zs = go ts (t:xs) ys     zs
+    go (RepeatableTag t: ts) xs ys zs = go ts xs     (t:ys) zs
+    go (Warning warn: ts)    xs ys zs = go ts xs     ys     (warn :zs)
+
 type Token = Pos TokenVal
 
 -- | Newlines have to remain in the tokens because 'breakBlocks' relies on
@@ -71,7 +108,7 @@ type Token = Pos TokenVal
 -- newlines might be anywhere.  A newtype makes sure that the tokens only get
 -- stripped once and that I don't do any pattern matching on unstripped tokens.
 newtype UnstrippedTokens = UnstrippedTokens [Token]
-    deriving (Show, Monoid.Monoid)
+    deriving (Show, Monoid)
 
 mapTokens :: ([Token] -> [Token]) -> UnstrippedTokens -> UnstrippedTokens
 mapTokens f (UnstrippedTokens tokens) = UnstrippedTokens (f tokens)
@@ -79,29 +116,73 @@ mapTokens f (UnstrippedTokens tokens) = UnstrippedTokens (f tokens)
 unstrippedTokensOf :: UnstrippedTokens -> [Token]
 unstrippedTokensOf (UnstrippedTokens tokens) = tokens
 
+-- drop @n@ non-newline tokens
+dropTokens :: Int -> UnstrippedTokens -> UnstrippedTokens
+dropTokens n = mapTokens (f n)
+  where
+    f :: Int -> [Token] -> [Token]
+    f 0 xs                       = xs
+    f _ []                       = []
+    f n (Pos _ (Newline _) : xs) = f n xs
+    f n (Pos _ (Token _ _) : xs) = f (n - 1) xs
+
 type Line = Pos Text
 
-data Pos a = Pos {
-    posOf :: !SrcPos
-    , valOf :: !a
-    }
+data Pos a = Pos
+  { posOf :: !SrcPos
+  , valOf :: !a
+  }
+  deriving (Eq, Ord)
 
-data SrcPos = SrcPos {
-    posFile :: !FilePath
-    , posLine :: !Int
-    } deriving (Eq)
+data SrcPos = SrcPos
+  { _posFile :: !FilePath
+  , posLine  :: !Int
+  } deriving (Eq, Ord)
 
 instance Show a => Show (Pos a) where
-    show (Pos pos val) = show pos ++ ":" ++ show val
+  show (Pos pos val) = show pos ++ ":" ++ show val
 instance Show SrcPos where
-    show (SrcPos fn line) = fn ++ ":" ++ show line
+  show (SrcPos fn line) = fn ++ ":" ++ show line
 
 -- * process
 
 -- | Global processing for when all tags are together.
-processAll :: [Pos TagVal] -> [Pos TagVal]
-processAll = sortDups . dropDups (\t -> (posOf t, tagText t))
-    . sortOn tagText
+processAll :: [[Pos TagVal]] -> [Pos TagVal]
+processAll =
+  sortDups .
+  dropDups isDuplicatePair .
+  combineBalanced (mergeOn tagSortingKey) .
+  map (dropDups isDuplicatePair)
+  where
+    isDuplicatePair :: Pos TagVal -> Pos TagVal -> Bool
+    isDuplicatePair t t' =
+      f == f' &&
+      (l == l' ||
+       -- special hack to handle the case when type is on a separate line and
+       -- constructor is on the next, e.g.
+       -- data Foo a =,
+       --   Foo a Int
+       --   deriving (Show, Eq, Ord),
+       (l + 1) == l') &&
+      tagText t == tagText t'
+      where
+        SrcPos f  l  = posOf t
+        SrcPos f' l' = posOf t'
+
+combineBalanced :: forall a. (a -> a -> a) -> [a] -> a
+combineBalanced f xs = go xs
+  where
+    go :: [a] -> a
+    go [] = error "cannot combine empty list"
+    go xs@(_:_) =
+      case combine xs of
+        []  -> error "unexpected empty list when combining nonempty lists"
+        [x] -> x
+        xs' -> go xs'
+    combine :: [a] -> [a]
+    combine []        = []
+    combine [x]       = [x]
+    combine (x:x':xs) = f x x' : combine xs
 
 -- | Given multiple matches, vim will jump to the first one.  So sort adjacent
 -- tags with the same text by their type.
@@ -109,34 +190,73 @@ processAll = sortDups . dropDups (\t -> (posOf t, tagText t))
 -- Mostly this is so that given a type with the same name as its module,
 -- the type will come first.
 sortDups :: [Pos TagVal] -> [Pos TagVal]
-sortDups = concat . sort . List.groupBy (\a b -> tagText a == tagText b)
-    where
-    sort = map (sortOn key)
-    key :: Pos TagVal -> Int
-    key (Pos _ (Tag _ typ)) = case typ of
-        Function -> 0
-        Type -> 1
-        Constructor -> 2
-        Class -> 3
-        Module -> 4
+sortDups =
+  concatMap (sortOn tagType) .
+  M.elems .
+  M.fromAscListWith (++) .
+  map (fst . tagSortingKey &&& (:[]))
 
 tagText :: Pos TagVal -> Text
-tagText (Pos _ (Tag text _)) = text
+tagText (Pos _ (TagVal _ text _)) = text
+
+tagType :: Pos TagVal -> Type
+tagType (Pos _ (TagVal _ _ t)) = t
+
+tagLine :: Pos TagVal -> Int
+tagLine (Pos (SrcPos _ line) _) = line
 
 -- | Read tags from one file.
-processFile :: FilePath -> IO [Tag]
-processFile fn = fmap (process fn) (Text.IO.readFile fn)
-    `Exception.catch` \(exc :: Exception.SomeException) -> do
-        -- readFile will crash on files that are not UTF8.  Unfortunately not
-        -- all haskell source file are.
-        IO.hPutStrLn IO.stderr $ "exception reading " ++ show fn ++ ": "
-            ++ show exc
-        return []
+processFile :: Bool -> FilePath -> Bool -> IO ([Pos TagVal], [String])
+processFile ignoreEncodingErrors fn trackPrefixes =
+  fmap (process fn trackPrefixes) (T.readFile fn)
+  `Exception.catch` \(exc :: Exception.SomeException) -> do
+    -- readFile will crash on files that are not UTF8.  Unfortunately not
+    -- all haskell source file are.
+    IO.hPutStrLn IO.stderr $
+      "exception reading " ++ show fn ++ ": " ++ show exc
+    unless ignoreEncodingErrors $
+      void $ exitFailure
+    return ([], [])
+
+tagSortingKey :: Pos TagVal -> (Text, Type)
+tagSortingKey (Pos _ (TagVal _ name t)) = (name, t)
 
 -- | Process one file's worth of tags.
-process :: FilePath -> Text -> [Tag]
-process fn = concatMap blockTags . breakBlocks . stripComments
-    . Monoid.mconcat . map tokenize . stripCpp . annotate fn
+process :: FilePath -> Bool -> Text -> ([Pos TagVal], [String])
+process fn trackPrefixes =
+  splitAndRemoveRepeats . concatMap blockTags . breakBlocks . stripComments .
+  mconcat . map (tokenize trackPrefixes) . stripCpp . annotate fn . unlit'
+  where
+    splitAndRemoveRepeats :: [Tag] -> ([Pos TagVal], [String])
+    splitAndRemoveRepeats tags =
+      (mergeOn tagSortingKey (sortOn tagSortingKey newTags) earliestRepeats, warnings)
+      where
+        (newTags, repeatableTags, warnings) = partitionTags tags
+        earliestRepeats :: [Pos TagVal]
+        earliestRepeats =
+          M.elems $
+          M.fromListWith minLine $
+          map (tagSortingKey &&& id) repeatableTags
+        minLine x y
+          | tagLine x < tagLine y = x
+          | otherwise             = y
+    unlit' :: Text -> Text
+    unlit' s = if isLiterateFile fn
+               then T.pack $ unlit fn $ T.unpack s'
+               else s
+      where
+        s' :: Text
+        s' = if "\\begin{code}" `T.isInfixOf` s &&
+                "\\end{code}"   `T.isInfixOf` s
+             then T.unlines $ filter (not . birdLiterateLine) $ T.lines s
+             else s
+        birdLiterateLine :: Text -> Bool
+        birdLiterateLine xs
+          | T.null xs = False
+          | otherwise =
+            case T.uncons $ T.dropWhile Char.isSpace xs of
+              Just ('>', _) -> True
+              _             -> False
 
 -- * tokenize
 
@@ -148,141 +268,296 @@ annotate fn text =
 stripCpp :: [Line] -> [Line]
 stripCpp = filter $ not . ("#" `T.isPrefixOf`) . valOf
 
-tokenize :: Line -> UnstrippedTokens
-tokenize (Pos pos line) = UnstrippedTokens $ map (Pos pos) (tokenizeLine line)
+tokenize :: Bool -> Line -> UnstrippedTokens
+tokenize trackPrefixes (Pos pos line) =
+  UnstrippedTokens $ map (Pos pos) (tokenizeLine trackPrefixes line)
 
-tokenizeLine :: Text -> [TokenVal]
-tokenizeLine text = Newline nspaces : go line
-    where
-    nspaces = T.count " " spaces + T.count "\t" spaces * 8
+spanToken :: Text -> (Text, Text)
+spanToken text
+  -- ☡ special case to fight "--" biting too much input so that closing "-}"
+  -- becomes unavailable
+  | "--}" `T.isPrefixOf` text
+  = ("-}", T.drop 2 cs)
+  | Just sym <- L.find (`T.isPrefixOf` text) comments
+  = (sym, T.tail cs)
+  | Just sym <- L.find (`T.isPrefixOf` text) symbols
+  , let t = T.tail cs
+  , T.null t || not (haskellOpChar $ T.head t)
+  = (sym, t)
+  | c == '\''
+  = let (token, rest) = breakChar   cs in (T.cons c token, rest)
+  | c == '"'
+  = let (token, rest) = breakString cs in (T.cons c token, rest)
+  | state@(token, _) <- spanSymbol (haskellOpChar c) text,
+    not (T.null token)
+  = state
+  | otherwise
+  -- This will tokenize differently than haskell should, e.g., 9x will
+  -- be "9x" not "9" "x".  But I just need a wordlike chunk, not an
+  -- actual token.  Otherwise I'd have to tokenize numbers.
+  = case T.span (identChar $ Char.isUpper c) text of
+      ("", _)       -> (T.singleton c, cs)
+      (token, rest) -> (token, rest)
+  where
+    Just (c, cs) = T.uncons text
+    comments = ["{-", "-}"]
+    symbols = ["--", "=>", "->", "::"]
+
+tokenizeLine :: Bool -> Text -> [TokenVal]
+tokenizeLine trackPrefixes text = Newline nspaces : go spaces line
+  where
+    nspaces = fromIntegral $ T.count " " spaces + T.count "\t" spaces * 8
     (spaces, line) = T.break (not . Char.isSpace) text
-    symbols = ["--", "{-", "-}", "=>", "->", "::"]
-    go unstripped
-        | T.null text = []
-        | Just sym <- List.find (`T.isPrefixOf` text) symbols =
-            Token sym : go (T.drop (T.length sym) text)
-        | c == '\'' = let (token, rest) = breakChar text
-            in Token (T.cons c token) : go rest
-        | c == '"' = go (skipString cs)
-        | (token, rest) <- spanSymbol text, not (T.null token) =
-            Token token : go rest
-        -- This will tokenize differently than haskell should, e.g.
-        -- 9x will be "9x" not "9" "x".  But I just need a wordlike chunk, not
-        -- an actual token.  Otherwise I'd have to tokenize numbers.
-        | otherwise = case T.span identChar text of
-            ("", _) -> Token (T.singleton c) : go cs
-            (token, rest) -> Token token : go rest
-        where
-        text = T.dropWhile Char.isSpace unstripped
-        c = T.head text
-        cs = T.tail text
+    go :: Text -> Text -> [TokenVal]
+    go oldPrefix unstripped
+      | T.null stripped = []
+      | otherwise       =
+        let (token, rest) = spanToken stripped
+            newPrefix     = if trackPrefixes
+                            then oldPrefix <> spaces <> token
+                            else T.empty
+        in Token newPrefix token : go newPrefix rest
+      where
+        (spaces, stripped) = T.break (not . Char.isSpace) unstripped
 
 startIdentChar :: Char -> Bool
 startIdentChar c = Char.isAlpha c || c == '_'
 
-identChar :: Char -> Bool
-identChar c = Char.isAlphaNum c || c == '.' || c == '\'' || c == '_'
+identChar :: Bool -> Char -> Bool
+identChar considerDot c =
+  Char.isAlphaNum c ||
+  c == '\'' ||
+  c == '_' ||
+  c == '#' ||
+  considerDot && c == '.'
+
+-- unicode operators are not supported yet
+haskellOpChar :: Char -> Bool
+haskellOpChar = \c -> IS.member (Char.ord c) opChars
+  where
+    opChars :: IntSet
+    opChars = IS.fromList $ map Char.ord "-!#$%&*+./<=>?@^|~:\\"
+
+isTypeVarStart :: Text -> Bool
+isTypeVarStart x =
+  case T.uncons x of
+    Just (c, _) -> Char.isLower c || c == '_'
+    _           -> False
 
 -- | Span a symbol, making sure to not eat comments.
-spanSymbol :: Text -> (Text, Text)
-spanSymbol text
-    | any (`T.isPrefixOf` post) [",", "--", "-}", "{-"] = (pre, post)
-    | Just (c, cs) <- T.uncons post, c == '-' || c == '{' =
-        let (pre2, post2) = spanSymbol cs
-        in (pre <> T.cons c pre2, post2)
-    | otherwise = (pre, post)
-    where
-    (pre, post) = T.break (\c -> T.any (==c) "-{," || not (symbolChar c)) text
+spanSymbol :: Bool -> Text -> (Text, Text)
+spanSymbol considerColon text
+  | Just res <- haskellOp text [] =
+    res
+  | any (`T.isPrefixOf` post) [",", "--", "-}", "{-"] =
+    split
+  | Just (c, cs) <- T.uncons post
+  , c == '-' || c == '{' =
+    let (pre2, post2) = spanSymbol considerColon cs
+    in (pre <> T.cons c pre2, post2)
+  | otherwise = split
+  where
+    split@(pre, post) = T.break (\c -> T.any (==c) "-{," || not (symbolChar considerColon c)) text
 
-symbolChar :: Char -> Bool
-symbolChar c = Char.isSymbol c || Char.isPunctuation c
+    haskellOp :: Text -> [Char] -> Maybe (Text, Text)
+    haskellOp txt op
+      | Just (c, cs) <- T.uncons txt
+      , haskellOpChar c
+      , not $ "-}" `T.isPrefixOf` txt =
+        haskellOp cs $ c: op
+      | null op   = Nothing
+      | otherwise = Just (T.pack $ reverse op, txt)
+
+symbolChar :: Bool -> Char -> Bool
+symbolChar considerColon c =
+  (Char.isSymbol c || Char.isPunctuation c) &&
+  (not (c `elem` "(),;[]`{}_:\"'") ||
+   considerColon && c == ':')
 
 breakChar :: Text -> (Text, Text)
 breakChar text
-    | T.null text = ("", "")
-    | T.head text == '\\' = T.splitAt 3 text
-    | otherwise = T.splitAt 2 text
+  | T.null text = ("", "")
+  | T.head text == '\\' = T.splitAt 3 text
+  | otherwise = T.splitAt 2 text
 
--- | Skip until the ending double-quote of a string.  Tags never happen in
--- strings so I don't need to keep it.
---
 -- TODO \ continuation isn't supported.  I'd have to tokenize at the file
 -- level instead of the line level.
-skipString :: Text -> Text
-skipString text = case T.uncons (T.dropWhile (not . end) text) of
-    Nothing -> ""
-    Just (c, cs)
-        | c == '"' -> cs
-        | otherwise -> skipString (T.drop 1 cs)
-    where end c = c == '\\' || c == '"'
+breakString :: Text -> (Text, Text)
+breakString = (T.pack . reverse *** T.pack) . go [] . T.unpack
+  where
+    go :: String -> String -> (String, String)
+    go s []             = (s, [])
+    go s ('"':xs)       = ('"': s, xs)
+    go s ('\\':[])      = (s, "\\")
+    -- handle string continuation
+    go s ('\\':'\n':xs) = go s $ dropBackslash $ dropWhile (\c -> c /= '\\' && c /= '"') xs
+    go s ('\\':x:xs)    = go (x: '\\': s) xs
+    go s (x:xs)         = go (x: s) xs
+
+    dropBackslash :: String -> String
+    dropBackslash ('\\':xs) = xs
+    dropBackslash xs        = xs
 
 stripComments :: UnstrippedTokens -> UnstrippedTokens
 stripComments = mapTokens (go 0)
-    where
+  where
     go :: Int -> [Token] -> [Token]
     go _ [] = []
     go nest (pos@(Pos _ token) : rest)
-        | token == Token "--" = go nest (dropLine rest)
-        | token == Token "{-" = go (nest+1) rest
-        | token == Token "-}" = go (nest-1) rest
-        | nest > 0 = go nest rest
-        | otherwise = pos : go nest rest
+      | token `nameStartsWith` "{-"                     = go (nest + 1) rest
+      | token `nameEndsWith` "-}"                       = go (nest - 1) rest
+      | nest == 0 && tokenNameSatisfies token isComment = go nest (dropLine rest)
+      | nest > 0                                        = go nest rest
+      | otherwise                                       = pos: go nest rest
+    dropLine :: [Token] -> [Token]
+    dropLine = dropWhile (not . isNewline)
+    isComment :: Text -> Bool
+    isComment name =
+      "--" `T.isPrefixOf` name &&
+      T.all (\c -> not (haskellOpChar c) || c == '-') (T.drop 2 name)
 
 -- | Break the input up into blocks based on indentation.
 breakBlocks :: UnstrippedTokens -> [UnstrippedTokens]
-breakBlocks = map UnstrippedTokens . filter (not . null) . go . filterBlank
-    . unstrippedTokensOf
-    where
-    go [] = []
+breakBlocks = map UnstrippedTokens . filter (not . null) .
+              go . filterBlank . unstrippedTokensOf
+  where
+    go :: [Token] -> [[Token]]
+    go []     = []
     go tokens = pre : go post
-        where (pre, post) = breakBlock tokens
+      where
+        (pre, post) = breakBlock tokens
     -- Blank lines mess up the indentation.
-    filterBlank [] = []
-    filterBlank (Pos _ (Newline _) : xs@(Pos _ (Newline _) : _)) =
-        filterBlank xs
-    filterBlank (x:xs) = x : filterBlank xs
+    filterBlank :: [Token] -> [Token]
+    filterBlank []                                             = []
+    filterBlank (Pos _ (Newline _): xs@(Pos _ (Newline _): _)) = filterBlank xs
+    filterBlank (x:xs)                                         = x: filterBlank xs
 
 -- | Take until a newline, then take lines until the indent established after
--- that newline decreases.
+-- that newline decreases. Or, alternatively, if "{" is encountered then count
+-- it as a block until closing "}" is found taking nesting into account.
 breakBlock :: [Token] -> ([Token], [Token])
 breakBlock (t@(Pos _ tok):ts) = case tok of
-    Newline indent -> collectIndented indent ts
-    _ -> let (pre, post) = breakBlock ts in (t:pre, post)
-    where
-    collectIndented indent (t@(Pos _ tok) : ts) = case tok of
-        Newline n | n <= indent -> ([], t:ts)
-        _ -> let (pre, post) = collectIndented indent ts in (t:pre, post)
+  Newline indent -> collectIndented indent ts
+  Token _ "{"    -> collectBracedBlock breakBlock ts 1
+  _              -> remember t $ breakBlock ts
+  where
+    collectIndented :: Int -> [Token] -> ([Token], [Token])
+    collectIndented indent tsFull@(t@(Pos _ tok): ts) =
+      case tok of
+        Newline n | n <= indent -> ([], tsFull)
+        Token _ "{" -> remember t $ collectBracedBlock (collectIndented indent) ts 1
+        _           -> remember t $ collectIndented indent ts
     collectIndented _ [] = ([], [])
-breakBlock [] = ([], [])
 
+    collectBracedBlock :: ([Token] -> ([Token], [Token])) ->
+                          [Token] ->
+                          Int ->
+                          ([Token], [Token])
+    collectBracedBlock _    []                           _ = ([], [])
+    collectBracedBlock cont ts                           0 = cont ts
+    collectBracedBlock cont (t@(Pos _ (Token _ "{")):ts) n =
+      remember t $ collectBracedBlock cont ts $! n + 1
+    collectBracedBlock cont (t@(Pos _ (Token _ "}")):ts) n =
+      remember t $ collectBracedBlock cont ts $! n - 1
+    collectBracedBlock cont (t:ts)                       n =
+      remember t $ collectBracedBlock cont ts n
+
+    remember :: Token -> ([Token], [Token]) -> ([Token], [Token])
+    remember t (xs, ys) = (t: xs, ys)
+breakBlock [] = ([], [])
 
 -- * extract tags
 
 -- | Get all the tags in one indented block.
 blockTags :: UnstrippedTokens -> [Tag]
-blockTags tokens = case stripNewlines tokens of
-    [] -> []
-    Pos _ (Token "module") : Pos pos (Token name) : _ ->
-        [mktag pos (snd (T.breakOnEnd "." name)) Module]
-    -- newtype X * = X *
-    Pos _ (Token "newtype") : Pos pos (Token name) : rest ->
-        mktag pos name Type : newtypeTags pos rest
-    -- type family X ...
-    Pos _ (Token "type") : Pos _ (Token "family") : Pos pos (Token name) : _ ->
-        [mktag pos name Type]
-    -- type X * = ...
-    Pos _ (Token "type") : Pos pos (Token name) : _ -> [mktag pos name Type]
-    -- data family X ...
-    Pos _ (Token "data") : Pos _ (Token "family") : Pos pos (Token name) : _ ->
-        [mktag pos name Type]
-    -- data X * = X { X :: *, X :: * }
-    -- data X * where ...
-    Pos _ (Token "data") : Pos pos (Token name) : _ ->
-        mktag pos name Type : dataTags pos (mapTokens (drop 2) tokens)
-    -- class * => X where X :: * ...
-    Pos pos (Token "class") : _ -> classTags pos (mapTokens (drop 1) tokens)
-    -- x, y, z :: *
-    stripped -> fst $ functionTags False stripped
+blockTags unstripped = case stripNewlines unstripped of
+  [] -> []
+  Pos _ (Token _ "module"): Pos pos (Token prefix name): _ ->
+      [mkTag pos prefix (snd (T.breakOnEnd "." name)) Module]
+  Pos _ (Token _ "pattern"): Pos pos (Token prefix name): _
+    | not (T.null name) && Char.isUpper (T.head name) ->
+      [mkTag pos prefix name Pattern]
+  Pos _ (Token _ "foreign"): decl -> foreignTags decl
+  -- newtype instance * = ...
+  Pos _ (Token _ "newtype"): Pos _ (Token _ "instance"): (dropDataContext -> Pos pos _: rest) ->
+     newtypeTags pos rest
+  -- newtype X * = X *
+  Pos _ (Token _ "newtype"): (dropDataContext -> whole@(tok@(Pos pos (Token _ name)): rest)) ->
+    if isTypeName name
+    then tokToTag tok Type : newtypeTags pos rest
+    else let (pos', tok, rest') = recordInfixName Type whole
+         in tok: newtypeTags pos' rest'
+  -- type family X ...
+  Pos _ (Token _ "type"): Pos _ (Token _ "family"): (dropDataContext -> whole@(tok@(Pos _ (Token _ name)): _)) ->
+    if isTypeFamilyName name
+    then [tokToTag tok Type]
+    else let (_, tok, _) = recordInfixName Type whole
+         in [tok]
+  -- type X * = ...
+  Pos _ (Token _ "type"): (dropDataContext -> whole@(tok@(Pos _ (Token _ name)): _)) ->
+    if isTypeName name
+    then [tokToTag tok Type]
+    else let (_, tok, _) = recordInfixName Type whole
+         in [tok]
+  -- data family X ...
+  Pos _ (Token _ "data"): Pos _ (Token _ "family"): (dropDataContext -> tok@(Pos _ (Token _ name)): rest) ->
+    if isTypeFamilyName name
+    then [tokToTag tok Type]
+    else let (_, tok, _) = recordInfixName Type rest
+         in [tok]
+  -- data instance * = ...
+  -- data instance * where ...
+  Pos _ (Token _ "data"): Pos _ (Token _ "instance"): (dropDataContext -> Pos pos _: _) ->
+    dataConstructorTags pos (dropTokens 2 unstripped)
+  -- data X * = X { X :: *, X :: * }
+  -- data X * where ...
+  Pos _ (Token _ "data"): (dropDataContext -> tok@(Pos pos (Token _ name)): rest) ->
+    if isTypeName name
+    then tokToTag tok Type : dataConstructorTags pos (dropTokens 2 unstripped)
+    -- if token after data is not a type name then it isn't
+    -- infix type as well since it may be only '(' or some
+    -- lowercase name, either of which is not type constructor
+    else let (pos', tok, _) = recordInfixName Type rest
+         in tok: dataConstructorTags pos' (dropTokens 1 unstripped)
+  -- class * => X where X :: * ...
+  Pos pos (Token _ "class") : _ -> classTags pos (dropTokens 1 unstripped)
+
+  Pos _ (Token _ "infix") : _ -> []
+  Pos _ (Token _ "infixl") : _ -> []
+  Pos _ (Token _ "infixr") : _ -> []
+  -- instance * where data * = X :: * ...
+  Pos pos (Token _ "instance") : _ -> instanceTags pos (dropTokens 1 unstripped)
+  -- x, y, z :: *
+  stripped -> toplevelFunctionTags stripped
+
+isTypeFamilyName :: Text -> Bool
+isTypeFamilyName x =
+  not (T.null x) && (Char.isUpper c || haskellOpChar c) where c = T.head x
+
+isTypeName  :: Text -> Bool
+isTypeName x =
+  case T.uncons x of
+    Just (c, _) -> Char.isUpper c || c == ':'
+    _           -> False
+
+dropDataContext :: [Token] -> [Token]
+dropDataContext = stripParensKindsTypeVars . stripOptContext
+
+recordInfixName :: Type -> [Token] -> (SrcPos, Tag, [Token])
+recordInfixName tokenType tokens = (pos, tokToTag tok tokenType, rest)
+  where
+    (tok@(Pos pos _) : rest) = dropInfixTypeStart tokens
+
+-- same as dropWhile with counting
+dropInfixTypeStart :: [Token] -> [Token]
+dropInfixTypeStart tokens = dropWhile f tokens
+  where
+    f (Pos _ (Token _ name)) = isInfixTypePrefix name ||
+                               (T.length name == 1 && T.head name == '`')
+    f _                      = False
+
+    isInfixTypePrefix :: Text -> Bool
+    isInfixTypePrefix x = Char.isLower c || c == '(' where c = T.head x
 
 -- | It's easier to scan for tokens without pesky newlines popping up
 -- everywhere.  But I need to keep the newlines in in case I hit a @where@
@@ -290,152 +565,367 @@ blockTags tokens = case stripNewlines tokens of
 stripNewlines :: UnstrippedTokens -> [Token]
 stripNewlines = filter (not . isNewline) . (\(UnstrippedTokens t) -> t)
 
+-- | introduce tags for foreign imports
+foreignTags :: [Token] -> [Tag]
+foreignTags = \decl ->
+  case decl of
+    Pos _ (Token _ "import"): decl' ->
+      let name = last $
+                 takeWhile ((/= "::") . tokenName . valOf) $
+                 dropMember safety $
+                 dropMember callConv decl'
+      in [tokToTag name Pattern]
+    _ -> []
+  where
+    dropMember :: Set Text -> [Token] -> [Token]
+    dropMember dropNames = dropWhile (\tok -> S.member (tokenName $ valOf tok) dropNames)
+
+    safety :: Set Text
+    safety = S.fromList ["safe", "unsafe"]
+
+    callConv :: Set Text
+    callConv = S.fromList ["ccall", "stdcall", "cplusplus", "jvm", "dotnet"]
+
+toplevelFunctionTags :: [Token] -> [Tag]
+toplevelFunctionTags toks =
+  case tags of
+    -- tags of toplevel functions are all repeatable, even the ones that come from
+    -- the type signature because there will definitile be tags from the body and they
+    -- should be sorted out if type signature is present.
+    [] -> functionTagsNoSig toks
+    _  -> map toRepeatableTag $ tags
+  where
+    -- first try to detect tags from type signature, if it fails then
+    -- do the actual work of detecting from body
+    (tags, _) = functionTags False toks
+    toRepeatableTag :: Tag -> Tag
+    toRepeatableTag (Tag t) = RepeatableTag t
+    toRepeatableTag t       = t
+
+functionTagsNoSig :: [Token] -> [Tag]
+functionTagsNoSig toks = go toks
+  where
+    go :: [Token] -> [Tag]
+    go []                           = []
+    go toks@(Pos _ (Token _ "("):_) = go $ stripBalancedParens toks
+    go (Pos pos (Token prefix name):ts)
+      | name == "::"               = [] -- this function does not analyze type signatures
+      | name == "!" || name == "~" = go ts
+      | name == "=" || name == "|" =
+        case stripParens toks of
+          Pos pos (Token prefix name): _
+            | functionName False name  -> [mkRepeatableTag pos prefix name Function]
+            | T.all haskellOpChar name -> [mkRepeatableTag pos prefix name Operator]
+          _ -> []
+      | name == "`"                =
+        case ts of
+          Pos pos' (Token prefix' name'):_
+            | functionName False name' -> [mkRepeatableTag pos' prefix' name' Function]
+          _ -> go ts
+      | T.all haskellOpChar name   = [mkRepeatableTag pos prefix name Operator]
+      | otherwise                  = go ts
+    stripParens :: [Token] -> [Token]
+    stripParens = dropWhile ((`hasName` "(") . valOf)
+
 -- | Get tags from a function type declaration: token , token , token ::
 -- Return the tokens left over.
-functionTags :: Bool -- ^ expect constructors, not functions
-    -> [Token] -> ([Tag], [Token])
+functionTags :: Bool -> -- ^ expect constructors, not functions
+                [Token] ->
+                ([Tag], [Token])
 functionTags constructors = go []
-    where
-    go tags (Pos pos (Token name) : Pos _ (Token "::") : rest)
-        | Just name <- functionName constructors name =
-            (reverse $ mktag pos name Function : tags, rest)
-    go tags (Pos pos (Token name) : Pos _ (Token ",") : rest)
-            | Just name <- functionName constructors name =
-        go (mktag pos name Function : tags) rest
+  where
+    opTag   = if constructors then Constructor else Operator
+    funcTag = if constructors then Constructor else Function
+    go :: [Tag] -> [Token] -> ([Tag], [Token])
+    go tags (Pos _ (Token _ "("): Pos pos (Token _ name): Pos _ (Token prefix ")"): Pos _ (Token _ "::"): rest) =
+        (reverse $ mkTag pos prefix name opTag: tags, rest)
+    go tags (Pos pos (Token prefix name): Pos _ (Token _ "::"): rest)
+        | functionName constructors name =
+        (reverse $ mkTag pos prefix name funcTag : tags, rest)
+    go tags (Pos _ (Token _ "("): Pos pos (Token _ name): Pos _ (Token prefix ")"): Pos _ (Token _ ","): rest) =
+        go (mkTag pos prefix name opTag: tags) rest
+    go tags (Pos pos (Token prefix name): Pos _ (Token _ ","): rest)
+        | functionName constructors name =
+        go (mkTag pos prefix name funcTag: tags) rest
     go tags tokens = (tags, tokens)
 
-functionName :: Bool -> Text -> Maybe Text
-functionName constructors text
-    | isFunction text = Just text
-    | isOperator text && not (T.null stripped) = Just stripped
-    | otherwise = Nothing
-    where
-    isFunction text = case T.uncons text of
-        Just (c, cs) -> firstChar c && startIdentChar c && T.all identChar cs
-        Nothing -> False
-    firstChar = if constructors then Char.isUpper else not . Char.isUpper
-    -- Technically I could insist on colons if constructors is True, but
-    -- let's let ghc decide about the syntax.
-    isOperator text = "(" `T.isPrefixOf` text && ")" `T.isSuffixOf` text
-        && T.all symbolChar stripped
-    stripped = T.drop 1 $ T.take (T.length text - 1) text
+functionName :: Bool -> Text -> Bool
+functionName constructors text = isFunction text
+  where
+    isFunction text =
+      case T.uncons text of
+        Just (c, cs) -> firstChar c && startIdentChar c && T.all (identChar True) cs
+        Nothing      -> False
+    firstChar = if constructors
+                then Char.isUpper
+                else \c -> Char.isLower c || c == '_'
 
 -- | * = X *
 newtypeTags :: SrcPos -> [Token] -> [Tag]
-newtypeTags prevPos tokens = case dropUntil "=" tokens of
-    Pos pos (Token name) : _ -> [mktag pos name Constructor]
+newtypeTags prevPos tokens =
+  case dropUntil "=" tokens of
+    Pos pos (Token prefix name) : rest ->
+        let constructor = mkTag pos prefix name Constructor
+        in  case rest of
+            Pos _ (Token _ "{"): Pos funcPos (Token funcPrefix funcName): _ ->
+                [constructor, mkTag funcPos funcPrefix funcName Function]
+            _ ->
+                [constructor]
     rest -> unexpected prevPos (UnstrippedTokens tokens) rest "newtype * ="
 
 -- | [] (empty data declaration)
 -- * = X { X :: *, X :: * }
 -- * where X :: * X :: *
 -- * = X | X
-dataTags :: SrcPos -> UnstrippedTokens -> [Tag]
-dataTags prevPos unstripped
-    | any ((== Token "where") . valOf) (unstrippedTokensOf unstripped) =
-        concatMap gadtTags (whereBlock unstripped)
-    | otherwise = case dropUntil "=" (stripNewlines unstripped) of
-        [] -> [] -- empty data declaration
-        Pos pos (Token name) : rest ->
-            mktag pos name Constructor : collectRest rest
-        rest -> unexpected prevPos unstripped rest "data * ="
-    where
+dataConstructorTags :: SrcPos -> UnstrippedTokens -> [Tag]
+dataConstructorTags prevPos unstripped
+  -- GADT
+  | any ((`hasName` "where") . valOf) (unstrippedTokensOf unstripped) =
+      concatMap gadtTags (whereBlock unstripped)
+  -- plain ADT
+  | otherwise =
+    case stripOptBang $ stripOptContext $ stripOptForall $ dropUntil "=" $
+         stripNewlines unstripped of
+      [] -> [] -- empty data declaration
+      rest | Just (Pos pos (Token prefix name), rest') <-
+             extractInfixConstructor rest ->
+        mkTag pos prefix name Constructor : collectRest rest'
+      Pos pos (Token prefix name) : rest ->
+        mkTag pos prefix name Constructor : collectRest rest
+      rest -> unexpected prevPos unstripped rest "data * ="
+  where
+    collectRest :: [Token] -> [Tag]
     collectRest tokens
-        | (tags@(_:_), rest) <- functionTags False tokens =
-            tags ++ collectRest rest
-    collectRest (Pos _ (Token "|") : Pos pos (Token name) : rest) =
-        mktag pos name Constructor : collectRest rest
+      | (tags@(_:_), rest) <- functionTags False tokens =
+          tags ++ collectRest (dropUntilNextField rest)
+    collectRest (Pos pipePos (Token _ "|") : rest)
+      | Just (Pos pos (Token prefix name), rest'') <-
+          extractInfixConstructor rest' =
+            mkTag pos prefix name Constructor: collectRest rest''
+      | Pos pos (Token prefix name): rest'' <- rest' =
+          mkTag pos prefix name Constructor : collectRest (dropUntilNextCaseOrRecordStart rest'')
+      | otherwise = error (printf "syntax error@%d: | not followed by tokens\n" (posLine pipePos))
+      where
+        rest' = stripOptBang $ stripOptContext $ stripOptForall rest
     collectRest (_ : rest) = collectRest rest
     collectRest [] = []
+
+    stripOptBang :: [Token] -> [Token]
+    stripOptBang ((Pos _ (Token _ "!")): rest) = rest
+    stripOptBang ts                            = ts
+
+    extractInfixConstructor :: [Token] -> Maybe (Token, [Token])
+    extractInfixConstructor = extract . stripTypeParam
+      where
+        extract :: [Token] -> Maybe (Token, [Token])
+        extract (tok@(Pos _ (Token _ name)): rest)
+          | not (T.null name) && T.head name == ':'
+          = Just (tok, stripTypeParam rest)
+        extract (Pos _ (Token _ "`"): tok@(Pos _ _): Pos _ (Token _ "`"): rest) =
+          Just (tok, stripTypeParam rest)
+        extract _ = Nothing
+        stripTypeParam :: [Token] -> [Token]
+        stripTypeParam input@((Pos _ (Token _ "(")): _) = stripBalancedParens input
+        stripTypeParam input@((Pos _ (Token _ "[")): _) = stripBalancedBrackets input
+        stripTypeParam ts                               = tailSafe ts
+
+    dropUntilNextCaseOrRecordStart :: [Token] -> [Token]
+    dropUntilNextCaseOrRecordStart =
+      dropWithStrippingBalanced (\x -> not $ x == "|" || x == "{")
+
+    dropUntilNextField :: [Token] -> [Token]
+    dropUntilNextField =
+      dropWithStrippingBalanced (\x -> not $ x == "," || x == "}" || x == "|")
+
+stripOptForall :: [Token] -> [Token]
+stripOptForall (Pos _ (Token _ "forall"): rest) = dropUntil "." rest
+stripOptForall xs                               = xs
+
+stripParensKindsTypeVars :: [Token] -> [Token]
+stripParensKindsTypeVars (Pos _ (Token _ "("): xs)  =
+  stripParensKindsTypeVars xs
+stripParensKindsTypeVars (Pos _ (Token _ "::"): xs) =
+  stripParensKindsTypeVars $ tail $ dropWithStrippingBalanced (/= ")") xs
+stripParensKindsTypeVars (Pos _ (Token _ name): xs)
+  | isTypeVarStart name = stripParensKindsTypeVars xs
+stripParensKindsTypeVars xs = xs
+
+stripOptContext :: [Token] -> [Token]
+stripOptContext (stripBalancedParens -> (Pos _ (Token _ "=>"): xs))   = xs
+stripOptContext (stripSingleClassContext -> Pos _ (Token _ "=>"): xs) = xs
+stripOptContext xs                                                    = xs
+
+stripSingleClassContext :: [Token] -> [Token]
+stripSingleClassContext (Pos _ (Token _ name): xs)
+  | Char.isUpper $ T.head name = dropWithStrippingBalanced isTypeVarStart xs
+stripSingleClassContext xs = xs
+
+-- | Drop all tokens for which @pred@ returns True, also drop
+-- any parenthesized expressions.
+dropWithStrippingBalanced :: (Text -> Bool) -> [Token] -> [Token]
+dropWithStrippingBalanced pred input@(Pos _ (Token _ name): xs)
+  | name == "(" = dropWithStrippingBalanced pred $ stripBalancedParens input
+  | name == "[" = dropWithStrippingBalanced pred $ stripBalancedBrackets input
+  | pred name   = dropWithStrippingBalanced pred xs
+dropWithStrippingBalanced _ xs = xs
+
+stripBalancedParens :: [Token] -> [Token]
+stripBalancedParens = stripBalanced "(" ")"
+
+stripBalancedBrackets :: [Token] -> [Token]
+stripBalancedBrackets = stripBalanced "[" "]"
+
+stripBalanced :: Text -> Text -> [Token] -> [Token]
+stripBalanced open close (Pos _ (Token _ name): xs)
+  | name == open = go 1 xs
+  where
+    go :: Int -> [Token] -> [Token]
+    go 0 xs                          = xs
+    go !n (Pos _ (Token _ name): xs)
+      | name == open  = go (n + 1) xs
+      | name == close = go (n - 1) xs
+      | otherwise     = go n       xs
+    go n (_: xs)                     = go n xs
+    go _ []                          = []
+stripBalanced _ _ xs = xs
 
 gadtTags :: UnstrippedTokens -> [Tag]
 gadtTags = fst . functionTags True . stripNewlines
 
 -- | * => X where X :: * ...
 classTags :: SrcPos -> UnstrippedTokens -> [Tag]
-classTags prevPos unstripped = case dropContext (stripNewlines unstripped) of
-    Pos pos (Token name) : _ ->
-        -- Drop the where and start expecting functions.
-        mktag pos name Class : concatMap classBodyTags (whereBlock unstripped)
+classTags prevPos unstripped =
+  case dropDataContext $ stripNewlines unstripped of
+    whole@(tok@(Pos _ (Token _ name)): _) ->
+      -- Drop the where and start expecting functions.
+      let cont = concatMap classBodyTags (whereBlock unstripped)
+      in  if isTypeName name
+          then tokToTag tok Class: cont
+          else let (_, tok, _) = recordInfixName Class whole
+               in tok: concatMap classBodyTags (whereBlock unstripped)
     rest -> unexpected prevPos unstripped rest "class * =>"
-    where
-    dropContext tokens
-        | any ((== Token "=>") . valOf) (takeUntil "where" tokens) =
-            dropUntil "=>" tokens
-        | otherwise = tokens
 
 classBodyTags :: UnstrippedTokens -> [Tag]
 classBodyTags unstripped = case stripNewlines unstripped of
-    Pos _ (Token typedata) : Pos pos (Token name) : _
-        | typedata `elem` ["type", "data"] -> [mktag pos name Type]
-    tokens -> fst $ functionTags False tokens
+  Pos _ (Token _ typedata) : Pos pos (Token prefix name) : _
+    | typedata `elem` ["type", "data"] -> [mkTag pos prefix name Type]
+  tokens -> fst $ functionTags False tokens
 
 -- | Skip to the where and split the indented block below it.
 whereBlock :: UnstrippedTokens -> [UnstrippedTokens]
 whereBlock = breakBlocks . mapTokens (dropUntil "where")
 
+instanceTags :: SrcPos -> UnstrippedTokens -> [Tag]
+instanceTags prevPos unstripped =
+  -- instances can offer nothing but some fresh data constructors since
+  -- the actual datatype is really declared in the class declaration
+  concatMap (newtypeTags prevPos . unstrippedTokensOf)
+            (filter isNewtypeDecl block)
+  ++
+  concatMap (dataConstructorTags prevPos)
+            (filter isDataDecl block)
+  where
+    block = whereBlock unstripped
+
+    isNewtypeDecl :: UnstrippedTokens -> Bool
+    isNewtypeDecl (UnstrippedTokens (Pos _ (Token _ "newtype"): _)) = True
+    isNewtypeDecl _                                                 = False
+
+    isDataDecl :: UnstrippedTokens -> Bool
+    isDataDecl (UnstrippedTokens (Pos _ (Token _ "data"): _)) = True
+    isDataDecl _                                              = False
 
 -- * util
 
-mktag :: SrcPos -> Text -> Type -> Tag
-mktag pos name typ = Right $ Pos pos (Tag name typ)
+mkTag :: SrcPos -> Text -> Text -> Type -> Tag
+mkTag pos prefix name typ = Tag $ Pos pos (TagVal prefix name typ)
+
+mkRepeatableTag :: SrcPos -> Text -> Text -> Type -> Tag
+mkRepeatableTag pos prefix name typ = RepeatableTag $ Pos pos (TagVal prefix name typ)
+
+tokToTag :: Token -> Type -> Tag
+tokToTag (Pos pos (Token prefix name)) t = mkTag pos prefix name t
 
 warning :: SrcPos -> String -> Tag
-warning pos warn = Left $ show pos ++ ": " ++ warn
+warning pos warn = Warning $ show pos ++ ": " ++ warn
 
 unexpected :: SrcPos -> UnstrippedTokens -> [Token] -> String -> [Tag]
 unexpected prevPos (UnstrippedTokens tokensBefore) tokensHere declaration =
-    [warning pos ("unexpected " ++ thing ++ " after " ++ declaration)]
-    where
-    thing = if null tokensHere then "end of block"
-        else show (valOf (head tokensHere))
-    pos
-        | not (null tokensHere) = posOf (head tokensHere)
-        | not (null tokensBefore) = posOf (last tokensBefore)
-        | otherwise = prevPos
-
-dropLine :: [Token] -> [Token]
-dropLine = drop 1 . dropWhile (not . isNewline)
+  [warning pos ("unexpected " ++ thing ++ " after " ++ declaration)]
+  where
+  thing = if null tokensHere
+          then "end of block"
+          else show (valOf (head tokensHere))
+  pos
+    | not (null tokensHere) = posOf (head tokensHere)
+    | not (null tokensBefore) = posOf (last tokensBefore)
+    | otherwise = prevPos
 
 isNewline :: Token -> Bool
 isNewline (Pos _ (Newline _)) = True
-isNewline _ = False
+isNewline _                   = False
 
--- | Drop until a token, then drop that token.
+hasName :: TokenVal -> Text -> Bool
+hasName tok text = tokenNameSatisfies tok (== text)
+
+nameStartsWith :: TokenVal -> Text -> Bool
+nameStartsWith tok text = tokenNameSatisfies tok (text `T.isPrefixOf`)
+
+nameEndsWith :: TokenVal -> Text -> Bool
+nameEndsWith tok text = tokenNameSatisfies tok (text `T.isSuffixOf`)
+
+tokenNameSatisfies :: TokenVal -> (Text -> Bool) -> Bool
+tokenNameSatisfies (Token _ name) pred = pred name
+tokenNameSatisfies _              _    = False
+
 dropUntil :: Text -> [Token] -> [Token]
-dropUntil token = drop 1 . dropWhile ((/= Token token) . valOf)
-
--- | Take until, but not including, a token.
-takeUntil :: Text -> [Token] -> [Token]
-takeUntil token = takeWhile ((/= Token token) . valOf)
-
+dropUntil token = tailSafe . dropWhile (not . (`hasName` token) . valOf)
 
 -- * misc
 
-tracem :: Show a => String -> a -> a
-tracem msg x = Trace.trace (msg ++ ": " ++ show x) x
-
--- | If @op@ raised ENOENT, return Nothing.
-catchENOENT :: IO a -> IO (Maybe a)
-catchENOENT op = Exception.handleJust (guard . IO.Error.isDoesNotExistError)
-    (const (return Nothing)) (fmap Just op)
-
-dropDups :: Eq k => (a -> k) -> [a] -> [a]
-dropDups key (x:xs) = go x xs
-    where
+dropDups :: (a -> a -> Bool) -> [a] -> [a]
+dropDups cmp (x:xs) = go x xs
+  where
     go a [] = [a]
     go a (b:bs)
-        | key a == key b = go a bs
-        | otherwise = a : go b bs
+      | cmp a b   = go a bs
+      | otherwise = a: go b bs
 dropDups _ [] = []
 
-sortOn :: Ord k => (a -> k) -> [a] -> [a]
-sortOn key = List.sortBy (\a b -> compare (key a) (key b))
+sortOn :: (Ord k) => (a -> k) -> [a] -> [a]
+sortOn key = L.sortBy (compare `on` key)
 
--- | Merge sorted lists.
+-- split list into chunks delimited by specified element
+split :: (Eq a) => a -> [a] -> [[a]]
+split _ [] = []
+split x xs = xs': split x (tailSafe xs'')
+  where
+    (xs', xs'') = break (==x) xs
+
+tailSafe :: [a] -> [a]
+tailSafe []     = []
+tailSafe (_:xs) = xs
+
+-- | Crude predicate for Haskell files
+isHsFile :: FilePath -> Bool
+isHsFile fn = ".hs" `L.isSuffixOf` fn || isLiterateFile fn
+
+isLiterateFile :: FilePath -> Bool
+isLiterateFile fn = ".lhs" `L.isSuffixOf` fn
+
 merge :: Ord a => [a] -> [a] -> [a]
-merge [] ys = ys
-merge xs [] = xs
-merge (x:xs) (y:ys)
-    | x <= y = x : merge xs (y:ys)
-    | otherwise = y : merge (x:xs) ys
+merge = mergeBy compare
+
+mergeOn :: (Ord b) => (a -> b) -> [a] -> [a] -> [a]
+mergeOn f = mergeBy (compare `on` f)
+
+mergeBy :: (a -> a -> Ordering) -> [a] -> [a] -> [a]
+mergeBy f xs ys = go xs ys
+  where
+    go []     ys     = ys
+    go xs     []     = xs
+    go (x:xs) (y:ys) =
+      case f x y of
+        EQ -> x: y: go xs ys
+        LT -> x: go xs (y:ys)
+        GT -> y: go (x:xs) ys
