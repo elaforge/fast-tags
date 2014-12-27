@@ -70,11 +70,20 @@ flag fast
     description: Spend more time optimizing a program (may yield up to 25% speedup)
     default:     False
 
-executable fast-tags
-    main-is: Main.hs
-    hs-source-dirs: src
+library
     build-depends: base >= 3 && < 5, containers, cpphs >1.18, filepath, directory,
-        text >= 1.0
+                   text >= 1.0
+    exposed-modules: FastTags
+    hs-source-dirs: src
+    ghc-options: -Wall -fno-warn-name-shadowing
+    ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all
+    if flag(fast)
+        ghc-options: -funfolding-creation-threshold=10000 -funfolding-use-threshold=2500
+
+executable fast-tags
+    main-is: src/Main.hs
+    build-depends: base >= 3 && < 5, containers, filepath, directory,
+                   text >= 1.0, fast-tags
     ghc-options: -Wall -fno-warn-name-shadowing
     ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all
     if flag(fast)
@@ -83,8 +92,8 @@ executable fast-tags
 test-suite test-fast-tags
     type: exitcode-stdio-1.0
     main-is: MainTest.hs
-    hs-source-dirs: src tests
+    hs-source-dirs: tests
     ghc-options: -main-is MainTest
     ghc-prof-options: -main-is MainTest
-    build-depends: base >= 3 && < 5, containers, cpphs, filepath, directory,
-        text >= 1.0, tasty, tasty-hunit
+    build-depends: base >= 3 && < 5, containers, filepath, directory,
+                   text >= 1.0, tasty, tasty-hunit, fast-tags

@@ -12,8 +12,8 @@ import qualified Data.Text as T
 import Control.Exception (assert)
 import qualified System.IO.Unsafe as Unsafe
 
-import qualified Main as Main
-import Main (TokenVal(..), TagVal(..), Type(..), Tag, Pos(..))
+import qualified FastTags
+import FastTags (UnstrippedTokens(..), TokenVal(..), TagVal(..), Type(..), Tag, Pos(..))
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -73,8 +73,8 @@ testSkipString = testGroup "skipString"
   ]
   where
     (==>) = test f
-    f = snd . Main.breakString
-    f' = Main.breakString
+    f = snd . FastTags.breakString
+    f' = FastTags.breakString
 
 testStripComments :: TestTree
 testStripComments = testGroup "stripComments"
@@ -92,7 +92,7 @@ testStripComments = testGroup "stripComments"
   ]
   where
     (==>) = test f
-    f = extractTokens . Main.stripComments . tokenize
+    f = extractTokens . FastTags.stripComments . tokenize
 
 testBreakBlocks :: TestTree
 testBreakBlocks = testGroup "breakBlocks"
@@ -108,8 +108,8 @@ testBreakBlocks = testGroup "breakBlocks"
   ]
   where
     (==>) = test f
-    f = map (extractTokens . Main.UnstrippedTokens . Main.stripNewlines)
-        . Main.breakBlocks . tokenize
+    f = map (extractTokens . UnstrippedTokens . FastTags.stripNewlines)
+        . FastTags.breakBlocks . tokenize
 
 testProcessAll :: TestTree
 testProcessAll = testGroup "processAll"
@@ -130,8 +130,8 @@ testProcessAll = testGroup "processAll"
   where
     (==>) = test f
     f = map showTag
-        . Main.processAll
-        . map (\(i, t) -> fst $ Main.process ("fn" ++ show i) False t)
+        . FastTags.processAll
+        . map (\(i, t) -> fst $ FastTags.process ("fn" ++ show i) False t)
         . zip [0..]
     showTag (Pos p (TagVal _ text typ)) =
       unwords [show p, T.unpack text, show typ]
@@ -176,7 +176,7 @@ testMisc = testGroup "misc"
   ]
   where
     (==>) = test f
-    f = map valOf . fst . Main.process "fn.hs" False
+    f = map valOf . fst . FastTags.process "fn.hs" False
 
 testData :: TestTree
 testData = testGroup "data"
@@ -597,7 +597,7 @@ testLiterate = testGroup "literate"
   ]
   where
     (==>) = test f
-    f = map untag . fst . Main.process "fn.lhs" False
+    f = map untag . fst . FastTags.process "fn.lhs" False
 
 testPatterns :: TestTree
 testPatterns = testGroup "patterns"
@@ -622,16 +622,16 @@ testFFI = testGroup "ffi"
     (==>) = test process
 
 process :: Text -> [String]
-process = map untag . fst . Main.process "fn.hs" False
+process = map untag . fst . FastTags.process "fn.hs" False
 
 untag :: Pos TagVal -> String
 untag (Pos _ (TagVal _ name _)) = T.unpack name
 
-tokenize :: Text -> Main.UnstrippedTokens
+tokenize :: Text -> UnstrippedTokens
 tokenize =
-  Monoid.mconcat . map (Main.tokenize False) . Main.stripCpp . Main.annotate "fn"
+  Monoid.mconcat . map (FastTags.tokenize False) . FastTags.stripCpp . FastTags.annotate "fn"
 
-extractTokens :: Main.UnstrippedTokens -> [Text]
-extractTokens = map (\token -> case Main.valOf token of
+extractTokens :: UnstrippedTokens -> [Text]
+extractTokens = map (\token -> case FastTags.valOf token of
   Token _ name -> name
-  Newline n -> T.pack ("nl " ++ show n)) . Main.unstrippedTokensOf
+  Newline n -> T.pack ("nl " ++ show n)) . FastTags.unstrippedTokensOf
