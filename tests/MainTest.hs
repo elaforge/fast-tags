@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Main_test where
+
+module MainTest where
+
 import qualified Control.Exception as Exception
 import Control.Monad
 import qualified Data.Either as Either
@@ -55,7 +57,6 @@ testTokenize = testGroup "tokenize"
   -- we rely on this behavior
   , "data (:+) a b"     ==> ["data", "(", ":+", ")", "a", "b"]
   , "data (.::+::) a b" ==> ["data", "(", ".::+::", ")", "a", "b"]
-  , "{#call foo#}"      ==> ["{#", "call", "foo", "#}"]
   ]
   where
     (==>) = test f
@@ -147,7 +148,6 @@ testProcess = testGroup "process"
   , testLiterate
   , testPatterns
   , testFFI
-  , testC2HS
   ]
 
 testMisc :: TestTree
@@ -496,7 +496,6 @@ testFunctions = testGroup "functions"
       , "x ~ y = x" ==> ["x"]
       ]
 
-
 testClass :: TestTree
 testClass = testGroup "class"
   [ "class (X x) => C a b where\n\tm :: a->b\n\tn :: c\n" ==> ["C", "m", "n"]
@@ -535,6 +534,8 @@ testClass = testGroup "class"
     \  getF :: F f -> f"
     ==>
     ["A", "F", "getF", "mkF"]
+  -- Not confused by a class context on a method.
+  , "class X a where\n\tfoo :: Eq a => a -> a\n" ==> ["X", "foo"]
   ]
   where
     (==>) = test process
@@ -619,23 +620,6 @@ testFFI = testGroup "ffi"
   ]
   where
     (==>) = test process
-
-testC2HS :: TestTree
-testC2HS = testGroup "c2hs"
-  [ "{#enum enum_t as CEnum {} #}" ==> ["CEnum"]
-  , "{#enum enum_t as CEnum {underscoreToCase} #}" ==> ["CEnum"]
-  , "{#enum enum_t as CEnum {downcaseFirstLetter} #}" ==> ["CEnum"]
-  , "{#enum enum_t as CEnum {underscoreToCase,upcaseFirstLetter} #}" ==> ["CEnum"]
-  , "{#enum enum_t as CEnum {underscoreToCase,downcaseFirstLetter} #}"
-    ==> ["CEnum"]
-  , "{#enum enum_t as CEnum {underscoreToCase,downcaseFirstLetter, foo as Foo} #}"
-    ==> ["CEnum", "Foo"]
-  , "{#enum define CEnum {} #}" ==> ["CEnum"]
-  , "{#enum define CEnum {foo as Foo} #}" ==> ["CEnum", "Foo"]
-  ]
-  where
-    (==>) = test f
-    f = map untag . fst . Main.process "fn.c2hs"
 
 process :: Text -> [String]
 process = map untag . fst . Main.process "fn.hs" False

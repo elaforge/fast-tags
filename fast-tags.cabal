@@ -75,22 +75,16 @@ executable fast-tags
     hs-source-dirs: src
     build-depends: base >= 3 && < 5, containers, cpphs >1.18, filepath, directory,
         text >= 1.0
-    ghc-options: -Wall -fno-warn-name-shadowing -O2 -rtsopts
-    ghc-prof-options: -Wall -fno-warn-name-shadowing -O2 -rtsopts -auto-all
+    ghc-options: -Wall -fno-warn-name-shadowing
+    ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all
     if flag(fast)
         ghc-options: -funfolding-creation-threshold=10000 -funfolding-use-threshold=2500
 
-
 test-suite test-fast-tags
     type: exitcode-stdio-1.0
-    main-is: Main_test.hs
-    -- Since "main-is:" field doesn't do the same thing as -main-is flag for ghc
-    -- (see https://github.com/haskell/cabal/issues/172 for further information)
-    -- the -main-is module is specified here.
-    -- Optimizations are disabled for tests in order to leave assertion
-    -- mechanism functioning properly since ghc disables assertions when
-    -- optimizations are enabled
-    ghc-options: -main-is Main_test -O0
-    hs-source-dirs: src
+    main-is: MainTest.hs
+    hs-source-dirs: src tests
+    ghc-options: -main-is MainTest
+    ghc-prof-options: -main-is MainTest
     build-depends: base >= 3 && < 5, containers, cpphs, filepath, directory,
         text >= 1.0, tasty, tasty-hunit
