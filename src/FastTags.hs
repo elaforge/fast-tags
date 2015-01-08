@@ -156,18 +156,9 @@ processAll =
   where
     isDuplicatePair :: Pos TagVal -> Pos TagVal -> Bool
     isDuplicatePair t t' =
-      f == f' &&
-      (l == l' ||
-       -- special hack to handle the case when type is on a separate line and
-       -- constructor is on the next, e.g.
-       -- data Foo a =,
-       --   Foo a Int
-       --   deriving (Show, Eq, Ord),
-       (l + 1) == l') &&
-      tagText t == tagText t'
-      where
-        SrcPos f  l  = posOf t
-        SrcPos f' l' = posOf t'
+      posOf t   == posOf t'   &&
+      tagText t == tagText t' &&
+      tagType t == tagType t'
 
 combineBalanced :: forall a. (a -> a -> a) -> [a] -> a
 combineBalanced f xs = go xs

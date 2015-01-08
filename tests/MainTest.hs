@@ -119,13 +119,13 @@ testProcessAll = testGroup "processAll"
      \data X"]       ==> ["fn0:2 X Type", "fn0:1 X Module"]
   -- Extra X was filtered.
   , ["module X\n\
-     \data X = X\n"] ==> ["fn0:2 X Type", "fn0:1 X Module"]
+     \data X = X\n"] ==> ["fn0:2 X Type", "fn0:2 X Constructor", "fn0:1 X Module"]
   , ["module X\n\
      \data X a =\n\
-     \  X a\n"] ==> ["fn0:2 X Type", "fn0:1 X Module"]
+     \  X a\n"] ==> ["fn0:2 X Type", "fn0:3 X Constructor", "fn0:1 X Module"]
   , ["newtype A f a b = A\n\
      \  { unA :: f (a -> b) }"]
-    ==> ["fn0:1 A Type", "fn0:2 unA Function"]
+    ==> ["fn0:1 A Type", "fn0:1 A Constructor", "fn0:2 unA Function"]
   ]
   where
     (==>) = test f
