@@ -41,8 +41,6 @@ main = do
                                in usage $ errMsg ++ "\n" ++ help
 
     when (Help `elem` flags) $ usage help
-    when (null inputs) $
-        usage "no input files\n"
 
     let verbose       = Verbose `elem` flags
         emacs         = ETags `elem` flags
@@ -77,6 +75,8 @@ main = do
                         -- for now
 
     inputs <- inputsM
+    when (null inputs) $
+        usage "no input files on either command line or stdin\n"
     -- This will merge and sort the new tags.  But I don't run it on the
     -- the result of merging the old and new tags, so tags from another
     -- file won't be sorted properly.  To do that I'd have to parse all the
