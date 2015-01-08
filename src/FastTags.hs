@@ -601,7 +601,9 @@ functionTagsNoSig toks = go toks
     go toks@(Pos _ (Token _ "("):_) = go $ stripBalancedParens toks
     go (Pos pos (Token prefix name):ts)
       | name == "::"               = [] -- this function does not analyze type signatures
-      | name == "!" || name == "~" = go ts
+      | name == "!" ||
+        name == "~" ||
+        name == "@"                = go ts
       | name == "=" || name == "|" =
         case stripParens toks of
           Pos pos (Token prefix name): _

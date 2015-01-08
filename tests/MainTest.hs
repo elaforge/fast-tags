@@ -419,7 +419,6 @@ testFunctions = testGroup "functions"
 
   , "_g :: X -> Y" ==> ["_g"]
   , toplevelFunctionsWithoutSignatures
-  , toplevelFunctionsWithoutSignatures
   ]
   where
     (==>) = test process
@@ -442,6 +441,7 @@ testFunctions = testGroup "functions"
         , "(:*:) ((:+:) x y) z = x" ==> [":*:"]
         , strictMatchTests
         , lazyMatchTests
+        , atPatternsTests
         , "f x Nothing = x\n\
           \f x (Just y) = y"
           ==>
@@ -494,6 +494,24 @@ testFunctions = testGroup "functions"
       -- this is a degenerate case since even ghc treats ~ here as
       -- a BangPatterns instead of operator
       , "x ~ y = x" ==> ["x"]
+      ]
+    atPatternsTests = testGroup "at patterns (@)"
+      [ "f z@x y    = z"              ==> ["f"]
+      , "f x   z'@y = z'"             ==> ["f"]
+      , "f z@x z'@y = z"              ==> ["f"]
+      , "f z@(Foo _) z'@y = z"        ==> ["f"]
+      , "f z@(Foo _) z'@(Bar _) = z"  ==> ["f"]
+      , "f z @ x y  = z"              ==> ["f"]
+      , "f z @ (x : xs) = z: [x: xs]" ==> ["f"]
+      , "f z @ (x : zs @ xs) = z: [x: zs]"      ==> ["f"]
+      , "f z @ (zz @x : zs @ xs) = z: [zz: zs]" ==> ["f"]
+
+      , "(:*:) zzz@(x :+: y) z = x"            ==> [":*:"]
+      , "(:*:) zzz@(zx@x :+: zy@y) zz@z = x"   ==> [":*:"]
+      , "(:*:) zzz@((:+:) x y) z = x"          ==> [":*:"]
+      , "(:*:) zzz@((:+:) zs@x zs@y) zz@z = x" ==> [":*:"]
+
+      , "f z@(!x) ~y = x"              ==> ["f"]
       ]
 
 testClass :: TestTree
