@@ -35,6 +35,7 @@ where
 
 import Control.Arrow
 import Control.Monad
+import Control.DeepSeq
 import Data.IntSet (IntSet)
 import Data.Function (on)
 import Data.Monoid
@@ -57,8 +58,14 @@ import qualified System.IO as IO
 
 -- * types
 
-data TagVal = TagVal !Text !Text !Type
+data TagVal = TagVal
+                !Text -- ^ prefix
+                !Text -- ^ name
+                !Type -- ^ tag type
   deriving (Show)
+
+instance NFData TagVal where
+  rnf (TagVal x y z) = rnf x `seq` rnf y `seq` rnf z
 
 instance Eq TagVal where
   TagVal _ name t == TagVal _ name' t' = name == name' && t == t'
@@ -77,6 +84,15 @@ data Type =
   | Operator
   | Pattern
   deriving (Eq, Ord, Show)
+
+instance NFData Type where
+  rnf Function    = ()
+  rnf Type        = ()
+  rnf Constructor = ()
+  rnf Class       = ()
+  rnf Module      = ()
+  rnf Operator    = ()
+  rnf Pattern     = ()
 
 data TokenVal =
     Token !Text !Text
@@ -134,10 +150,16 @@ data Pos a = Pos
   }
   deriving (Eq, Ord)
 
+instance (NFData a) => NFData (Pos a) where
+  rnf (Pos x y) = rnf x `seq` rnf y
+
 data SrcPos = SrcPos
   { _posFile :: !FilePath
   , posLine  :: !Int
   } deriving (Eq, Ord)
+
+instance NFData SrcPos where
+  rnf (SrcPos x y) = rnf x `seq` rnf y
 
 instance Show a => Show (Pos a) where
   show (Pos pos val) = show pos ++ ":" ++ show val
