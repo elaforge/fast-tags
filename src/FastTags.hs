@@ -923,7 +923,10 @@ tailSafe (_:xs) = xs
 
 -- | Crude predicate for Haskell files
 isHsFile :: FilePath -> Bool
-isHsFile fn = ".hs" `L.isSuffixOf` fn || isLiterateFile fn
+isHsFile fn =
+  ".hs" `L.isSuffixOf` fn  ||
+  ".hsc" `L.isSuffixOf` fn ||
+  isLiterateFile fn
 
 isLiterateFile :: FilePath -> Bool
 isLiterateFile fn = ".lhs" `L.isSuffixOf` fn
