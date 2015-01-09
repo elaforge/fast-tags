@@ -35,6 +35,7 @@ where
 
 import Control.Arrow
 import Control.Monad
+import Control.DeepSeq
 import Data.IntSet (IntSet)
 import Data.Function (on)
 import Data.Monoid
@@ -57,8 +58,14 @@ import qualified System.IO as IO
 
 -- * types
 
-data TagVal = TagVal !Text !Text !Type
+data TagVal = TagVal
+                !Text -- ^ prefix
+                !Text -- ^ name
+                !Type -- ^ tag type
   deriving (Show)
+
+instance NFData TagVal where
+  rnf (TagVal x y z) = rnf x `seq` rnf y `seq` rnf z
 
 instance Eq TagVal where
   TagVal _ name t == TagVal _ name' t' = name == name' && t == t'
@@ -77,6 +84,15 @@ data Type =
   | Operator
   | Pattern
   deriving (Eq, Ord, Show)
+
+instance NFData Type where
+  rnf Function    = ()
+  rnf Type        = ()
+  rnf Constructor = ()
+  rnf Class       = ()
+  rnf Module      = ()
+  rnf Operator    = ()
+  rnf Pattern     = ()
 
 data TokenVal =
     Token !Text !Text
@@ -134,10 +150,16 @@ data Pos a = Pos
   }
   deriving (Eq, Ord)
 
+instance (NFData a) => NFData (Pos a) where
+  rnf (Pos x y) = rnf x `seq` rnf y
+
 data SrcPos = SrcPos
   { _posFile :: !FilePath
   , posLine  :: !Int
   } deriving (Eq, Ord)
+
+instance NFData SrcPos where
+  rnf (SrcPos x y) = rnf x `seq` rnf y
 
 instance Show a => Show (Pos a) where
   show (Pos pos val) = show pos ++ ":" ++ show val
@@ -156,18 +178,9 @@ processAll =
   where
     isDuplicatePair :: Pos TagVal -> Pos TagVal -> Bool
     isDuplicatePair t t' =
-      f == f' &&
-      (l == l' ||
-       -- special hack to handle the case when type is on a separate line and
-       -- constructor is on the next, e.g.
-       -- data Foo a =,
-       --   Foo a Int
-       --   deriving (Show, Eq, Ord),
-       (l + 1) == l') &&
-      tagText t == tagText t'
-      where
-        SrcPos f  l  = posOf t
-        SrcPos f' l' = posOf t'
+      posOf t   == posOf t'   &&
+      tagText t == tagText t' &&
+      tagType t == tagType t'
 
 combineBalanced :: forall a. (a -> a -> a) -> [a] -> a
 combineBalanced f xs = go xs
@@ -610,7 +623,9 @@ functionTagsNoSig toks = go toks
     go toks@(Pos _ (Token _ "("):_) = go $ stripBalancedParens toks
     go (Pos pos (Token prefix name):ts)
       | name == "::"               = [] -- this function does not analyze type signatures
-      | name == "!" || name == "~" = go ts
+      | name == "!" ||
+        name == "~" ||
+        name == "@"                = go ts
       | name == "=" || name == "|" =
         case stripParens toks of
           Pos pos (Token prefix name): _
@@ -908,7 +923,10 @@ tailSafe (_:xs) = xs
 
 -- | Crude predicate for Haskell files
 isHsFile :: FilePath -> Bool
-isHsFile fn = ".hs" `L.isSuffixOf` fn || isLiterateFile fn
+isHsFile fn =
+  ".hs" `L.isSuffixOf` fn  ||
+  ".hsc" `L.isSuffixOf` fn ||
+  isLiterateFile fn
 
 isLiterateFile :: FilePath -> Bool
 isLiterateFile fn = ".lhs" `L.isSuffixOf` fn

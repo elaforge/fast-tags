@@ -52,7 +52,7 @@ flag fast
 library
     build-depends: base >= 3 && < 5, containers, cpphs >1.18, filepath, directory,
                    -- text 0.11.1.12 has a bug.
-                   text (> 0.11.1.12 || < 0.11.1.12)
+                   text (> 0.11.1.12 || < 0.11.1.12), deepseq
     exposed-modules: FastTags
     hs-source-dirs: src
     ghc-options: -Wall -fno-warn-name-shadowing
