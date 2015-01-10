@@ -46,30 +46,35 @@ source-repository head
     location: git://github.com/elaforge/fast-tags.git
 
 flag fast
-    description: Spend more time optimizing a program (may yield up to 25% speedup)
+    description:
+        Spend more time optimizing a program (may yield up to 25% speedup)
     default:     False
 
 library
-    build-depends: base >= 3 && < 5, containers, cpphs >1.18, filepath, directory,
-                   -- text 0.11.1.12 has a bug.
-                   text (> 0.11.1.12 || < 0.11.1.12), deepseq
+    build-depends:
+        base >= 3 && < 5, containers, cpphs >1.18, filepath, directory,
+        -- text 0.11.1.12 has a bug.
+        text (> 0.11.1.12 || < 0.11.1.12), deepseq
     exposed-modules: FastTags
     hs-source-dirs: src
     ghc-options: -Wall -fno-warn-name-shadowing
     ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all
     if flag(fast)
-        ghc-options: -funfolding-creation-threshold=10000 -funfolding-use-threshold=2500
+        ghc-options:
+            -funfolding-creation-threshold=10000 -funfolding-use-threshold=2500
 
 executable fast-tags
     main-is: src/Main.hs
-    build-depends: base >= 3 && < 5, containers, filepath, directory,
-                   -- text 0.11.1.12 has a bug.
-                   text (> 0.11.1.12 || < 0.11.1.12),
-                   fast-tags
+    build-depends:
+        base >= 3 && < 5, containers, filepath, directory,
+        -- text 0.11.1.12 has a bug.
+        text (> 0.11.1.12 || < 0.11.1.12),
+        fast-tags
     ghc-options: -Wall -fno-warn-name-shadowing
     ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all
     if flag(fast)
-        ghc-options: -funfolding-creation-threshold=10000 -funfolding-use-threshold=2500
+        ghc-options:
+            -funfolding-creation-threshold=10000 -funfolding-use-threshold=2500
 
 test-suite test-fast-tags
     type: exitcode-stdio-1.0
@@ -77,8 +82,9 @@ test-suite test-fast-tags
     hs-source-dirs: tests
     ghc-options: -main-is MainTest
     ghc-prof-options: -main-is MainTest
-    build-depends: base >= 3 && < 5, containers, filepath, directory,
-                   -- text 0.11.1.12 has a bug.
-                   text (> 0.11.1.12 || < 0.11.1.12),
-                   tasty, tasty-hunit,
-                   fast-tags
+    build-depends:
+        base >= 3 && < 5, containers, filepath, directory,
+        -- text 0.11.1.12 has a bug.
+        text (> 0.11.1.12 || < 0.11.1.12),
+        tasty, tasty-hunit,
+        fast-tags
