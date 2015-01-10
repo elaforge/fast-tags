@@ -273,15 +273,15 @@ tokenize trackPrefixes (Pos pos line) =
 
 spanToken :: Text -> (Text, Text)
 spanToken text
-    -- ☡ special case to fight "--" biting too much input so that closing "-}"
-    -- becomes unavailable
+    -- Special case to prevent "--" from consuming too much input so that
+    -- closing "-}" becomes unavailable.
     | "--}" `T.isPrefixOf` text = ("-}", T.drop 2 cs)
     | Just sym <- L.find (`T.isPrefixOf` text) comments = (sym, T.tail cs)
     | Just sym <- L.find (`T.isPrefixOf` text) symbols
             , let t = T.tail cs
             , T.null t || not (haskellOpChar $ T.head t)
         = (sym, t)
-    | c == '\'' = let (token, rest) = breakChar   cs in (T.cons c token, rest)
+    | c == '\'' = let (token, rest) = breakChar cs in (T.cons c token, rest)
     | c == '"' =
         let (token, rest) = breakString cs in (T.cons c token, rest)
     | state@(token, _) <- spanSymbol (haskellOpChar c) text,
@@ -541,12 +541,12 @@ recordInfixName tokenType tokens = (pos, tokToTag tok tokenType, rest)
 dropInfixTypeStart :: [Token] -> [Token]
 dropInfixTypeStart tokens = dropWhile f tokens
     where
-    f (Pos _ (Token _ name)) =
-        isInfixTypePrefix name || (T.length name == 1 && T.head name == '`')
+    f (Pos _ (Token _ name)) = isInfixTypePrefix name || name == "`"
     f _                      = False
 
     isInfixTypePrefix :: Text -> Bool
-    isInfixTypePrefix x = Char.isLower c || c == '(' where c = T.head x
+    isInfixTypePrefix x = Char.isLower c || c == '('
+        where c = T.head x
 
 -- | It's easier to scan for tokens without pesky newlines popping up
 -- everywhere.  But I need to keep the newlines in in case I hit a @where@
@@ -556,7 +556,7 @@ stripNewlines = filter (not . isNewline) . (\(UnstrippedTokens t) -> t)
 
 -- | introduce tags for foreign imports
 foreignTags :: [Token] -> [Tag]
-foreignTags = \decl -> case decl of
+foreignTags decl = case decl of
     Pos _ (Token _ "import") : decl' -> [tokToTag name Pattern]
         where
         name = last $ takeWhile ((/= "::") . tokenName . valOf) $
