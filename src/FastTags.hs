@@ -253,9 +253,9 @@ process fn trackPrefixes =
         birdLiterateLine :: Text -> Bool
         birdLiterateLine xs
             | T.null xs = False
-            | otherwise = case T.uncons $ T.dropWhile Char.isSpace xs of
-                Just ('>', _) -> True
-                _             -> False
+            | otherwise = case headt $ T.dropWhile Char.isSpace xs of
+                Just '>' -> True
+                _ -> False
 
 -- * tokenize
 
@@ -276,11 +276,11 @@ spanToken text
     -- Special case to prevent "--" from consuming too much input so that
     -- closing "-}" becomes unavailable.
     | "--}" `T.isPrefixOf` text = ("-}", T.drop 2 cs)
-    | Just sym <- L.find (`T.isPrefixOf` text) comments = (sym, T.tail cs)
+    | Just sym <- L.find (`T.isPrefixOf` text) comments = (sym, T.drop 1 cs)
+    -- Find symbol that isn't followed by haskellOpChar.
     | Just sym <- L.find (`T.isPrefixOf` text) symbols
-            , let t = T.tail cs
-            , T.null t || not (haskellOpChar $ T.head t)
-        = (sym, t)
+            , maybe True (not . haskellOpChar) (headt (T.drop 1 cs))
+        = (sym, T.drop 1 cs)
     | c == '\'' = let (token, rest) = breakChar cs in (T.cons c token, rest)
     | c == '"' =
         let (token, rest) = breakString cs in (T.cons c token, rest)
@@ -311,8 +311,7 @@ tokenizeLine trackPrefixes text = Newline nspaces : go spaces line
                                 then oldPrefix <> spaces <> token
                                 else T.empty
             in Token newPrefix token : go newPrefix rest
-        where
-        (spaces, stripped) = T.break (not . Char.isSpace) unstripped
+        where (spaces, stripped) = T.break (not . Char.isSpace) unstripped
 
 startIdentChar :: Char -> Bool
 startIdentChar c = Char.isAlpha c || c == '_'
@@ -323,15 +322,15 @@ identChar considerDot c = Char.isAlphaNum c || c == '\'' || c == '_' || c == '#'
 
 -- unicode operators are not supported yet
 haskellOpChar :: Char -> Bool
-haskellOpChar = \c -> IS.member (Char.ord c) opChars
+haskellOpChar c = IS.member (Char.ord c) opChars
     where
     opChars :: IntSet
     opChars = IS.fromList $ map Char.ord "-!#$%&*+./<=>?@^|~:\\"
 
 isTypeVarStart :: Text -> Bool
-isTypeVarStart x = case T.uncons x of
-    Just (c, _) -> Char.isLower c || c == '_'
-    _           -> False
+isTypeVarStart x = case headt x of
+    Just c -> Char.isLower c || c == '_'
+    _ -> False
 
 -- | Span a symbol, making sure to not eat comments.
 spanSymbol :: Bool -> Text -> (Text, Text)
@@ -361,10 +360,10 @@ symbolChar considerColon c =
     && (not (c `elem` "(),;[]`{}_:\"'") || considerColon && c == ':')
 
 breakChar :: Text -> (Text, Text)
-breakChar text
-    | T.null text = ("", "")
-    | T.head text == '\\' = T.splitAt 3 text
-    | otherwise = T.splitAt 2 text
+breakChar text = case headt text of
+    Nothing -> ("", "")
+    Just '\\' -> T.splitAt 3 text
+    _ -> T.splitAt 2 text
 
 -- TODO \ continuation isn't supported.  I'd have to tokenize at the file
 -- level instead of the line level.
@@ -462,7 +461,7 @@ blockTags unstripped = case stripNewlines unstripped of
     Pos _ (Token _ "module") : Pos pos (Token prefix name) : _ ->
         [mkTag pos prefix (snd (T.breakOnEnd "." name)) Module]
     Pos _ (Token _ "pattern") : Pos pos (Token prefix name) : _
-        | not (T.null name) && Char.isUpper (T.head name) ->
+        | maybe False Char.isUpper (headt name) ->
             [mkTag pos prefix name Pattern]
     Pos _ (Token _ "foreign") : decl -> foreignTags decl
     -- newtype instance * = ...
@@ -522,13 +521,12 @@ blockTags unstripped = case stripNewlines unstripped of
     stripped -> toplevelFunctionTags stripped
 
 isTypeFamilyName :: Text -> Bool
-isTypeFamilyName x = not (T.null x) && (Char.isUpper c || haskellOpChar c)
-    where c = T.head x -- TODO error
+isTypeFamilyName = maybe False (\c -> Char.isUpper c || haskellOpChar c) . headt
 
 isTypeName  :: Text -> Bool
-isTypeName x = case T.uncons x of
-    Just (c, _) -> Char.isUpper c || c == ':'
-    _           -> False
+isTypeName x = case headt x of
+    Just c -> Char.isUpper c || c == ':'
+    _ -> False
 
 dropDataContext :: [Token] -> [Token]
 dropDataContext = stripParensKindsTypeVars . stripOptContext
@@ -545,8 +543,8 @@ dropInfixTypeStart tokens = dropWhile f tokens
     f _                      = False
 
     isInfixTypePrefix :: Text -> Bool
-    isInfixTypePrefix x = Char.isLower c || c == '('
-        where c = T.head x
+    isInfixTypePrefix =
+        maybe False ((\c -> Char.isLower c || c == '(')) . headt
 
 -- | It's easier to scan for tokens without pesky newlines popping up
 -- everywhere.  But I need to keep the newlines in in case I hit a @where@
@@ -559,6 +557,7 @@ foreignTags :: [Token] -> [Tag]
 foreignTags decl = case decl of
     Pos _ (Token _ "import") : decl' -> [tokToTag name Pattern]
         where
+        -- TODO
         name = last $ takeWhile ((/= "::") . tokenName . valOf) $
             dropMember safety $ dropMember callConv decl'
     _ -> []
@@ -710,8 +709,7 @@ dataConstructorTags prevPos unstripped
         where
         extract :: [Token] -> Maybe (Token, [Token])
         extract (tok@(Pos _ (Token _ name)) : rest)
-            | not (T.null name) && T.head name == ':' =
-                Just (tok, stripTypeParam rest)
+            | ":" `T.isPrefixOf` name = Just (tok, stripTypeParam rest)
         extract (Pos _ (Token _ "`") : tok@(Pos _ _) : Pos _ (Token _ "`")
                 : rest) =
             Just (tok, stripTypeParam rest)
@@ -750,8 +748,9 @@ stripOptContext (stripSingleClassContext -> Pos _ (Token _ "=>"): xs) = xs
 stripOptContext xs                                                    = xs
 
 stripSingleClassContext :: [Token] -> [Token]
-stripSingleClassContext (Pos _ (Token _ name): xs)
-    | Char.isUpper $ T.head name = dropWithStrippingBalanced isTypeVarStart xs
+stripSingleClassContext (Pos _ (Token _ name) : xs)
+    | maybe False Char.isUpper (headt name) =
+        dropWithStrippingBalanced isTypeVarStart xs
 stripSingleClassContext xs = xs
 
 -- | Drop all tokens for which @pred@ returns True, also drop
@@ -847,12 +846,10 @@ unexpected :: SrcPos -> UnstrippedTokens -> [Token] -> String -> [Tag]
 unexpected prevPos (UnstrippedTokens tokensBefore) tokensHere declaration =
     [warning pos ("unexpected " ++ thing ++ " after " ++ declaration)]
     where
-    thing
-        | null tokensHere = "end of block"
-        | otherwise = show (valOf (head tokensHere))
+    thing = maybe "end of block" (show . valOf) (mhead tokensHere)
     pos
-        | not (null tokensHere) = posOf (head tokensHere)
-        | not (null tokensBefore) = posOf (last tokensBefore)
+        | Just t <- mhead tokensHere = posOf t
+        | Just t <- mlast tokensBefore = posOf t
         | otherwise = prevPos
 
 isNewline :: Token -> Bool
@@ -922,3 +919,15 @@ mergeBy f xs ys = go xs ys
         EQ -> x: y: go xs ys
         LT -> x: go xs (y:ys)
         GT -> y: go (x:xs) ys
+
+headt :: Text -> Maybe Char
+headt = fmap fst . T.uncons
+
+mhead :: [a] -> Maybe a
+mhead [] = Nothing
+mhead (x:_) = Just x
+
+mlast :: [a] -> Maybe a
+mlast xs
+    | null xs = Nothing
+    | otherwise = Just (last xs)
