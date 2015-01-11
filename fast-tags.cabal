@@ -6,7 +6,7 @@ synopsis: Fast incremental vi tags.
 description:
     Yet another tags program.  Like hasktags, it uses its own parser rather
     than haskell-src or haskell-src-exts, so it's fast.  It understands
-    hsc files, though not literate haskell.
+    hsc and literate haskell.
     .
     In addition, it will load an existing tags file and merge generated tags.
     .
@@ -16,14 +16,8 @@ description:
     .
     Limitations:
     .
-    - No emacs tags, but they would be easy to add.
-    .
     - Not using a real haskell parser means there are more likely to be dark
     corners that don't parse right.
-    .
-    - Only top-level functions with type declarations are tagged.  Top-level
-    functions without type declarations are skipped, as are ones inside 'let'
-    or 'where'.
     .
     - Code has to be indented \"properly\", so brace and semicolon style with
     strange dedents will probably confuse it.

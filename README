@@ -3,6 +3,4 @@ automatically.
 
 TODO:
 
-- Some files are not in UTF8.  Use ByteString with a lenient decoder?
-
 - \ continuation in strings is not parsed correctly.
