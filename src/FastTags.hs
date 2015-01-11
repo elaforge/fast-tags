@@ -37,6 +37,7 @@ import Control.Arrow ((***), (&&&))
 import Control.Monad
 import Control.DeepSeq (NFData, rnf)
 import Data.Function (on)
+import Data.Functor ((<$>))
 import Data.Monoid (Monoid, (<>), mconcat)
 import Data.Text (Text)
 import qualified System.Exit as Exit
@@ -271,14 +272,15 @@ tokenize trackPrefixes (Pos pos line) =
 
 spanToken :: Text -> (Text, Text)
 spanToken text
+    | T.null text = ("", "")
     -- Special case to prevent "--" from consuming too much input so that
     -- closing "-}" becomes unavailable.
-    | "--}" `T.isPrefixOf` text = ("-}", T.drop 2 cs)
-    | Just sym <- L.find (`T.isPrefixOf` text) comments = (sym, T.drop 1 cs)
+    | Just rest <- T.stripPrefix "--}" text = ("-}", rest)
+    | Just (sym, rest) <- consume comments text = (sym, rest)
     -- Find symbol that isn't followed by haskellOpChar.
-    | Just sym <- L.find (`T.isPrefixOf` text) symbols
-            , maybe True (not . haskellOpChar) (headt (T.drop 1 cs))
-        = (sym, T.drop 1 cs)
+    | Just (sym, rest) <- consume symbols text
+            , maybe True (not . haskellOpChar) (headt rest)
+        = (sym, rest)
     | c == '\'' = let (token, rest) = breakChar cs in (T.cons c token, rest)
     | c == '"' =
         let (token, rest) = breakString cs in (T.cons c token, rest)
@@ -291,6 +293,7 @@ spanToken text
         ("", _)       -> (T.singleton c, cs)
         (token, rest) -> (token, rest)
     where
+    -- Safe because of null check above.
     Just (c, cs) = T.uncons text
     comments = ["{-", "-}"]
     symbols = ["--", "=>", "->", "::"]
@@ -859,7 +862,12 @@ tokenNameSatisfies :: TokenVal -> (Text -> Bool) -> Bool
 tokenNameSatisfies (Token _ name) pred = pred name
 tokenNameSatisfies _              _    = False
 
--- * misc
+-- * generic utils
+
+-- | Try to match one of the given prefixes.
+consume :: [Text] -> Text -> Maybe (Text, Text) -- ^ (prefix, remainder)
+consume prefixes t =
+    msum [(,) prefix <$> T.stripPrefix prefix t | prefix <- prefixes]
 
 -- | Drop until the element before the matching one.  Return [] if the function
 -- never matches.
