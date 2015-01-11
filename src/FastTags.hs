@@ -416,20 +416,21 @@ breakBlocks =
     -- Blank lines mess up the indentation.
     filterBlank :: [Token] -> [Token]
     filterBlank [] = []
-    filterBlank (Pos _ (Newline _): xs@(Pos _ (Newline _): _)) = filterBlank xs
+    filterBlank (Pos _ (Newline _) : xs@(Pos _ (Newline _) : _)) =
+        filterBlank xs
     filterBlank (x:xs) = x : filterBlank xs
 
 -- | Take until a newline, then take lines until the indent established after
 -- that newline decreases. Or, alternatively, if "{" is encountered then count
 -- it as a block until closing "}" is found taking nesting into account.
 breakBlock :: [Token] -> ([Token], [Token])
-breakBlock (t@(Pos _ tok):ts) = case tok of
+breakBlock (t@(Pos _ tok) : ts) = case tok of
     Newline indent -> collectIndented indent ts
     Token _ "{"    -> collectBracedBlock breakBlock ts 1
     _              -> remember t $ breakBlock ts
     where
     collectIndented :: Int -> [Token] -> ([Token], [Token])
-    collectIndented indent tsFull@(t@(Pos _ tok): ts) = case tok of
+    collectIndented indent tsFull@(t@(Pos _ tok) : ts) = case tok of
         Newline n | n <= indent -> ([], tsFull)
         Token _ "{" ->
             remember t $ collectBracedBlock (collectIndented indent) ts 1
@@ -488,7 +489,7 @@ blockTags unstripped = case stripNewlines unstripped of
         where (_, tok', _) = recordInfixName Type whole
     -- data family X ...
     Pos _ (Token _ "data") : Pos _ (Token _ "family")
-            : (dropDataContext -> tok@(Pos _ (Token _ name)): rest)
+            : (dropDataContext -> tok@(Pos _ (Token _ name)) : rest)
         | isTypeFamilyName name -> [tokToTag tok Type]
         | otherwise -> [tok']
         where (_, tok', _) = recordInfixName Type rest
@@ -592,8 +593,8 @@ functionTagsNoSig toks = go toks
     where
     go :: [Token] -> [Tag]
     go []                           = []
-    go toks@(Pos _ (Token _ "("):_) = go $ stripBalancedParens toks
-    go (Pos pos (Token prefix name):ts)
+    go toks@(Pos _ (Token _ "(") : _) = go $ stripBalancedParens toks
+    go (Pos pos (Token prefix name) : ts)
         -- this function does not analyze type signatures
         | name == "::" = []
         | name == "!" || name == "~" || name == "@" = go ts
@@ -654,7 +655,7 @@ newtypeTags prevPos tokens = case dropUntil "=" tokens of
     Pos pos (Token prefix name) : rest ->
         let constructor = mkTag pos prefix name Constructor
         in  case rest of
-            Pos _ (Token _ "{"): Pos funcPos (Token funcPrefix funcName): _ ->
+            Pos _ (Token _ "{") : Pos funcPos (Token funcPrefix funcName) : _ ->
                 [constructor, mkTag funcPos funcPrefix funcName Function]
             _ ->
                 [constructor]
@@ -689,7 +690,7 @@ dataConstructorTags prevPos unstripped
         | Just (Pos pos (Token prefix name), rest'') <-
                 extractInfixConstructor rest' =
             mkTag pos prefix name Constructor: collectRest rest''
-        | Pos pos (Token prefix name): rest'' <- rest' =
+        | Pos pos (Token prefix name) : rest'' <- rest' =
             mkTag pos prefix name Constructor
                 : collectRest (dropUntilNextCaseOrRecordStart rest'')
         | otherwise = error $
@@ -701,8 +702,8 @@ dataConstructorTags prevPos unstripped
     collectRest [] = []
 
     stripOptBang :: [Token] -> [Token]
-    stripOptBang ((Pos _ (Token _ "!")): rest) = rest
-    stripOptBang ts                            = ts
+    stripOptBang ((Pos _ (Token _ "!")) : rest) = rest
+    stripOptBang ts = ts
 
     extractInfixConstructor :: [Token] -> Maybe (Token, [Token])
     extractInfixConstructor = extract . stripTypeParam
@@ -719,7 +720,7 @@ dataConstructorTags prevPos unstripped
             stripBalancedParens input
         stripTypeParam input@((Pos _ (Token _ "[")) : _) =
             stripBalancedBrackets input
-        stripTypeParam = drop 1
+        stripTypeParam ts = drop 1 ts
 
     dropUntilNextCaseOrRecordStart :: [Token] -> [Token]
     dropUntilNextCaseOrRecordStart =
@@ -743,9 +744,9 @@ stripParensKindsTypeVars (Pos _ (Token _ name) : xs)
 stripParensKindsTypeVars xs = xs
 
 stripOptContext :: [Token] -> [Token]
-stripOptContext (stripBalancedParens -> (Pos _ (Token _ "=>"): xs))   = xs
-stripOptContext (stripSingleClassContext -> Pos _ (Token _ "=>"): xs) = xs
-stripOptContext xs                                                    = xs
+stripOptContext (stripBalancedParens -> (Pos _ (Token _ "=>") : xs)) = xs
+stripOptContext (stripSingleClassContext -> Pos _ (Token _ "=>") : xs) = xs
+stripOptContext xs = xs
 
 stripSingleClassContext :: [Token] -> [Token]
 stripSingleClassContext (Pos _ (Token _ name) : xs)
@@ -756,7 +757,7 @@ stripSingleClassContext xs = xs
 -- | Drop all tokens for which @pred@ returns True, also drop
 -- any parenthesized expressions.
 dropWithStrippingBalanced :: (Text -> Bool) -> [Token] -> [Token]
-dropWithStrippingBalanced pred input@(Pos _ (Token _ name): xs)
+dropWithStrippingBalanced pred input@(Pos _ (Token _ name) : xs)
     | name == "(" = dropWithStrippingBalanced pred $ stripBalancedParens input
     | name == "[" = dropWithStrippingBalanced pred $ stripBalancedBrackets input
     | pred name   = dropWithStrippingBalanced pred xs
@@ -773,8 +774,8 @@ stripBalanced open close (Pos _ (Token _ name) : xs)
     | name == open = go 1 xs
     where
     go :: Int -> [Token] -> [Token]
-    go 0 xs                          = xs
-    go !n (Pos _ (Token _ name): xs)
+    go 0 xs = xs
+    go !n (Pos _ (Token _ name) : xs)
         | name == open  = go (n + 1) xs
         | name == close = go (n - 1) xs
         | otherwise     = go n       xs
@@ -820,12 +821,12 @@ instanceTags prevPos unstripped =
     block = whereBlock unstripped
 
     isNewtypeDecl :: UnstrippedTokens -> Bool
-    isNewtypeDecl (UnstrippedTokens (Pos _ (Token _ "newtype"): _)) = True
-    isNewtypeDecl _                                                 = False
+    isNewtypeDecl (UnstrippedTokens (Pos _ (Token _ "newtype") : _)) = True
+    isNewtypeDecl _ = False
 
     isDataDecl :: UnstrippedTokens -> Bool
-    isDataDecl (UnstrippedTokens (Pos _ (Token _ "data"): _)) = True
-    isDataDecl _                                              = False
+    isDataDecl (UnstrippedTokens (Pos _ (Token _ "data") : _)) = True
+    isDataDecl _ = False
 
 -- * util
 
