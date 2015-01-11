@@ -15,9 +15,10 @@ import Data.Monoid
 import Data.Set (Set)
 import Data.Text (Text)
 import System.Console.GetOpt
-import System.Directory (doesFileExist, doesDirectoryExist, getDirectoryContents)
-import System.Exit
+import System.Directory
+    (doesFileExist, doesDirectoryExist, getDirectoryContents)
 import System.FilePath ((</>))
+import qualified System.Exit as Exit
 import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -30,15 +31,16 @@ import qualified System.IO as IO
 
 import FastTags
 
+
 main :: IO ()
 main = do
     args <- Environment.getArgs
 
     (flags, inputs) <- case getOpt Permute options args of
         (flags, inputs, []) -> return (flags, inputs)
-        (_, _, errs)        -> let errMsg = "flag errors:\n" ++
-                                            List.intercalate ", " errs
-                               in usage $ errMsg ++ "\n" ++ help
+        (_, _, errs) ->
+            let errMsg = "flag errors:\n" ++ List.intercalate ", " errs
+            in usage $ errMsg ++ "\n" ++ help
 
     when (Help `elem` flags) $ usage help
 
@@ -64,15 +66,13 @@ main = do
                                 then filter isHsFile <$> contents recurse input
                                 else return [input]
 
-    oldTags <-
-      if vim && not noMerge
-         then do
-              exists <- doesFileExist output
-              if exists
+    oldTags <- if vim && not noMerge
+        then do
+            exists <- doesFileExist output
+            if exists
                 then Text.lines <$> Text.IO.readFile output
                 else return [vimMagicLine]
-         else return [] -- we do not support tags merging for emacs
-                        -- for now
+        else return [] -- we do not support tags merging for emacs for now
 
     inputs <- inputsM
     when (null inputs) $
@@ -83,55 +83,52 @@ main = do
     -- old tags and run processAll on all of them, which is a hassle.
     -- TODO try it and see if it really hurts performance that much.
     newTags <- fmap processAll $
-      forM (zip [0..] inputs) $ \(i :: Int, fn) -> do
-        (newTags, warnings) <- processFile ignoreEncErrs fn trackPrefixes
-        forM_ warnings printErr
-        when verbose $ do
-          let line = take 78 $ show i ++ ": " ++ fn
-          putStr $ '\r' : line ++ replicate (78 - length line) ' '
-          IO.hFlush IO.stdout
-        return newTags
+        forM (zip [0..] inputs) $ \(i :: Int, fn) -> do
+            (newTags, warnings) <- processFile ignoreEncErrs fn trackPrefixes
+            forM_ warnings printErr
+            when verbose $ do
+                let line = take 78 $ show i ++ ": " ++ fn
+                putStr $ '\r' : line ++ replicate (78 - length line) ' '
+                IO.hFlush IO.stdout
+            return newTags
 
     when verbose $ putChar '\n'
 
-    let write =
-          if output == "-"
+    let write = if output == "-"
             then Text.IO.hPutStr IO.stdout
             else Text.IO.writeFile output
 
-    write $
-      if vim
+    write $ if vim
         then Text.unlines $ mergeTags inputs oldTags newTags
         else Text.concat $ prepareEmacsTags newTags
 
-  where
-    usage msg = putStr (GetOpt.usageInfo msg options) >> exitFailure
+    where
+    usage msg = putStr (GetOpt.usageInfo msg options) >> Exit.exitFailure
 
     printErr :: String -> IO ()
     printErr = IO.hPutStrLn IO.stderr
 
-    contents recurse = if recurse
-                         then getRecursiveDirContents
-                         else getProperDirContents
+    contents recurse =
+        if recurse then getRecursiveDirContents else getProperDirContents
 
 -- | Get all absolute filepaths contained in the supplied topdir,
 -- except "." and ".."
 getProperDirContents :: FilePath -> IO [FilePath]
 getProperDirContents topdir = do
-  names <- getDirectoryContents topdir
-  let properNames = filter (`notElem` [".", ".."]) names
-  return $ map ((</>) topdir) properNames
+    names <- getDirectoryContents topdir
+    let properNames = filter (`notElem` [".", ".."]) names
+    return $ map ((</>) topdir) properNames
 
 -- | Recurse directories collecting all files
 getRecursiveDirContents :: FilePath -> IO [FilePath]
 getRecursiveDirContents topdir = do
-  paths  <- getProperDirContents topdir
-  paths' <- forM paths $ \path -> do
-    isDirectory <- doesDirectoryExist path
-    if isDirectory
-      then getRecursiveDirContents path
-      else return [path]
-  return (concat paths')
+    paths <- getProperDirContents topdir
+    paths' <- forM paths $ \path -> do
+        isDirectory <- doesDirectoryExist path
+        if isDirectory
+            then getRecursiveDirContents path
+            else return [path]
+    return (concat paths')
 
 
 type TagsTable = Map FilePath [Pos TagVal]
@@ -143,10 +140,11 @@ printTagsTable :: TagsTable -> [Text]
 printTagsTable = map (uncurry printSection) . Map.assocs
 
 printSection :: FilePath -> [Pos TagVal] -> Text
-printSection file tags =
-  Text.concat ["\x0c\x0a", Text.pack file, ",",
-               Text.pack $ show tagsLength, "\x0a", tagsText]
-  where
+printSection file tags = Text.concat
+    ["\x0c\x0a", Text.pack file, ","
+    , Text.pack $ show tagsLength, "\x0a", tagsText
+    ]
+    where
     tagsText = Text.unlines $ map printEmacsTag tags
     tagsLength = Text.length tagsText
 
@@ -159,24 +157,24 @@ classifyTagsByFile = foldr insertTag Map.empty
 
 insertTag :: Pos TagVal -> TagsTable -> TagsTable
 insertTag tag@(Pos (SrcPos file _) _) table =
-  Map.insertWith (<>) file [tag] table
+    Map.insertWith (<>) file [tag] table
 
 mergeTags :: [FilePath] -> [Text] -> [Pos TagVal] -> [Text]
 mergeTags inputs old new =
-  -- 'new' was already been sorted by 'process', but then I just concat
-  -- the tags from each file, so they need sorting again.
-  merge (map showTag new) (filter (not . isNewTag textFns) old)
-  where
+    -- 'new' was already been sorted by 'process', but then I just concat
+    -- the tags from each file, so they need sorting again.
+    merge (map showTag new) (filter (not . isNewTag textFns) old)
+    where
     textFns = Set.fromList $ map Text.pack inputs
 
 data Flag = Output FilePath
-          | Help
-          | Verbose
-          | ETags
-          | Recurse
-          | NoMerge
-          | ZeroSep
-          | IgnoreEncodingErrors
+    | Help
+    | Verbose
+    | ETags
+    | Recurse
+    | NoMerge
+    | ZeroSep
+    | IgnoreEncodingErrors
     deriving (Eq, Show)
 
 help :: String
@@ -212,19 +210,15 @@ vimMagicLine = "!_TAG_FILE_SORTED\t1\t~"
 
 isNewTag :: Set Text -> Text -> Bool
 isNewTag textFns line = Set.member fn textFns
-  where
+    where
     fn = Text.takeWhile (/='\t') $ Text.drop 1 $ Text.dropWhile (/='\t') line
 
 -- | Convert a Tag to text, e.g.: AbsoluteMark\tCmd/TimeStep.hs 67 ;" f
 showTag :: Pos TagVal -> Text
-showTag (Pos (SrcPos fn lineno) (TagVal _ text typ)) =
-  Text.concat
-    [ text
-    , "\t"
-    , Text.pack fn
-    , "\t"
-    , Text.pack (show lineno)
-    , " ;\" "
+showTag (Pos (SrcPos fn lineno) (TagVal _ text typ)) = Text.concat
+    [ text, "\t"
+    , Text.pack fn, "\t"
+    , Text.pack (show lineno), " ;\" "
     , Text.singleton (showType typ)
     ]
 
