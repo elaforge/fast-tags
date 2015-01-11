@@ -39,7 +39,6 @@ import Control.DeepSeq
 import Data.IntSet (IntSet)
 import Data.Function (on)
 import Data.Monoid
-import Data.Set (Set)
 import Data.Text (Text)
 import System.Exit
 
@@ -51,7 +50,6 @@ import qualified Data.Char as Char
 import qualified Data.IntSet as IS
 import qualified Data.List as L
 import qualified Data.Map as M
-import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified System.IO as IO
@@ -553,25 +551,16 @@ dropInfixTypeStart tokens = dropWhile f tokens
 stripNewlines :: UnstrippedTokens -> [Token]
 stripNewlines = filter (not . isNewline) . (\(UnstrippedTokens t) -> t)
 
--- | introduce tags for foreign imports
+-- | Tags from foreign import.
+--
+-- e.g. @foreign import ccall safe \"name\" c_name :: ...@ will produce a tag
+-- for @c_name@.
 foreignTags :: [Token] -> [Tag]
 foreignTags decl = case decl of
-    Pos _ (Token _ "import") : decl' -> [tokToTag name Pattern]
-        where
-        -- TODO
-        name = last $ takeWhile ((/= "::") . tokenName . valOf) $
-            dropMember safety $ dropMember callConv decl'
+    Pos _ (Token _ "import") : decl'
+        | name : _ <- dropBefore ((=="::") . tokenName . valOf) decl' ->
+            [tokToTag name Pattern]
     _ -> []
-    where
-    dropMember :: Set Text -> [Token] -> [Token]
-    dropMember dropNames =
-        dropWhile (\tok -> S.member (tokenName $ valOf tok) dropNames)
-
-    safety :: Set Text
-    safety = S.fromList ["safe", "unsafe"]
-
-    callConv :: Set Text
-    callConv = S.fromList ["ccall", "stdcall", "cplusplus", "jvm", "dotnet"]
 
 toplevelFunctionTags :: [Token] -> [Tag]
 toplevelFunctionTags toks = case tags of
@@ -870,10 +859,18 @@ tokenNameSatisfies :: TokenVal -> (Text -> Bool) -> Bool
 tokenNameSatisfies (Token _ name) pred = pred name
 tokenNameSatisfies _              _    = False
 
-dropUntil :: Text -> [Token] -> [Token]
-dropUntil token = drop 1 . dropWhile (not . (`hasName` token) . valOf)
-
 -- * misc
+
+-- | Drop until the element before the matching one.  Return [] if the function
+-- never matches.
+dropBefore :: (a -> Bool) -> [a] -> [a]
+dropBefore f = go
+    where
+    go [] = []
+    go [_] = []
+    go xs@(_ : rest@(y:_))
+        | f y = xs
+        | otherwise = go rest
 
 dropDups :: (a -> a -> Bool) -> [a] -> [a]
 dropDups cmp (x:xs) = go x xs
@@ -883,6 +880,9 @@ dropDups cmp (x:xs) = go x xs
         | cmp a b   = go a bs
         | otherwise = a : go b bs
 dropDups _ [] = []
+
+dropUntil :: Text -> [Token] -> [Token]
+dropUntil token = drop 1 . dropWhile (not . (`hasName` token) . valOf)
 
 sortOn :: (Ord k) => (a -> k) -> [a] -> [a]
 sortOn key = L.sortBy (compare `on` key)
