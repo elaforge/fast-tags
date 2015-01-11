@@ -719,7 +719,7 @@ dataConstructorTags prevPos unstripped
             stripBalancedParens input
         stripTypeParam input@((Pos _ (Token _ "[")) : _) =
             stripBalancedBrackets input
-        stripTypeParam ts = tailSafe ts
+        stripTypeParam = drop 1
 
     dropUntilNextCaseOrRecordStart :: [Token] -> [Token]
     dropUntilNextCaseOrRecordStart =
@@ -870,7 +870,7 @@ tokenNameSatisfies (Token _ name) pred = pred name
 tokenNameSatisfies _              _    = False
 
 dropUntil :: Text -> [Token] -> [Token]
-dropUntil token = tailSafe . dropWhile (not . (`hasName` token) . valOf)
+dropUntil token = drop 1 . dropWhile (not . (`hasName` token) . valOf)
 
 -- * misc
 
@@ -889,12 +889,8 @@ sortOn key = L.sortBy (compare `on` key)
 -- | Split list into chunks delimited by specified element.
 split :: (Eq a) => a -> [a] -> [[a]]
 split _ [] = []
-split x xs = xs': split x (tailSafe xs'')
+split x xs = xs': split x (drop 1 xs'')
     where (xs', xs'') = break (==x) xs
-
-tailSafe :: [a] -> [a]
-tailSafe []     = []
-tailSafe (_:xs) = xs
 
 -- | Crude predicate for Haskell files
 isHsFile :: FilePath -> Bool
