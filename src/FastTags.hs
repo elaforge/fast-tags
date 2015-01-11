@@ -104,10 +104,10 @@ data Tag =
 partitionTags :: [Tag] -> ([Pos TagVal], [Pos TagVal], [String])
 partitionTags ts = go ts [] [] []
     where
-    go []                    xs ys zs = (xs, ys, reverse zs)
-    go (Tag t: ts)           xs ys zs = go ts (t:xs) ys     zs
-    go (RepeatableTag t: ts) xs ys zs = go ts xs     (t:ys) zs
-    go (Warning warn: ts)    xs ys zs = go ts xs     ys     (warn :zs)
+    go []                     xs ys zs = (xs, ys, reverse zs)
+    go (Tag t : ts)           xs ys zs = go ts (t:xs) ys     zs
+    go (RepeatableTag t : ts) xs ys zs = go ts xs     (t:ys) zs
+    go (Warning warn : ts)    xs ys zs = go ts xs     ys     (warn:zs)
 
 type Token = Pos TokenVal
 
@@ -348,7 +348,7 @@ spanSymbol considerColon text
       | Just (c, cs) <- T.uncons txt
       , haskellOpChar c
       , not $ "-}" `T.isPrefixOf` txt =
-          haskellOp cs $ c: op
+          haskellOp cs $ c : op
       | null op   = Nothing
       | otherwise = Just (T.pack $ reverse op, txt)
 
@@ -375,8 +375,8 @@ breakString = (T.pack . reverse *** T.pack) . go [] . T.unpack
     -- handle string continuation
     go s ('\\':'\n':xs) = go s $ dropBackslash $
         dropWhile (\c -> c /= '\\' && c /= '"') xs
-    go s ('\\':x:xs)    = go (x: '\\': s) xs
-    go s (x:xs)         = go (x: s) xs
+    go s ('\\':x:xs)    = go (x : '\\': s) xs
+    go s (x:xs)         = go (x : s) xs
 
     dropBackslash :: String -> String
     dropBackslash ('\\':xs) = xs
@@ -393,7 +393,7 @@ stripComments = mapTokens (go 0)
         | nest == 0 && tokenNameSatisfies token isComment =
             go nest (dropLine rest)
         | nest > 0                                        = go nest rest
-        | otherwise                                       = pos: go nest rest
+        | otherwise                                       = pos : go nest rest
     dropLine :: [Token] -> [Token]
     dropLine = dropWhile (not . isNewline)
     isComment :: Text -> Bool
@@ -506,7 +506,7 @@ blockTags unstripped = case stripNewlines unstripped of
       -- infix type as well since it may be only '(' or some
       -- lowercase name, either of which is not type constructor
         | otherwise -> let (pos', tok, _) = recordInfixName Type rest
-           in tok: dataConstructorTags pos' (dropTokens 1 unstripped)
+           in tok : dataConstructorTags pos' (dropTokens 1 unstripped)
     -- class * => X where X :: * ...
     Pos pos (Token _ "class") : _ -> classTags pos (dropTokens 1 unstripped)
 
@@ -615,13 +615,13 @@ functionTags constructors = go []
     go :: [Tag] -> [Token] -> ([Tag], [Token])
     go tags (Pos _ (Token _ "(") : Pos pos (Token _ name)
             : Pos _ (Token prefix ")") : Pos _ (Token _ "::") : rest) =
-        (reverse $ mkTag pos prefix name opTag: tags, rest)
+        (reverse $ mkTag pos prefix name opTag : tags, rest)
     go tags (Pos pos (Token prefix name) : Pos _ (Token _ "::") : rest)
         | functionName constructors name =
             (reverse $ mkTag pos prefix name funcTag : tags, rest)
     go tags (Pos _ (Token _ "(") : Pos pos (Token _ name)
             : Pos _ (Token prefix ")") : Pos _ (Token _ ",") : rest) =
-        go (mkTag pos prefix name opTag: tags) rest
+        go (mkTag pos prefix name opTag : tags) rest
     go tags (Pos pos (Token prefix name) : Pos _ (Token _ ",") : rest)
         | functionName constructors name =
             go (mkTag pos prefix name funcTag : tags) rest
@@ -678,7 +678,7 @@ dataConstructorTags prevPos unstripped
     collectRest (Pos pipePos (Token _ "|") : rest)
         | Just (Pos pos (Token prefix name), rest'') <-
                 extractInfixConstructor rest' =
-            mkTag pos prefix name Constructor: collectRest rest''
+            mkTag pos prefix name Constructor : collectRest rest''
         | Pos pos (Token prefix name) : rest'' <- rest' =
             mkTag pos prefix name Constructor
                 : collectRest (dropUntilNextCaseOrRecordStart rest'')
