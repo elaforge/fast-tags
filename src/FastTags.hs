@@ -33,26 +33,26 @@ module FastTags
     )
 where
 
-import Control.Arrow
+import Control.Arrow ((***), (&&&))
 import Control.Monad
-import Control.DeepSeq
-import Data.IntSet (IntSet)
+import Control.DeepSeq (NFData, rnf)
 import Data.Function (on)
-import Data.Monoid
+import Data.Monoid (Monoid, (<>), mconcat)
 import Data.Text (Text)
-import System.Exit
+import qualified System.Exit as Exit
 
-import Language.Preprocessor.Unlit
+import qualified Language.Preprocessor.Unlit as Unlit
 import Text.Printf (printf)
 
 import qualified Control.Exception as Exception
 import qualified Data.Char as Char
-import qualified Data.IntSet as IS
+import qualified Data.IntSet as IntSet
 import qualified Data.List as L
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified System.IO as IO
+
 
 -- * types
 
@@ -214,7 +214,7 @@ processFile ignoreEncodingErrors fn trackPrefixes =
         IO.hPutStrLn IO.stderr $
             "exception reading " ++ show fn ++ ": " ++ show exc
         unless ignoreEncodingErrors $
-            void $ exitFailure
+            void $ Exit.exitFailure
         return ([], [])
 
 tagSortingKey :: Pos TagVal -> (Text, Type)
@@ -241,7 +241,7 @@ process fn trackPrefixes =
             | otherwise             = y
     unlit' :: Text -> Text
     unlit' s
-        | isLiterateFile fn = T.pack $ unlit fn $ T.unpack s'
+        | isLiterateFile fn = T.pack $ Unlit.unlit fn $ T.unpack s'
         | otherwise = s
         where
         s' :: Text
@@ -320,10 +320,10 @@ identChar considerDot c = Char.isAlphaNum c || c == '\'' || c == '_' || c == '#'
 
 -- unicode operators are not supported yet
 haskellOpChar :: Char -> Bool
-haskellOpChar c = IS.member (Char.ord c) opChars
+haskellOpChar c = IntSet.member (Char.ord c) opChars
     where
-    opChars :: IntSet
-    opChars = IS.fromList $ map Char.ord "-!#$%&*+./<=>?@^|~:\\"
+    opChars :: IntSet.IntSet
+    opChars = IntSet.fromList $ map Char.ord "-!#$%&*+./<=>?@^|~:\\"
 
 isTypeVarStart :: Text -> Bool
 isTypeVarStart x = case headt x of
