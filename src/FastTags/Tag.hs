@@ -70,7 +70,15 @@ instance NFData TagVal where
 -- interest.
 --
 -- We rely that Type < Constructor.  TODO how and where?  For sorting tags?
-data Type = Function | Type | Constructor | Class | Module | Operator | Pattern
+data Type =
+    Function
+    | Type
+    | Constructor
+    | Class
+    | Module
+    | Operator
+    | Pattern
+    | Family
     deriving (Eq, Ord, Show)
 
 instance NFData Type where
@@ -312,7 +320,7 @@ blockTags unstripped = case stripNewlines unstripped of
     -- type family X ...
     Pos prevPos KWType : Pos _ KWFamily : toks -> maybeToList tag
         where
-        (tag, _,  _) = recordVanillaOrInfixName isTypeFamilyName Type prevPos
+        (tag, _,  _) = recordVanillaOrInfixName isTypeFamilyName Family prevPos
             "type family * =" toks
     -- type instance X * = ...
     -- No tags in type family instances
@@ -325,7 +333,7 @@ blockTags unstripped = case stripNewlines unstripped of
     -- data family X ...
     Pos prevPos KWData : Pos _ KWFamily : toks -> maybeToList tag
         where
-        (tag, _, _) = recordVanillaOrInfixName isTypeFamilyName Type prevPos
+        (tag, _, _) = recordVanillaOrInfixName isTypeFamilyName Family prevPos
             "data family * =" toks
     -- data instance * = ...
     -- data instance * where ...
@@ -696,8 +704,8 @@ stripUntilImplies xs =
 
 classBodyTags :: UnstrippedTokens -> [Tag]
 classBodyTags unstripped = case stripNewlines unstripped of
-    Pos _ KWType : Pos pos (T name) : _ -> [mkTag pos name Type]
-    Pos _ KWData : Pos pos (T name) : _ -> [mkTag pos name Type]
+    Pos _ KWType : Pos pos (T name) : _ -> [mkTag pos name Family]
+    Pos _ KWData : Pos pos (T name) : _ -> [mkTag pos name Family]
     tokens                              -> fst $ functionTags False tokens
 
 -- | Skip to the where and split the indented block below it.
