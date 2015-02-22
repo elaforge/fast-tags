@@ -1,3 +1,4 @@
+{-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 import Control.Arrow (first)
@@ -8,7 +9,6 @@ import qualified Data.Text as T
 import qualified Test.Tasty as Tasty
 import Test.Tasty (TestTree, testGroup)
 import qualified Test.Tasty.HUnit as HUnit
-import Test.Tasty.HUnit ((@?=))
 
 import qualified FastTags.Lexer as Lexer
 import qualified FastTags.Tag as Tag
@@ -30,6 +30,39 @@ tests = testGroup "tests"
     , testProcess
     , testStripCpp
     ]
+
+class ExtendedEq a where
+    (===) :: a -> a -> Bool
+    default (===) :: Eq a => a -> a -> Bool
+    (===) = (==)
+
+instance (ExtendedEq a) => ExtendedEq [a] where
+    (===) xs ys = length xs == length ys && and (zipWith (===) xs ys)
+
+instance (ExtendedEq a, ExtendedEq b) => ExtendedEq (a, b) where
+    (===) (a, b) (c, d) = a === c && b === d
+
+instance ExtendedEq TagVal where
+    TagVal name t parent === TagVal name' t' parent' =
+        name == name' && t == t' && parent == parent'
+
+instance (ExtendedEq a) => ExtendedEq (Pos a) where
+    (===) (Pos x y) (Pos x' y') = x === x' && y === y'
+
+instance ExtendedEq a => ExtendedEq (Maybe a) where
+    (===) Nothing  Nothing  = True
+    (===) (Just x) (Just y) = x === y
+    (===) _        _        = False
+
+instance (ExtendedEq a, ExtendedEq b, ExtendedEq c) => ExtendedEq (a, b, c) where
+    (a, b, c) === (a', b', c') = a === a' && b === b' && c === c'
+
+instance ExtendedEq Int
+instance ExtendedEq Char
+instance ExtendedEq Text
+instance ExtendedEq TokenVal
+instance ExtendedEq SrcPos
+instance ExtendedEq Vim.Parsed
 
 testTokenize :: TestTree
 testTokenize = testGroup "tokenize"
@@ -177,7 +210,7 @@ parseTag = testGroup "parseTag"
     where
     (==>) = test f
     f (fn, line, text, typ) =
-        Vim.parseTag $ Vim.showTag (Pos (SrcPos fn line "") (TagVal text typ))
+        Vim.parseTag $ Vim.showTag (Pos (SrcPos fn line "") (TagVal text typ Nothing))
 
 dropAdjacent :: TestTree
 dropAdjacent = testGroup "dropAdjacent"
@@ -199,7 +232,7 @@ dropAdjacent = testGroup "dropAdjacent"
     f = map extract . map fst . Vim.dropAdjacent 2
         . Vim.keyOnJust Vim.parseTag . map (Vim.showTag . makeTag)
     extract t = (Vim.filename t, Vim.line t, Vim.name t)
-    makeTag (fn, line, text) = Pos (SrcPos fn line "") (TagVal text Function)
+    makeTag (fn, line, text) = Pos (SrcPos fn line "") (TagVal text Function Nothing)
 
 testProcess :: TestTree
 testProcess = testGroup "process"
@@ -218,27 +251,74 @@ testProcess = testGroup "process"
 testPrefixes :: TestTree
 testPrefixes = testGroup "prefix tracking"
     [ "module Bar.Foo where\n" ==>
-        [Pos (SrcPos fn 1 "module Bar.Foo") (TagVal "Foo" Module)]
+        [Pos (SrcPos fn 1 "module Bar.Foo") (TagVal "Foo" Module Nothing)]
     , "newtype Foo a b =\n\
       \\tBar x y z\n" ==>
-        [ Pos (SrcPos fn 1 "newtype Foo") (TagVal "Foo" Type)
-        , Pos (SrcPos fn 2 "\tBar") (TagVal "Bar" Constructor)
+        [ Pos (SrcPos fn 1 "newtype Foo") (TagVal "Foo" Type Nothing)
+        , Pos (SrcPos fn 2 "\tBar") (TagVal "Bar" Constructor (Just "Foo"))
+        ]
+    , "data Foo a b =\n\
+      \\tBar x y z\n" ==>
+        [ Pos (SrcPos fn 1 "data Foo") (TagVal "Foo" Type Nothing)
+        , Pos (SrcPos fn 2 "\tBar") (TagVal "Bar" Constructor (Just "Foo"))
         ]
     , "f :: A -> B\n\
       \g :: C -> D\n\
       \data D = C {\n\
       \\tf :: A\n\
       \\t}\n" ==>
-        [ Pos (SrcPos fn 1 "f") (TagVal "f" Function)
-        , Pos (SrcPos fn 2 "g") (TagVal "g" Function)
-        , Pos (SrcPos fn 3 "data D") (TagVal "D" Type)
-        , Pos (SrcPos fn 3 "data D = C") (TagVal "C" Constructor)
-        , Pos (SrcPos fn 4 "\tf") (TagVal "f" Function)
+        [ Pos (SrcPos fn 1 "f") (TagVal "f" Function Nothing)
+        , Pos (SrcPos fn 2 "g") (TagVal "g" Function Nothing)
+        , Pos (SrcPos fn 3 "data D") (TagVal "D" Type Nothing)
+        , Pos (SrcPos fn 3 "data D = C") (TagVal "C" Constructor (Just "D"))
+        , Pos (SrcPos fn 4 "\tf") (TagVal "f" Function (Just "D"))
         ]
+    , "instance Foo Bar where\n\
+      \  newtype FooFam Bar = BarList [Int]" ==>
+        [ Pos (SrcPos fn 2 "  newtype FooFam Bar = BarList")
+              (TagVal "BarList" Constructor (Just "FooFam"))
+        ]
+    , "instance Foo Bar where\n\
+      \  newtype FooFam Bar = BarList { getBarList :: [Int] }" ==>
+        [ Pos (SrcPos fn 2 "  newtype FooFam Bar = BarList" )
+              (TagVal "BarList" Constructor (Just "FooFam"))
+        , Pos (SrcPos fn 2 "  newtype FooFam Bar = BarList { getBarList" )
+              (TagVal "getBarList" Function (Just "FooFam"))
+        ]
+    , "instance Foo Bar where\n\
+      \  data (Ord a) => FooFam Bar a = BarList { getBarList :: [a] }\n\
+      \                               | BarMap { getBarMap :: Map a Int }" ==>
+        [ Pos (SrcPos fn 2 "  data (Ord a) => FooFam Bar a = BarList")
+              (TagVal "BarList" Constructor (Just "FooFam"))
+        , Pos (SrcPos fn 2 "  data (Ord a) => FooFam Bar a = BarList { getBarList")
+              (TagVal "getBarList" Function (Just "FooFam"))
+        , Pos (SrcPos fn 3 "                               | BarMap")
+              (TagVal "BarMap" Constructor (Just "FooFam"))
+        , Pos (SrcPos fn 3"                               | BarMap { getBarMap")
+              (TagVal "getBarMap" Function (Just "FooFam"))
+        ]
+    , "newtype instance FooFam Bar = BarList { getBarList :: [Int] }" ==>
+        [ Pos (SrcPos fn 1 "newtype instance FooFam Bar = BarList")
+              (TagVal "BarList" Constructor (Just "FooFam"))
+        , Pos (SrcPos fn 1 "newtype instance FooFam Bar = BarList { getBarList")
+              (TagVal "getBarList" Function (Just "FooFam"))
+        ]
+    , "data instance (Ord a) => FooFam Bar a = BarList { getBarList :: [a] }\n\
+      \                                      | BarMap { getBarMap :: Map a Int }"
+      ==>
+      [ Pos (SrcPos fn 1 "data instance (Ord a) => FooFam Bar a = BarList")
+            (TagVal "BarList" Constructor (Just "FooFam"))
+      , Pos (SrcPos fn 1 "data instance (Ord a) => FooFam Bar a = BarList { getBarList")
+            (TagVal "getBarList" Function (Just "FooFam"))
+      , Pos (SrcPos fn 2 "                                      | BarMap")
+            (TagVal "BarMap" Constructor (Just "FooFam"))
+      , Pos (SrcPos fn 2 "                                      | BarMap { getBarMap")
+            (TagVal "getBarMap" Function (Just "FooFam"))
+      ]
     ]
     where
     (==>) = testFullTagsWithPrefixes fn
-    fn = filename
+    fn = "fn.hs"
 
 testData :: TestTree
 testData = testGroup "data"
@@ -925,8 +1005,13 @@ testStripCpp = testGroup "strip cpp"
     where
     (==>) = test stripCpp
 
-test :: (Show a, Eq b, Show b) => (a -> b) -> a -> b -> TestTree
-test f x expected = HUnit.testCase (take 70 $ show x) $ f x @?= expected
+test :: (Show a, ExtendedEq b, Show b) => (a -> b) -> a -> b -> TestTree
+test f x expected =
+    HUnit.testCase (take 70 $ show x) $
+    HUnit.assertBool msg (actual === expected)
+    where
+    actual = f x
+    msg    = "expected: " ++ show expected ++ "\n but got: " ++ show actual
 
 filename :: FilePath
 filename = "fn.hs"
@@ -954,7 +1039,7 @@ testTagNames fn source tags =
     trackPrefixes = False
 
 untag :: Pos TagVal -> String
-untag (Pos _ (TagVal name _)) = T.unpack name
+untag (Pos _ (TagVal name _ _)) = T.unpack name
 
 tokenize :: Text -> UnstrippedTokens
 tokenize =

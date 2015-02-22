@@ -33,6 +33,7 @@ module FastTags.Tag (
     )
 where
 import Control.Arrow ((***))
+import Control.Monad
 import Control.DeepSeq (NFData, rnf)
 import qualified Data.Char as Char
 import Data.Functor ((<$>))
@@ -55,15 +56,21 @@ import qualified FastTags.Util as Util
 -- * types
 
 data TagVal = TagVal {
-    tvName :: !Text
-    , tvType :: !Type
+    tvName     :: !Text
+    , tvType   :: !Type
+    , tvParent :: !(Maybe Text)
+      -- ^ parent of this tag; parent can only be of type
+      -- Class, Data or Family
     } deriving (Show, Eq, Ord)
+
+tagName :: Pos TagVal -> Text
+tagName = tvName . valOf
 
 tagLine :: Pos TagVal -> Token.Line
 tagLine = posLine . posOf
 
 instance NFData TagVal where
-    rnf (TagVal x y) = rnf x `seq` rnf y
+    rnf (TagVal x y z) = rnf x `seq` rnf y `seq` rnf z
 
 -- | The Ord instance is used to sort tags with the same name.  Given multiple
 -- matches, vim will visit them in order, so this should be in the order of
@@ -95,6 +102,11 @@ data Tag =
     | Warning !(Pos String)
     deriving (Show, Eq, Ord)
 
+onTagVal :: (Pos TagVal -> Pos TagVal) -> Tag -> Tag
+onTagVal f (Tag t)           = Tag $ f t
+onTagVal f (RepeatableTag t) = RepeatableTag $ f t
+onTagVal _ w@(Warning _)     = w
+
 -- | Partition Tag, RepeatableTag, and Warning.
 partitionTags :: [Tag] -> ([Pos TagVal], [Pos TagVal], [Pos String])
 partitionTags = go [] [] []
@@ -104,6 +116,11 @@ partitionTags = go [] [] []
         Tag a           -> go (a:tags) repeats warns ts
         RepeatableTag a -> go tags (a:repeats) warns ts
         Warning a       -> go tags repeats (a:warns) ts
+
+extractName :: Tag -> Maybe Text
+extractName (Tag t)           = Just $ tagName t
+extractName (RepeatableTag t) = Just $ tagName t
+extractName (Warning _)       = Nothing
 
 -- | Newlines have to remain in the tokens because 'breakBlocks' relies on
 -- them.  But they make pattern matching on the tokens unreliable because
@@ -148,8 +165,12 @@ processFile fn trackPrefixes =
 -- prioritize it for same-file tags, but I think it already does that, so maybe
 -- this isn't necessary?
 qualify :: Bool -> Text -> Pos TagVal -> Pos TagVal
-qualify fullyQualify srcPrefix (Token.Pos pos (TagVal name typ)) =
-    Token.Pos pos (TagVal qualified typ)
+qualify fullyQualify srcPrefix (Token.Pos pos (TagVal name typ _)) =
+    Token.Pos pos TagVal
+        { tvName   = qualified
+        , tvType   = typ
+        , tvParent = Nothing
+        }
     where
     qualified = case typ of
         Module -> module_
@@ -309,11 +330,13 @@ blockTags unstripped = case stripNewlines unstripped of
             "pattern * =" toks
     Pos _ KWForeign : decl -> foreignTags decl
     -- newtype instance * = ...
-    Pos _ KWNewtype : Pos _ KWInstance : (dropDataContext -> Pos pos _: rest) ->
-        newtypeTags pos rest
+    Pos prevPos KWNewtype : Pos _ KWInstance : toks ->
+        map (addParent familyNameTag) $ newtypeTags pos rest
+        where
+        (familyNameTag, pos, rest) = extractFamilyName prevPos "newtype instance * =" toks
     -- newtype X * = X *
     Pos prevPos KWNewtype : toks ->
-        maybeToList tag ++ newtypeTags pos rest
+        maybeToList tag ++ map (addParent tag) (newtypeTags pos rest)
         where
         (tag, pos, rest) =
             recordVanillaOrInfixName isTypeName Type prevPos "newtype * =" toks
@@ -331,18 +354,21 @@ blockTags unstripped = case stripNewlines unstripped of
         (tag, _, _) = recordVanillaOrInfixName isTypeName Type prevPos
             "type * =" toks
     -- data family X ...
-    Pos prevPos KWData : Pos _ KWFamily : toks -> maybeToList tag
+    Pos prevPos KWData : Pos _ KWFamily : toks ->
+        map (addParent tag) $ maybeToList tag
         where
         (tag, _, _) = recordVanillaOrInfixName isTypeFamilyName Family prevPos
             "data family * =" toks
     -- data instance * = ...
     -- data instance * where ...
-    Pos _ KWData : Pos _ KWInstance : (dropDataContext -> Pos pos _: _) ->
-        dataConstructorTags pos (dropTokens 2 unstripped)
+    Pos prevPos KWData : Pos _ KWInstance : toks ->
+        map (addParent familyNameTag) $ dataConstructorTags pos (dropTokens 2 unstripped)
+        where
+        (familyNameTag, pos, _) = extractFamilyName prevPos "data instance * =" toks
     -- data X * = X { X :: *, X :: * }
     -- data X * where ...
     Pos prevPos KWData : toks ->
-        maybeToList tag ++ dataConstructorTags pos (dropTokens 1 unstripped)
+        maybeToList tag ++ map (addParent tag) (dataConstructorTags pos (dropTokens 1 unstripped))
         where
         (tag, pos, _) = recordVanillaOrInfixName isTypeName Type prevPos
             "data * =" toks
@@ -690,10 +716,11 @@ gadtTags unstripped = case rest of
 -- | * => X where X :: * ...
 classTags :: SrcPos -> UnstrippedTokens -> [Tag]
 classTags prevPos unstripped =
-    maybeToList tag ++ concatMap classBodyTags (whereBlock wherePart)
+    maybeToList classTag ++
+    map (addParent classTag) (concatMap classBodyTags (whereBlock wherePart))
     where
     (classPart, wherePart) = spanUntil KWWhere unstripped
-    (tag, _, _) = recordVanillaOrInfixName isTypeName Class prevPos
+    (classTag, _, _) = recordVanillaOrInfixName isTypeName Class prevPos
         "class * =>" $ stripUntilImplies $ stripNewlines classPart
 
 stripUntilImplies :: [Token] -> [Token]
@@ -716,10 +743,14 @@ instanceTags :: SrcPos -> UnstrippedTokens -> [Tag]
 instanceTags prevPos unstripped =
     -- instances can offer nothing but some fresh data constructors since
     -- the actual datatype is really declared in the class declaration
-    concatMap (newtypeTags prevPos . stripNewlines)
-        (filter isNewtypeDecl block)
-    ++ concatMap (dataConstructorTags prevPos)
-        (filter isDataDecl block)
+    concatMap (\toks ->
+                   let (parent, pos, rest) = extractFamilyName prevPos "newtype instance * =" toks
+                   in map (addParent parent) $ newtypeTags pos rest)
+        (map (stripNewlines . dropTokens 1) (filter isNewtypeDecl block))
+    ++ concatMap (\toks ->
+                   let (parent, pos, _) = extractFamilyName prevPos "data instance * =" (stripNewlines toks)
+                   in map (addParent parent) $ dataConstructorTags pos toks)
+        (map (dropTokens 1) (filter isDataDecl block))
     where
     block = whereBlock unstripped
 
@@ -731,13 +762,31 @@ instanceTags prevPos unstripped =
     isDataDecl (UnstrippedTokens (Pos _ KWData : _)) = True
     isDataDecl _ = False
 
+extractFamilyName :: SrcPos -> String -> [Token] -> (Maybe Tag, SrcPos, [Token])
+extractFamilyName prevPos context toks = (tag, pos, toks')
+    where
+    (tag, pos, toks') = recordVanillaOrInfixName isTypeFamilyName Family prevPos context toks
+
 -- * util
 
+addParent :: Maybe Tag -> Tag -> Tag
+addParent parent = onTagVal f
+    where
+    f (Pos pos (TagVal name typ _)) =
+        Pos pos (TagVal name typ parentName)
+    parentName :: Maybe Text
+    parentName = join $ extractName <$> parent
+
 mkTag :: SrcPos -> Text -> Type -> Tag
-mkTag pos name typ = Tag $ Pos pos (TagVal name typ)
+mkTag pos name typ = Tag $ Pos pos (TagVal name typ Nothing)
 
 mkRepeatableTag :: SrcPos -> Text -> Type -> Tag
-mkRepeatableTag pos name typ = RepeatableTag $ Pos pos (TagVal name typ)
+mkRepeatableTag pos name typ =
+    RepeatableTag $ Pos pos TagVal
+        { tvName   = name
+        , tvType   = typ
+        , tvParent = Nothing
+        }
 
 warning :: SrcPos -> String -> Tag
 warning pos warn = Warning $ Pos pos $ show pos ++ ": " ++ warn
