@@ -92,7 +92,7 @@ vimMagicLine = "!_TAG_FILE_SORTED\t1\t//"
 
 -- | Convert a Tag to text, e.g.: AbsoluteMark\tCmd/TimeStep.hs 67 ;" f
 showTag :: Token.Pos Tag.TagVal -> Text
-showTag (Token.Pos pos (Tag.TagVal text typ)) = mconcat
+showTag (Token.Pos pos (Tag.TagVal text typ _)) = mconcat
     [ text, "\t"
     , Text.pack (Token.posFile pos), "\t"
     , Text.pack (show $ Token.unLine (Token.posLine pos)), ";\"\t"

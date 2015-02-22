@@ -195,7 +195,7 @@ main = do
 
 typeOf :: Token.Pos Tag.TagVal -> Tag.Type
 typeOf tagVal = case Token.valOf tagVal of
-    Tag.TagVal _ typ -> typ
+    Tag.TagVal _ typ _ -> typ
 
 -- | Expand file inputs from cmdline.
 getInputs :: [Flag] -> [FilePath] -> IO [FilePath]
