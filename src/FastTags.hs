@@ -358,7 +358,7 @@ spanSymbol considerColon text
 symbolChar :: Bool -> Char -> Bool
 symbolChar considerColon c =
     (Char.isSymbol c || Char.isPunctuation c)
-    && (not (c `elem` "(),;[]`{}_:\"'") || considerColon && c == ':')
+    && (not (c `elem` ("(),;[]`{}_:\"'"::String)) || considerColon && c == ':')
 
 breakChar :: Text -> (Text, Text)
 breakChar text = case headt text of
