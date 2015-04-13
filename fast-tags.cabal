@@ -1,8 +1,8 @@
 name: fast-tags
-version: 0.0.6
+version: 1.0
 cabal-version: >= 1.8
 build-type: Simple
-synopsis: Fast incremental vi tags.
+synopsis: Fast incremental vi and emacs tags.
 description:
     Yet another tags program.  Like hasktags, it uses its own parser rather
     than haskell-src or haskell-src-exts, so it's fast.  It understands
@@ -16,7 +16,7 @@ description:
     .
     Limitations:
     .
-    - Not using a real haskell parser means there are more likely to be dark
+    - Not using a real haskell parser means there is likely to be dark
     corners that don't parse right.
     .
     - Code has to be indented \"properly\", so brace and semicolon style with
