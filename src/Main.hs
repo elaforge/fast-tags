@@ -52,7 +52,6 @@ main = do
         output        = last $ defaultOutput : [fn | Output fn <- flags]
         noMerge       = NoMerge `elem` flags
         useZeroSep    = ZeroSep `elem` flags
-        ignoreEncErrs = IgnoreEncodingErrors `elem` flags
         sep           = if useZeroSep then '\0' else '\n'
         defaultOutput = if vim then "tags" else "TAGS"
         inputsM       = if null inputs
@@ -84,7 +83,7 @@ main = do
     -- TODO try it and see if it really hurts performance that much.
     newTags <- fmap processAll $
         forM (zip [0..] inputs) $ \(i :: Int, fn) -> do
-            (newTags, warnings) <- processFile ignoreEncErrs fn trackPrefixes
+            (newTags, warnings) <- processFile fn trackPrefixes
             forM_ warnings printErr
             when verbose $ do
                 let line = take 78 $ show i ++ ": " ++ fn
@@ -174,7 +173,6 @@ data Flag = Output FilePath
     | Recurse
     | NoMerge
     | ZeroSep
-    | IgnoreEncodingErrors
     deriving (Eq, Show)
 
 help :: String
@@ -195,11 +193,9 @@ options =
     , Option ['R'] [] (NoArg Recurse)
         "read all files under any specified directories recursively"
     , Option ['0'] [] (NoArg ZeroSep)
-        "expect list of file names in stdin to be 0-separated."
+        "expect list of file names on stdin to be 0-separated."
     , Option [] ["nomerge"] (NoArg NoMerge)
         "do not merge tag files"
-    , Option [] ["ignore-encoding-errors"] (NoArg IgnoreEncodingErrors)
-        "do exit on utf8 encoding error and continue processing other files"
     ]
 
 -- | Documented in vim :h tags-file-format.

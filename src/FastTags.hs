@@ -32,27 +32,25 @@ module FastTags
     , split
     )
 where
-
 import Control.Arrow ((***), (&&&))
-import Control.Monad
 import Control.DeepSeq (NFData, rnf)
+import Control.Monad
+
+import qualified Data.ByteString as ByteString
+import qualified Data.Char as Char
 import Data.Function (on)
 import Data.Functor ((<$>))
-import Data.Monoid (Monoid, (<>), mconcat)
-import Data.Text (Text)
-import qualified System.Exit as Exit
-
-import qualified Language.Preprocessor.Unlit as Unlit
-import Text.Printf (printf)
-
-import qualified Control.Exception as Exception
-import qualified Data.Char as Char
 import qualified Data.IntSet as IntSet
 import qualified Data.List as L
 import qualified Data.Map as M
+import Data.Monoid (Monoid, (<>), mconcat)
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
-import qualified System.IO as IO
+import Data.Text (Text)
+import qualified Data.Text.Encoding as Encoding
+import qualified Data.Text.Encoding.Error as Encoding.Error
+
+import qualified Language.Preprocessor.Unlit as Unlit
+import Text.Printf (printf)
 
 
 -- * types
@@ -206,17 +204,15 @@ tagLine :: Pos TagVal -> Int
 tagLine (Pos (SrcPos _ line) _) = line
 
 -- | Read tags from one file.
-processFile :: Bool -> FilePath -> Bool -> IO ([Pos TagVal], [String])
-processFile ignoreEncodingErrors fn trackPrefixes =
-    fmap (process fn trackPrefixes) (T.readFile fn)
-    `Exception.catch` \(exc :: Exception.SomeException) -> do
-        -- readFile will crash on files that are not UTF8.  Unfortunately not
-        -- all haskell source file are.
-        IO.hPutStrLn IO.stderr $
-            "exception reading " ++ show fn ++ ": " ++ show exc
-        unless ignoreEncodingErrors $
-            void $ Exit.exitFailure
-        return ([], [])
+processFile :: FilePath -> Bool -> IO ([Pos TagVal], [String])
+processFile fn trackPrefixes =
+    process fn trackPrefixes <$> readFileLenient fn
+
+-- | Read a UTF8 file, but don't crash on encoding errors.
+readFileLenient :: FilePath -> IO Text
+readFileLenient fname = do
+    bytes <- ByteString.readFile fname
+    return $ Encoding.decodeUtf8With Encoding.Error.lenientDecode bytes
 
 tagSortingKey :: Pos TagVal -> (Text, Type)
 tagSortingKey (Pos _ (TagVal _ name t)) = (name, t)

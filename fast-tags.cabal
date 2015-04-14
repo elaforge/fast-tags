@@ -42,20 +42,23 @@ source-repository head
 flag fast
     description:
         Spend more time optimizing a program (may yield up to 25% speedup)
-    default:     False
+    default: False
 
 library
     build-depends:
         base >= 3 && < 5, containers, cpphs >1.18, filepath, directory,
         -- text 0.11.1.12 has a bug.
-        text (> 0.11.1.12 || < 0.11.1.12), deepseq
+        text (> 0.11.1.12 || < 0.11.1.12),
+        bytestring,
+        deepseq
     exposed-modules: FastTags
     hs-source-dirs: src
     ghc-options: -Wall -fno-warn-name-shadowing
     ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all
     if flag(fast)
         ghc-options:
-            -funfolding-creation-threshold=10000 -funfolding-use-threshold=2500
+            -funfolding-creation-threshold=10000
+            -funfolding-use-threshold=2500
 
 executable fast-tags
     main-is: src/Main.hs
@@ -63,12 +66,14 @@ executable fast-tags
         base >= 3 && < 5, containers, filepath, directory,
         -- text 0.11.1.12 has a bug.
         text (> 0.11.1.12 || < 0.11.1.12),
+        bytestring,
         fast-tags
     ghc-options: -Wall -fno-warn-name-shadowing
     ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all
     if flag(fast)
         ghc-options:
-            -funfolding-creation-threshold=10000 -funfolding-use-threshold=2500
+            -funfolding-creation-threshold=10000
+            -funfolding-use-threshold=2500
 
 test-suite test-fast-tags
     type: exitcode-stdio-1.0
@@ -80,5 +85,6 @@ test-suite test-fast-tags
         base >= 3 && < 5, containers, filepath, directory,
         -- text 0.11.1.12 has a bug.
         text (> 0.11.1.12 || < 0.11.1.12),
+        bytestring,
         tasty, tasty-hunit,
         fast-tags
