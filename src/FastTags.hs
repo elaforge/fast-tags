@@ -41,8 +41,8 @@ import qualified Data.Char as Char
 import Data.Function (on)
 import Data.Functor ((<$>))
 import qualified Data.IntSet as IntSet
-import qualified Data.List as L
-import qualified Data.Map as M
+import qualified Data.List as List
+import qualified Data.Map as Map
 import Data.Monoid (Monoid, (<>), mconcat)
 import qualified Data.Text as T
 import Data.Text (Text)
@@ -92,7 +92,7 @@ data TokenVal =
 
 tokenName :: TokenVal -> Text
 tokenName (Token _ name) = name
-tokenName _              = error "cannot extract name from non-Token TokenVal"
+tokenName _ = error "cannot extract name from non-Token TokenVal"
 
 data Tag =
     Tag !(Pos TagVal)
@@ -191,7 +191,7 @@ combineBalanced f xs = go xs
 -- Mostly this is so that given a type with the same name as its module,
 -- the type will come first.
 sortDups :: [Pos TagVal] -> [Pos TagVal]
-sortDups = concatMap (sortOn tagType) .  M.elems . M.fromAscListWith (++)
+sortDups = concatMap (sortOn tagType) .  Map.elems . Map.fromAscListWith (++)
     . map (fst . tagSortingKey &&& (:[]))
 
 tagText :: Pos TagVal -> Text
@@ -231,7 +231,7 @@ process fn trackPrefixes =
         where
         (newTags, repeatableTags, warnings) = partitionTags tags
         earliestRepeats :: [Pos TagVal]
-        earliestRepeats = M.elems $ M.fromListWith minLine $
+        earliestRepeats = Map.elems $ Map.fromListWith minLine $
             map (tagSortingKey &&& id) repeatableTags
         minLine x y
             | tagLine x < tagLine y = x
@@ -242,7 +242,8 @@ process fn trackPrefixes =
         | otherwise = s
         where
         s' :: Text
-        s'  | "\\begin{code}" `T.isInfixOf` s && "\\end{code}" `T.isInfixOf` s =
+        s'  | "\\begin{code}" `T.isInfixOf` s
+                    && "\\end{code}" `T.isInfixOf` s =
                 T.unlines $ filter (not . birdLiterateLine) $ T.lines s
             | otherwise = s
         birdLiterateLine :: Text -> Bool
@@ -264,7 +265,7 @@ stripCpp = filter $ not . ("#" `T.isPrefixOf`) . valOf
 
 tokenize :: Bool -> Line -> UnstrippedTokens
 tokenize trackPrefixes (Pos pos line) =
-  UnstrippedTokens $ map (Pos pos) (tokenizeLine trackPrefixes line)
+    UnstrippedTokens $ map (Pos pos) (tokenizeLine trackPrefixes line)
 
 spanToken :: Text -> (Text, Text)
 spanToken text
@@ -314,8 +315,8 @@ startIdentChar :: Char -> Bool
 startIdentChar c = Char.isAlpha c || c == '_'
 
 identChar :: Bool -> Char -> Bool
-identChar considerDot c = Char.isAlphaNum c || c == '\'' || c == '_' || c == '#'
-    || considerDot && c == '.'
+identChar considerDot c = Char.isAlphaNum c || c == '\'' || c == '_'
+    || c == '#' || considerDot && c == '.'
 
 -- unicode operators are not supported yet
 haskellOpChar :: Char -> Bool
@@ -889,7 +890,7 @@ dropUntil :: Text -> [Token] -> [Token]
 dropUntil token = drop 1 . dropWhile (not . (`hasName` token) . valOf)
 
 sortOn :: (Ord k) => (a -> k) -> [a] -> [a]
-sortOn key = L.sortBy (compare `on` key)
+sortOn key = List.sortBy (compare `on` key)
 
 -- | Split list into chunks delimited by specified element.
 split :: (Eq a) => a -> [a] -> [[a]]
@@ -899,11 +900,11 @@ split x xs = xs': split x (drop 1 xs'')
 
 -- | Crude predicate for Haskell files
 isHsFile :: FilePath -> Bool
-isHsFile fn =
-  ".hs" `L.isSuffixOf` fn  || ".hsc" `L.isSuffixOf` fn || isLiterateFile fn
+isHsFile fn = ".hs" `List.isSuffixOf` fn  || ".hsc" `List.isSuffixOf` fn
+    || isLiterateFile fn
 
 isLiterateFile :: FilePath -> Bool
-isLiterateFile fn = ".lhs" `L.isSuffixOf` fn
+isLiterateFile fn = ".lhs" `List.isSuffixOf` fn
 
 merge :: Ord a => [a] -> [a] -> [a]
 merge = mergeBy compare
