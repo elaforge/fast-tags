@@ -1,3 +1,8 @@
+1.1:
+
+* Decode UTF8 leniently, so non-UTF8 will no longer cause a crash.  Removed
+the --ignore-encoding-errors flag, since that's the default behaviour now.
+
 1.0:
 
 * Merged a whole bunch of patches from Sergey Vinokurov.  Copy paste from
