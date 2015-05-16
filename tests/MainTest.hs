@@ -38,6 +38,7 @@ test f x expected = testCase (take 70 $ show x) $ f x @?= expected
 testTokenize :: TestTree
 testTokenize = testGroup "tokenize"
   [ "a::b->c"           ==> ["a", "::", "b", "->", "c"]
+  , "a∷b→c"             ==> ["a", "∷", "b", "→", "c"]
   , "x{-\n  bc#-}\n"    ==> ["x", "{-", "nl 2", "bc#", "-}"]
   , "X.Y"               ==> ["X.Y"]
   , "x9"                ==> ["x9"]
@@ -187,6 +188,7 @@ testData = testGroup "data"
   -- Records.
   , "data Foo a = Bar { field :: Field }" ==> ["Bar", "Foo", "field"]
   , "data R = R { a::X, b::Y }"           ==> ["R", "R", "a", "b"]
+  , "data R = R { a∷X, b∷Y }"             ==> ["R", "R", "a", "b"]
   , "data R = R {\n\ta::X\n\t, b::Y\n\t}" ==> ["R", "R", "a", "b"]
   , "data R = R {\n\ta,b::X\n\t}"         ==> ["R", "R", "a", "b"]
 
@@ -267,10 +269,12 @@ testData = testGroup "data"
   , "newtype (Eq (v z)) => ((u :: (* -> *) -> *) `Foo` v) z = X"      ==> ["Foo", "X"]
   , "data (Eq (v z)) => ((u :: (* -> *) -> *) `Foo` v) z = X"         ==> ["Foo", "X"]
   , "type (Eq (v z)) => ((u :: (* -> *) -> *) `Foo` v) z = (u, v, z)" ==> ["Foo"]
+  , "type (Eq (v z)) => ((u ∷ (* -> *) -> *) `Foo` v) z = (u, v, z)"  ==> ["Foo"]
 
   , "newtype Eq (v z) => ((u :: (* -> *) -> *) `Foo` v) z = X"      ==> ["Foo", "X"]
   , "data Eq (v z) => ((u :: (* -> *) -> *) `Foo` v) z = X"         ==> ["Foo", "X"]
   , "type Eq (v z) => ((u :: (* -> *) -> *) `Foo` v) z = (u, v, z)" ==> ["Foo"]
+  , "type Eq (v z) ⇒ ((u ∷ (* → *) → *) `Foo` v) z = (u, v, z)"     ==> ["Foo"]
 
   , "data (:*:) u v z = X"                        ==> [":*:", "X"]
   , "data (Eq (u v), Ord (z)) => (:*:) u v z = X" ==> [":*:", "X"]
@@ -307,6 +311,9 @@ testData = testGroup "data"
     ==>
     ["Hadron", "Science", "f", "h"]
   , "data Hadron a b = forall x y. Science { f :: [(Box x, Map x y)], h :: b }"
+    ==>
+    ["Hadron", "Science", "f", "h"]
+  , "data Hadron a b = forall x y. Science { f ∷ [(Box x, Map x y)], h ∷ b }"
     ==>
     ["Hadron", "Science", "f", "h"]
   , "data Hadron a b = forall x y z. Science\n\
@@ -349,6 +356,10 @@ testGADT = testGroup "gadt"
     \  A, B :: Int -> Int -> X\n"
     ==>
     ["A", "B", "X"]
+  , "data X ∷ * → * → * where\n\
+    \  A, B ∷ Int → Int → X\n"
+    ==>
+    ["A", "B", "X"]
   , "data Vec ix where\n\
     \  Nil   :: Int -> Foo Int\n\
     \  (:::) :: Int -> Vec Int -> Vec Int\n\
@@ -384,6 +395,7 @@ testFamilies = testGroup "families"
   , "type family (a :: Nat) :<: (b :: Nat) :: Nat\n"      ==> [":<:"]
   , "type family (a :: Nat) `Family` (b :: Nat) :: Nat\n" ==> ["Family"]
   , "type family (m :: Nat) <=? (n :: Nat) :: Bool"       ==> ["<=?"]
+  , "type family (m ∷ Nat) <=? (n ∷ Nat) ∷ Bool"          ==> ["<=?"]
 
   , "data instance X a b = Y a | Z { unZ :: b }"                  ==> ["Y", "Z", "unZ"]
   , "data instance (Eq a, Eq b) => X a b = Y a | Z { unZ :: b }"  ==> ["Y", "Z", "unZ"]
@@ -396,6 +408,8 @@ testFamilies = testGroup "families"
     ["G1", "G2"]
   , "class C where\n\ttype X y :: *\n" ==> ["C", "X"]
   , "class C where\n\tdata X y :: *\n" ==> ["C", "X"]
+  , "class C where\n\ttype X y ∷ *\n"  ==> ["C", "X"]
+  , "class C where\n\tdata X y ∷ *\n"  ==> ["C", "X"]
   ]
   where
     (==>) = test process
@@ -517,6 +531,9 @@ testFunctions = testGroup "functions"
 testClass :: TestTree
 testClass = testGroup "class"
   [ "class (X x) => C a b where\n\tm :: a->b\n\tn :: c\n" ==> ["C", "m", "n"]
+  , "class (X x) ⇒ C a b where\n\tm ∷ a→b\n\tn ∷ c\n" ==> ["C", "m", "n"]
+  , "class (X x) => C a b | a -> b where\n\tm :: a->b\n\tn :: c\n" ==> ["C", "m", "n"]
+  , "class (X x) ⇒ C a b | a → b where\n\tm ∷ a→b\n\tn ∷ c\n" ==> ["C", "m", "n"]
   , "class A a where f :: X\n"                            ==> ["A", "f"]
     -- indented inside where
   , "class X where\n\ta, (+) :: X\n"            ==> ["+", "X", "a"]
@@ -531,6 +548,7 @@ testClass = testGroup "class"
   --   ==>
   --   [":<:", "f"]
   , "class (a :<<<: b) => a :<: b where\n    f :: a -> b"   ==> [":<:", "f"]
+  , "class (a :<<<: b) ⇒ a :<: b where\n    f ∷ a → b"   ==> [":<:", "f"]
   , "class (Eq a, Ord b) => a :<: b where\n    f :: a -> b" ==> [":<:", "f"]
   , "class (Eq a, Ord b) => (a :: (* -> *) -> *) :<: b where\n    f :: a -> b"
     ==>

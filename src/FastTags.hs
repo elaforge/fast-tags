@@ -293,7 +293,7 @@ spanToken text
     -- Safe because of null check above.
     Just (c, cs) = T.uncons text
     comments = ["{-", "-}"]
-    symbols = ["--", "=>", "->", "::"]
+    symbols = ["--", "=>", "->", "::", "⇒", "→", "∷"]
 
 tokenizeLine :: Bool -> Text -> [TokenVal]
 tokenizeLine trackPrefixes text = Newline nspaces : go spaces line
@@ -558,7 +558,7 @@ stripNewlines = filter (not . isNewline) . (\(UnstrippedTokens t) -> t)
 foreignTags :: [Token] -> [Tag]
 foreignTags decl = case decl of
     Pos _ (Token _ "import") : decl'
-        | name : _ <- dropBefore ((=="::") . tokenName . valOf) decl' ->
+        | name : _ <- dropBefore ((\x -> x == "::" || x == "∷") . tokenName . valOf) decl' ->
             [tokToTag name Pattern]
     _ -> []
 
@@ -585,7 +585,7 @@ functionTagsNoSig toks = go toks
     go toks@(Pos _ (Token _ "(") : _) = go $ stripBalancedParens toks
     go (Pos pos (Token prefix name) : ts)
         -- this function does not analyze type signatures
-        | name == "::" = []
+        | name == "::" || name == "∷" = []
         | name == "!" || name == "~" || name == "@" = go ts
         | name == "=" || name == "|" = case stripParens toks of
             Pos pos (Token prefix name) : _
@@ -614,10 +614,11 @@ functionTags constructors = go []
     funcTag = if constructors then Constructor else Function
     go :: [Tag] -> [Token] -> ([Tag], [Token])
     go tags (Pos _ (Token _ "(") : Pos pos (Token _ name)
-            : Pos _ (Token prefix ")") : Pos _ (Token _ "::") : rest) =
-        (reverse $ mkTag pos prefix name opTag : tags, rest)
-    go tags (Pos pos (Token prefix name) : Pos _ (Token _ "::") : rest)
-        | functionName constructors name =
+            : Pos _ (Token prefix ")") : Pos _ (Token _ colon) : rest)
+        | elem colon doubleColonTokens =
+            (reverse $ mkTag pos prefix name opTag : tags, rest)
+    go tags (Pos pos (Token prefix name) : Pos _ (Token _ colon) : rest)
+        | elem colon doubleColonTokens && functionName constructors name =
             (reverse $ mkTag pos prefix name funcTag : tags, rest)
     go tags (Pos _ (Token _ "(") : Pos pos (Token _ name)
             : Pos _ (Token prefix ")") : Pos _ (Token _ ",") : rest) =
@@ -723,18 +724,26 @@ stripOptForall :: [Token] -> [Token]
 stripOptForall (Pos _ (Token _ "forall") : rest) = dropUntil "." rest
 stripOptForall xs                               = xs
 
+doubleColonTokens :: [Text]
+doubleColonTokens = ["::", "∷"]
+
+impliesTokens :: [Text]
+impliesTokens = ["=>", "⇒"]
+
 stripParensKindsTypeVars :: [Token] -> [Token]
 stripParensKindsTypeVars (Pos _ (Token _ "(") : xs)  =
     stripParensKindsTypeVars xs
-stripParensKindsTypeVars (Pos _ (Token _ "::") : xs) =
-    stripParensKindsTypeVars $ tail $ dropWithStrippingBalanced (/= ")") xs
 stripParensKindsTypeVars (Pos _ (Token _ name) : xs)
+    | elem name doubleColonTokens =
+        stripParensKindsTypeVars $ tail $ dropWithStrippingBalanced (/= ")") xs
     | isTypeVarStart name = stripParensKindsTypeVars xs
 stripParensKindsTypeVars xs = xs
 
 stripOptContext :: [Token] -> [Token]
-stripOptContext (stripBalancedParens -> (Pos _ (Token _ "=>") : xs)) = xs
-stripOptContext (stripSingleClassContext -> Pos _ (Token _ "=>") : xs) = xs
+stripOptContext (stripBalancedParens -> (Pos _ (Token _ implies) : xs))
+  | elem implies impliesTokens = xs
+stripOptContext (stripSingleClassContext -> Pos _ (Token _ implies) : xs)
+  | elem implies impliesTokens = xs
 stripOptContext xs = xs
 
 stripSingleClassContext :: [Token] -> [Token]
