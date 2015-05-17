@@ -802,7 +802,7 @@ instanceTags :: SrcPos -> UnstrippedTokens -> [Tag]
 instanceTags prevPos unstripped =
     -- instances can offer nothing but some fresh data constructors since
     -- the actual datatype is really declared in the class declaration
-    concatMap (newtypeTags prevPos . unstrippedTokensOf)
+    concatMap (newtypeTags prevPos . stripNewlines)
         (filter isNewtypeDecl block)
     ++ concatMap (dataConstructorTags prevPos)
         (filter isDataDecl block)

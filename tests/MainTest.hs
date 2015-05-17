@@ -600,6 +600,16 @@ testInstance = testGroup "instance"
     \  newtype Bar Quux a = QBar { frob :: a }"
     ==>
     ["QBar", "frob"]
+  , "instance (Monoid w,MonadBaseControl b m) => MonadBaseControl b (JournalT w m) where\n\
+    \   newtype StM (JournalT w m) a =\n\
+    \       StMJournal { unStMJournal :: ComposeSt (JournalT w) m a }\n\
+    \   liftBaseWith = defaultLiftBaseWith StMJournal\n\
+    \   restoreM     = defaultRestoreM   unStMJournal\n\
+    \   {-# INLINE liftBaseWith #-}\n\
+    \   {-# INLINE restoreM #-}\n\
+    \"
+    ==>
+    ["StMJournal", "unStMJournal"]
   ]
   where
     (==>) = test process
