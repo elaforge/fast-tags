@@ -214,7 +214,7 @@ showTag :: Pos TagVal -> Text
 showTag (Pos (SrcPos fn lineno) (TagVal _ text typ)) = Text.concat
     [ text, "\t"
     , Text.pack fn, "\t"
-    , Text.pack (show lineno), " ;\" "
+    , Text.pack (show lineno), ";\"\t"
     , Text.singleton (showType typ)
     ]
 
