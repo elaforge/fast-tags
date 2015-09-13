@@ -1,3 +1,7 @@
+1.1.1:
+
+* fix 'format' output for vim
+
 1.1:
 
 * Decode UTF8 leniently, so non-UTF8 will no longer cause a crash.  Removed
