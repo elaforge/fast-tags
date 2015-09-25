@@ -10,47 +10,47 @@
 module Main (main) where
 import Control.Applicative
 import Control.Monad
-import Data.Map (Map)
-import Data.Monoid
-import Data.Set (Set)
-import Data.Text (Text)
-import System.Console.GetOpt
-import System.Directory
-    (doesFileExist, doesDirectoryExist, getDirectoryContents)
-import System.FilePath ((</>))
-import qualified System.Exit as Exit
 import qualified Data.List as List
 import qualified Data.Map as Map
+import Data.Map (Map)
+import Data.Monoid ((<>))
 import qualified Data.Set as Set
+import Data.Set (Set)
 import qualified Data.Text as Text
+import Data.Text (Text)
 import qualified Data.Text.IO as Text.IO
+import qualified Data.Version as Version
 
 import qualified System.Console.GetOpt as GetOpt
+import System.Directory
+       (doesFileExist, doesDirectoryExist, getDirectoryContents)
 import qualified System.Environment as Environment
+import qualified System.Exit as Exit
+import System.FilePath ((</>))
 import qualified System.IO as IO
-import qualified Data.Version as Version
 
 import FastTags
 import qualified Paths_fast_tags
 
 
-options :: [OptDescr Flag]
+options :: [GetOpt.OptDescr Flag]
 options =
-    [ Option ['h'] ["help"] (NoArg Help)
+    [ GetOpt.Option ['h'] ["help"] (GetOpt.NoArg Help)
         "print help message"
-    , Option ['o'] [] (ReqArg Output "file")
+    , GetOpt.Option ['o'] [] (GetOpt.ReqArg Output "file")
         "output file, defaults to 'tags'"
-    , Option ['e'] [] (NoArg ETags)
+    , GetOpt.Option ['e'] [] (GetOpt.NoArg ETags)
         "print tags in Emacs format"
-    , Option ['v'] [] (NoArg Verbose)
+    , GetOpt.Option ['v'] [] (GetOpt.NoArg Verbose)
         "print files as they are tagged, useful to track down slow files"
-    , Option ['R'] [] (NoArg Recurse)
+    , GetOpt.Option ['R'] [] (GetOpt.NoArg Recurse)
         "read all files under any specified directories recursively"
-    , Option ['0'] [] (NoArg ZeroSep)
+    , GetOpt.Option ['0'] [] (GetOpt.NoArg ZeroSep)
         "expect list of file names on stdin to be 0-separated."
-    , Option [] ["nomerge"] (NoArg NoMerge)
+    , GetOpt.Option [] ["nomerge"] (GetOpt.NoArg NoMerge)
         "do not merge tag files"
-    , Option [] ["version"] (NoArg Version) "print current version"
+    , GetOpt.Option [] ["version"] (GetOpt.NoArg Version)
+        "print current version"
     ]
 
 data Flag = Output FilePath | Help | Verbose | ETags | Recurse | NoMerge
@@ -61,7 +61,7 @@ main :: IO ()
 main = do
     args <- Environment.getArgs
 
-    (flags, inputs) <- case getOpt Permute options args of
+    (flags, inputs) <- case GetOpt.getOpt GetOpt.Permute options args of
         (flags, inputs, []) -> return (flags, inputs)
         (_, _, errs) ->
             let errMsg = "flag errors:\n" ++ List.intercalate ", " errs
