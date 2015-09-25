@@ -28,9 +28,34 @@ import qualified Data.Text.IO as Text.IO
 import qualified System.Console.GetOpt as GetOpt
 import qualified System.Environment as Environment
 import qualified System.IO as IO
+import qualified Data.Version as Version
 
 import FastTags
+import qualified Paths_fast_tags
 
+
+options :: [OptDescr Flag]
+options =
+    [ Option ['h'] ["help"] (NoArg Help)
+        "print help message"
+    , Option ['o'] [] (ReqArg Output "file")
+        "output file, defaults to 'tags'"
+    , Option ['e'] [] (NoArg ETags)
+        "print tags in Emacs format"
+    , Option ['v'] [] (NoArg Verbose)
+        "print files as they are tagged, useful to track down slow files"
+    , Option ['R'] [] (NoArg Recurse)
+        "read all files under any specified directories recursively"
+    , Option ['0'] [] (NoArg ZeroSep)
+        "expect list of file names on stdin to be 0-separated."
+    , Option [] ["nomerge"] (NoArg NoMerge)
+        "do not merge tag files"
+    , Option [] ["version"] (NoArg Version) "print current version"
+    ]
+
+data Flag = Output FilePath | Help | Verbose | ETags | Recurse | NoMerge
+    | ZeroSep | Version
+    deriving (Eq, Show)
 
 main :: IO ()
 main = do
@@ -43,6 +68,10 @@ main = do
             in usage $ errMsg ++ "\n" ++ help
 
     when (Help `elem` flags) $ usage help
+    when (Version `elem` flags) $ do
+        putStrLn $ "fast-tags, version "
+            ++ Version.showVersion Paths_fast_tags.version
+        Exit.exitSuccess
 
     let verbose       = Verbose `elem` flags
         emacs         = ETags `elem` flags
@@ -166,37 +195,10 @@ mergeTags inputs old new =
     where
     textFns = Set.fromList $ map Text.pack inputs
 
-data Flag = Output FilePath
-    | Help
-    | Verbose
-    | ETags
-    | Recurse
-    | NoMerge
-    | ZeroSep
-    deriving (Eq, Show)
-
 help :: String
 help = "usage: fast-tags [options] [filenames]\n" ++
        "In case no filenames provided on commandline, fast-tags expects " ++
        "list of files separated by newlines in stdin."
-
-options :: [OptDescr Flag]
-options =
-    [ Option ['h'] ["help"] (NoArg Help)
-        "print help message"
-    , Option ['o'] [] (ReqArg Output "file")
-        "output file, defaults to 'tags'"
-    , Option ['e'] [] (NoArg ETags)
-        "print tags in Emacs format"
-    , Option ['v'] [] (NoArg Verbose)
-        "print files as they are tagged, useful to track down slow files"
-    , Option ['R'] [] (NoArg Recurse)
-        "read all files under any specified directories recursively"
-    , Option ['0'] [] (NoArg ZeroSep)
-        "expect list of file names on stdin to be 0-separated."
-    , Option [] ["nomerge"] (NoArg NoMerge)
-        "do not merge tag files"
-    ]
 
 -- | Documented in vim :h tags-file-format.
 -- This tells vim that the file is sorted (but not case folded) so that
