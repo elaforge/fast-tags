@@ -65,12 +65,13 @@ executable fast-tags
     other-modules: Paths_fast_tags
     build-depends:
         base >= 3 && < 5, containers, filepath, directory,
+        async,
         -- text 0.11.1.12 has a bug.
         text (> 0.11.1.12 || < 0.11.1.12),
         bytestring,
         fast-tags
-    ghc-options: -Wall -fno-warn-name-shadowing
-    ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all
+    ghc-options: -Wall -fno-warn-name-shadowing -threaded
+    ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all -threaded
     if flag(fast)
         ghc-options:
             -funfolding-creation-threshold=10000

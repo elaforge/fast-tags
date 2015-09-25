@@ -9,6 +9,8 @@
 -}
 module Main (main) where
 import Control.Applicative
+import Control.Concurrent.Async (mapConcurrently)
+import Control.Concurrent.MVar (newMVar, takeMVar, putMVar)
 import Control.Monad
 import qualified Data.List as List
 import qualified Data.Map as Map
@@ -110,14 +112,17 @@ main = do
     -- file won't be sorted properly.  To do that I'd have to parse all the
     -- old tags and run processAll on all of them, which is a hassle.
     -- TODO try it and see if it really hurts performance that much.
+    printLock <- newMVar ()
     newTags <- fmap processAll $
-        forM (zip [0..] inputs) $ \(i :: Int, fn) -> do
+        flip mapConcurrently (zip [0..] inputs) $ \(i :: Int, fn) -> do
             (newTags, warnings) <- processFile fn trackPrefixes
+            -- takeMVar printLock
             forM_ warnings printErr
             when verbose $ do
                 let line = take 78 $ show i ++ ": " ++ fn
                 putStr $ '\r' : line ++ replicate (78 - length line) ' '
                 IO.hFlush IO.stdout
+            -- putMVar printLock ()
             return newTags
 
     when verbose $ putChar '\n'
