@@ -9,7 +9,9 @@
 -}
 module Main (main) where
 import Control.Applicative
+import qualified Control.Concurrent.Async as Async
 import Control.Monad
+
 import qualified Data.List as List
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -95,7 +97,7 @@ main = do
     -- old tags and run processAll on all of them, which is a hassle.
     -- TODO try it and see if it really hurts performance that much.
     newTags <- fmap processAll $
-        forM (zip [0..] inputs) $ \(i :: Int, fn) -> do
+        flip Async.mapConcurrently (zip [0..] inputs) $ \(i :: Int, fn) -> do
             (newTags, warnings) <- processFile fn trackPrefixes
             mapM_ (IO.hPutStrln IO.stderr) warnings
             when verbose $ do
