@@ -22,8 +22,7 @@ import qualified Data.Text.IO as Text.IO
 import qualified Data.Version as Version
 
 import qualified System.Console.GetOpt as GetOpt
-import System.Directory
-       (doesFileExist, doesDirectoryExist, getDirectoryContents)
+import qualified System.Directory as Directory
 import qualified System.Environment as Environment
 import qualified System.Exit as Exit
 import System.FilePath ((</>))
@@ -60,7 +59,6 @@ data Flag = Output FilePath | Help | Verbose | ETags | Recurse | NoMerge
 main :: IO ()
 main = do
     args <- Environment.getArgs
-
     (flags, inputs) <- case GetOpt.getOpt GetOpt.Permute options args of
         (flags, inputs, []) -> return (flags, inputs)
         (_, _, errs) ->
@@ -77,32 +75,18 @@ main = do
         emacs         = ETags `elem` flags
         vim           = not emacs
         trackPrefixes = emacs
-        recurse       = Recurse `elem` flags
         output        = last $ defaultOutput : [fn | Output fn <- flags]
-        noMerge       = NoMerge `elem` flags
-        useZeroSep    = ZeroSep `elem` flags
-        sep           = if useZeroSep then '\0' else '\n'
         defaultOutput = if vim then "tags" else "TAGS"
-        inputsM       = if null inputs
-                        then split sep <$> getContents
-                        else fmap concat $ forM inputs $ \input -> do
-                            -- if an input is a directory then we find the
-                            -- haskell files inside it, optionally recursing
-                            -- further if the -R switch is specified
-                            isDirectory <- doesDirectoryExist input
-                            if isDirectory
-                                then filter isHsFile <$> contents recurse input
-                                else return [input]
 
-    oldTags <- if vim && not noMerge
+    oldTags <- if vim && NoMerge `notElem` flags
         then do
-            exists <- doesFileExist output
+            exists <- Directory.doesFileExist output
             if exists
                 then Text.lines <$> Text.IO.readFile output
                 else return [vimMagicLine]
         else return [] -- we do not support tags merging for emacs for now
 
-    inputs <- inputsM
+    inputs <- getInputs flags inputs
     when (null inputs) $
         usage "no input files on either command line or stdin\n"
     -- This will merge and sort the new tags.  But I don't run it on the
@@ -113,7 +97,7 @@ main = do
     newTags <- fmap processAll $
         forM (zip [0..] inputs) $ \(i :: Int, fn) -> do
             (newTags, warnings) <- processFile fn trackPrefixes
-            forM_ warnings printErr
+            mapM_ (IO.hPutStrln IO.stderr) warnings
             when verbose $ do
                 let line = take 78 $ show i ++ ": " ++ fn
                 putStr $ '\r' : line ++ replicate (78 - length line) ' '
@@ -133,17 +117,30 @@ main = do
     where
     usage msg = putStr (GetOpt.usageInfo msg options) >> Exit.exitFailure
 
-    printErr :: String -> IO ()
-    printErr = IO.hPutStrLn IO.stderr
-
-    contents recurse =
-        if recurse then getRecursiveDirContents else getProperDirContents
+-- | Expand file inputs. If there are no inputs, read them from stdin.  For
+-- directories, get *.hs inside, and continue to recurse if Recurse is set.
+getInputs :: [Flag] -> [FilePath] -> IO [FilePath]
+getInputs flags inputs
+    | null inputs = split sep <$> getContents
+    | otherwise = fmap concat $ forM inputs $ \input -> do
+        -- if an input is a directory then we find the
+        -- haskell files inside it, optionally recursing
+        -- further if the -R switch is specified
+        isDirectory <- Directory.doesDirectoryExist input
+        if isDirectory
+            then filter isHsFile <$> contents input
+            else return [input]
+        where
+    contents
+        | Recurse `elem` flags = getRecursiveDirContents
+        | otherwise = getProperDirContents
+    sep = if ZeroSep `elem` flags then '\0' else '\n'
 
 -- | Get all absolute filepaths contained in the supplied topdir,
 -- except "." and ".."
 getProperDirContents :: FilePath -> IO [FilePath]
 getProperDirContents topdir = do
-    names <- getDirectoryContents topdir
+    names <- Directory.getDirectoryContents topdir
     let properNames = filter (`notElem` [".", ".."]) names
     return $ map ((</>) topdir) properNames
 
