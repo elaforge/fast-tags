@@ -99,7 +99,7 @@ main = do
     newTags <- fmap processAll $
         flip Async.mapConcurrently (zip [0..] inputs) $ \(i :: Int, fn) -> do
             (newTags, warnings) <- processFile fn trackPrefixes
-            mapM_ (IO.hPutStrln IO.stderr) warnings
+            mapM_ (IO.hPutStrLn IO.stderr) warnings
             when verbose $ do
                 let line = take 78 $ show i ++ ": " ++ fn
                 putStr $ '\r' : line ++ replicate (78 - length line) ' '
@@ -151,7 +151,7 @@ getRecursiveDirContents :: FilePath -> IO [FilePath]
 getRecursiveDirContents topdir = do
     paths <- getProperDirContents topdir
     paths' <- forM paths $ \path -> do
-        isDirectory <- doesDirectoryExist path
+        isDirectory <- Directory.doesDirectoryExist path
         if isDirectory
             then getRecursiveDirContents path
             else return [path]
