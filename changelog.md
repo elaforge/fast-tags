@@ -1,3 +1,8 @@
+1.1.2:
+
+* Implement `--no-module-tags` command line parameter to optionally avoid
+  tagging modules.
+
 1.1.1:
 
 * fix 'format' output for vim
