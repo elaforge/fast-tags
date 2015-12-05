@@ -18,6 +18,7 @@ module FastTags
     , Pos(..)
     , SrcPos(..)
     , UnstrippedTokens(..)
+    , noModuleTags
     , breakString
     , stripComments
     , processFile
@@ -84,6 +85,20 @@ data Type =
 
 instance NFData Type where
     rnf t = t `seq` ()
+
+-- | 'TagFilter' is used to optionally filter-out some type of tags.
+type TagFilter = [Pos TagVal] -> [Pos TagVal]
+
+-- | Filter for --no-module-tags.
+noModuleTags :: TagFilter
+noModuleTags = filter f
+  where
+    f Pos{ valOf = TagVal _ _ Module } = False
+    f _                                = True
+
+applyAll :: [a -> a] -> a -> a
+applyAll []       a = a
+applyAll (f : fs) a = applyAll fs (f a)
 
 data TokenVal =
     Token !Text !Text
@@ -204,9 +219,10 @@ tagLine :: Pos TagVal -> Int
 tagLine (Pos (SrcPos _ line) _) = line
 
 -- | Read tags from one file.
-processFile :: FilePath -> Bool -> IO ([Pos TagVal], [String])
-processFile fn trackPrefixes =
-    process fn trackPrefixes <$> readFileLenient fn
+processFile :: FilePath -> Bool -> [TagFilter] -> IO ([Pos TagVal], [String])
+processFile fn trackPrefixes filters = do
+    (tags, warnings) <- process fn trackPrefixes <$> readFileLenient fn
+    return (applyAll filters tags, warnings)
 
 -- | Read a UTF8 file, but don't crash on encoding errors.
 readFileLenient :: FilePath -> IO Text
@@ -458,7 +474,7 @@ blockTags :: UnstrippedTokens -> [Tag]
 blockTags unstripped = case stripNewlines unstripped of
     [] -> []
     Pos _ (Token _ "module") : Pos pos (Token prefix name) : _ ->
-        [mkTag pos prefix (snd (T.breakOnEnd "." name)) Module]
+          [mkTag pos prefix (snd (T.breakOnEnd "." name)) Module]
     Pos _ (Token _ "pattern") : Pos pos (Token prefix name) : _
         | maybe False Char.isUpper (headt name) ->
             [mkTag pos prefix name Pattern]
