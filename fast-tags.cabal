@@ -1,5 +1,5 @@
 name: fast-tags
-version: 1.1.1
+version: 1.1.2
 cabal-version: >= 1.8
 build-type: Simple
 synopsis: Fast incremental vi and emacs tags.

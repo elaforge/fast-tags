@@ -52,10 +52,12 @@ options =
         "do not merge tag files"
     , GetOpt.Option [] ["version"] (GetOpt.NoArg Version)
         "print current version"
+    , GetOpt.Option [] ["no-module-tags"] (GetOpt.NoArg NoModuleTags)
+        "do not generate tags for modules"
     ]
 
 data Flag = Output FilePath | Help | Verbose | ETags | Recurse | NoMerge
-    | ZeroSep | Version
+    | ZeroSep | Version | NoModuleTags
     deriving (Eq, Show)
 
 main :: IO ()
@@ -79,6 +81,7 @@ main = do
         trackPrefixes = emacs
         output        = last $ defaultOutput : [fn | Output fn <- flags]
         defaultOutput = if vim then "tags" else "TAGS"
+        filters       = if NoModuleTags `elem` flags then [noModuleTags] else []
 
     oldTags <- if vim && NoMerge `notElem` flags
         then do
@@ -98,8 +101,8 @@ main = do
     -- TODO try it and see if it really hurts performance that much.
     newTags <- fmap processAll $
         flip Async.mapConcurrently (zip [0..] inputs) $ \(i :: Int, fn) -> do
-            (newTags, warnings) <- processFile fn trackPrefixes
-            mapM_ (IO.hPutStrln IO.stderr) warnings
+            (newTags, warnings) <- processFile fn trackPrefixes filters
+            mapM_ (IO.hPutStrLn IO.stderr) warnings
             when verbose $ do
                 let line = take 78 $ show i ++ ": " ++ fn
                 putStr $ '\r' : line ++ replicate (78 - length line) ' '
@@ -151,7 +154,7 @@ getRecursiveDirContents :: FilePath -> IO [FilePath]
 getRecursiveDirContents topdir = do
     paths <- getProperDirContents topdir
     paths' <- forM paths $ \path -> do
-        isDirectory <- doesDirectoryExist path
+        isDirectory <- Directory.doesDirectoryExist path
         if isDirectory
             then getRecursiveDirContents path
             else return [path]
