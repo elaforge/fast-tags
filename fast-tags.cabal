@@ -46,13 +46,18 @@ flag fast
 
 library
     build-depends:
-        base >= 3 && < 5, containers, cpphs >1.18, filepath, directory,
+        base >= 3 && < 5, mtl, containers, cpphs >1.18, filepath, directory,
         -- text 0.11.1.12 has a bug.
         text (> 0.11.1.12 || < 0.11.1.12),
         async,
         bytestring,
-        deepseq
+        deepseq,
+        array,
+        utf8-string
     exposed-modules: FastTags
+                     Lexer
+                     LexerTypes
+                     Token
     hs-source-dirs: src
     ghc-options: -Wall -fno-warn-name-shadowing
     ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all
@@ -82,7 +87,7 @@ test-suite test-fast-tags
     type: exitcode-stdio-1.0
     main-is: MainTest.hs
     hs-source-dirs: tests
-    ghc-options: -main-is MainTest
+    ghc-options: -Wall -fno-warn-name-shadowing -main-is MainTest
     ghc-prof-options: -main-is MainTest
     build-depends:
         base >= 3 && < 5, containers, filepath, directory,
