@@ -11,7 +11,7 @@ module LexerTypes where
 
 import Codec.Binary.UTF8.String (encodeChar)
 import Control.Applicative
-import Control.Monad.Except
+import Control.Monad.Error
 import Control.Monad.State.Strict
 import Data.Char
 import Data.Maybe
@@ -19,6 +19,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Word (Word8)
 
+import Control.Monad.EitherK
 
 import Token
 
@@ -114,13 +115,12 @@ modifyQuasiquoterDepth f = do
 retrieveToken :: AlexInput -> Int -> Text
 retrieveToken (AlexInput {aiInput}) len = Text.take len aiInput
 
--- TODO: try replacing state with reader
-type AlexM = ExceptT String (State AlexState)
+type AlexM = EitherKT String (State AlexState)
 type AlexMConstraint m = (MonadError String m, MonadState AlexState m)
 
 runAlexM :: FilePath -> Bool -> Text -> AlexM a -> Either String a
 runAlexM filename trackPrefixes input action =
-    evalState (runExceptT action) s
+    evalState (runEitherKT action (return . Left) (return . Right)) s
     where
     s = mkAlexState filename $ mkAlexInput input trackPrefixes
 
