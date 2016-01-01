@@ -22,8 +22,8 @@ import Token
 $ascspace  = [\ \t\r]
 $unispace  = \x01
 $space     = [$ascspace $unispace]
-$ws        = [$space\f\v]
 $nl        = [\n]
+$ws        = [$space\f\v] # $nl
 
 $dot       = [\.]
 
@@ -66,12 +66,15 @@ $hexdigit   = [0-9a-fA-F]
 
 :-
 
+-- Can skip whitespace everywhere since it does not affect meaning in any
+-- state.
+<0, comment, qq> $ws+ ;
+
 <0> {
 
-$ws+                    ;
 $nl $space*             { \_ len -> pure $ Newline $ len - 1 }
-[\-][\-]+ ~[$symbol $nl] .* ; -- { kw LineComment }
-[\-][\-]+ / $nl         ; -- { kw LineComment }
+[\-][\-]+ ~[$symbol $nl] .* ;
+[\-][\-]+ / $nl         ;
 
 }
 
@@ -83,10 +86,18 @@ $nl $space*             { \_ len -> pure $ Newline $ len - 1 }
 
 -- Strings
 <0> [\"]                { \_ _ -> startString }
+<string> [\"]           { \_ _ -> endString 0 }
+<string> [\\] $nl ( $ws+ [\\] )? ;
+<string> ( $ws+ | [^\"\\$nl] | [\\] . )+ ;
+
+-- Strings
+<0> [\"]                { \_ _ -> startString }
 <string> [\\] [\"\\]    ;
 <string> [\\] $nl ($ws+ [\\])? ;
 <string> [\"]           { \_ _ -> endString 0 }
 <string> (. | $nl)      ;
+
+
 
 -- Characters
 <0> [\'] ( [^\'\\] | @charescape ) [\'] { kw Character }
@@ -168,7 +179,7 @@ scanTokens :: AlexM [Token]
 scanTokens = do
     tok <- alexMonadScan
     case valOf tok of
-        EOF -> return [] -- [tok]
+        EOF -> return []
         _   -> (tok :) <$> scanTokens
 
 alexMonadScan :: AlexM Token
@@ -188,7 +199,7 @@ alexScanTokenVal = do
         AlexError (AlexInput {aiLine, aiInput}) -> do
             AlexState {asCode} <- get
             throwError $ "lexical error while in state " ++ show asCode ++ " at line " ++
-                show (unLine aiLine) ++ ": '" ++ take 40 (show aiInput) ++ "'"
+                show (unLine aiLine) ++ ": " ++ take 40 (show aiInput)
         AlexSkip input _ ->
             alexSetInput input >> alexScanTokenVal
         AlexToken input tokLen action ->

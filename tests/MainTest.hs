@@ -74,6 +74,9 @@ testTokenize = testGroup "tokenize"
   , "foo = \"foo\\n\\\n\
     \  \\\" bar" ==>
     [T "foo", Equals, String, T "bar", Newline 0]
+  , "foo = \"foo\\n\\\n\
+    \  \\x\" bar" ==>
+    [T "foo", Equals, String, T "bar", Newline 0]
   , tokenizeSplices
   ]
   where
