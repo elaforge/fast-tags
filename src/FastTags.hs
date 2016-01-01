@@ -231,11 +231,16 @@ process fn trackPrefixes input =
 
 -- | Strip cpp lines starting with #. Also strips out hsc detritus.
 stripCpp :: Text -> Text
-stripCpp = T.intercalate "\n" . map replaceCppLine . T.lines
-  where
-    replaceCppLine line
-      | "#" `T.isPrefixOf` line = T.empty
-      | otherwise               = line
+stripCpp =
+    T.intercalate "\n" . snd . List.mapAccumL replaceCppLine False . T.lines
+    where
+    replaceCppLine :: Bool -> Text -> (Bool, Text)
+    replaceCppLine insideMacro line
+        | "#" `T.isPrefixOf` line = (insideMacro', T.empty)
+        | insideMacro             = (insideMacro', T.empty)
+        | otherwise               = (False, line)
+        where
+        insideMacro' = "\\" `T.isSuffixOf` line
 
 startIdentChar :: Char -> Bool
 startIdentChar c = Char.isAlpha c || c == '_'

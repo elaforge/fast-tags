@@ -739,6 +739,11 @@ testStripCpp = testGroup "strip cpp"
   , "foo\n\
     \#let alignment t = \"%lu\", (unsigned long)offsetof(struct {char x__; t (y__); }, y__)\n\
     \bar" ==> "foo\n\nbar"
+  , "foo\n\
+    \#let x = y\\\n\
+    \         z\\\n\
+    \         w\n\
+    \bar" ==> "foo\n\n\n\nbar"
   ]
   where
     (==>) = test stripCpp

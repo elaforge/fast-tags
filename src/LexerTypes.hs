@@ -142,10 +142,7 @@ alexGetByte input@(AlexInput {aiInput, aiBytes, aiLine}) =
     where
     nextChar = case Text.uncons aiInput of
         Nothing      -> Nothing
-        Just (c, cs) ->
-            case fixChar c of
-                Just c' -> encode c' cs
-                Nothing -> encode c cs
+        Just (c, cs) -> encode (fromMaybe c $ fixChar c) cs
     encode c cs =
         case encodeChar c of
             b:bs -> Just (b, updatePrefix c $ input')
