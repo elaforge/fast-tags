@@ -425,8 +425,8 @@ stripNewlines = filter (not . isNewline) . (\(UnstrippedTokens t) -> t)
 -- for @c_name@.
 foreignTags :: [Token] -> [Tag]
 foreignTags decl = case decl of
-    Pos pos KWImport : decl'
-        | Pos _ (T name) : _ <- dropBefore (\case { Pos _ DoubleColon -> True; _ -> False}) decl'
+    Pos _ KWImport : decl'
+        | Pos pos (T name) : _ <- dropBefore (\case { Pos _ DoubleColon -> True; _ -> False}) decl'
             -> [mkTag pos name Function]
     _ -> []
 
