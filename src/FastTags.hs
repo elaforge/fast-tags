@@ -229,44 +229,13 @@ process fn trackPrefixes input =
                 Just '>' -> True
                 _ -> False
 
--- | Also strips out hsc detritus.
+-- | Strip cpp lines starting with #. Also strips out hsc detritus.
 stripCpp :: Text -> Text
-stripCpp =
-    T.intercalate "\n" .
-    map removeCppLine .
-    removeIf0Blocks .
-    map (id &&& T.words) .
-    T.lines
-    where
-    -- Replace cpp line by an empty line so that line numbering
-    -- will match original input
-    removeCppLine :: (Text, [Text]) -> Text
-    removeCppLine (line, ws) =
-        case ws of
-            "#ifdef" : _   -> T.empty
-            "#if" : _      -> T.empty
-            "#elif" : _    -> T.empty
-            "#define" : _  -> T.empty
-            "#undef" : _   -> T.empty
-            "#include" : _ -> T.empty
-            "#line" : _    -> T.empty
-            "#pragma" : _  -> T.empty
-            _              -> line
-    removeIf0Blocks :: [(Text, [Text])] -> [(Text, [Text])]
-    removeIf0Blocks = go True []
-        where
-        go :: Bool -> [(Text, [Text])] -> [(Text, [Text])] -> [(Text, [Text])]
-        go _           lines []       = reverse lines
-        go retainLines lines (x@(_, ws) : xs) =
-            case ws of
-                "#if" : "0" : _ -> go False (emptyEntry : lines) xs
-                "#else" : _     -> go True (emptyEntry : lines) xs
-                "#endif" : _    -> go True (emptyEntry : lines) xs
-                _               -> go retainLines (x' : lines) xs
-            where
-            x' | retainLines = x
-               | otherwise   = emptyEntry
-        emptyEntry = (T.empty, [])
+stripCpp = T.intercalate "\n" . map replaceCppLine . T.lines
+  where
+    replaceCppLine line
+      | "#" `T.isPrefixOf` line = T.empty
+      | otherwise               = line
 
 startIdentChar :: Char -> Bool
 startIdentChar c = Char.isAlpha c || c == '_'

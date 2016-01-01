@@ -173,18 +173,10 @@ fixChar c
           TitlecaseLetter       -> Just upper
           ModifierLetter        -> Just suffix
           OtherLetter           -> Just lower
-          -- NonSpacingMark        -> other_graphic
-          -- SpacingCombiningMark  -> other_graphic
-          -- EnclosingMark         -> other_graphic
           DecimalNumber         -> Just digit
-          -- LetterNumber          -> other_graphic
           OtherNumber           -> Just digit
           ConnectorPunctuation  -> Just symbol
           DashPunctuation       -> Just symbol
-          -- OpenPunctuation       -> other_graphic
-          -- ClosePunctuation      -> other_graphic
-          -- InitialQuote          -> other_graphic
-          -- FinalQuote            -> other_graphic
           OtherPunctuation      -> Just symbol
           MathSymbol            -> Just symbol
           CurrencySymbol        -> Just symbol

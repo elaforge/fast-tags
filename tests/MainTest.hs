@@ -2,7 +2,6 @@
 
 module MainTest where
 
-import Control.Monad
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -726,14 +725,17 @@ testStripCpp = testGroup "strip cpp"
     \bar\n\
     \baz\n\
     \#endif\n\
-    \quux" ==> "foo\n\n\n\n\nquux"
+    \quux" ==> "foo\n\nbar\nbaz\n\nquux"
   , "foo\n\
     \#if 0\n\
     \bar\n\
     \#else\n\
     \baz\n\
     \#endif\n\
-    \quux" ==> "foo\n\n\n\nbaz\n\nquux"
+    \quux" ==> "foo\n\nbar\n\nbaz\n\nquux"
+  , "foo\n\
+    \#let alignment t = \"%lu\", (unsigned long)offsetof(struct {char x__; t (y__); }, y__)\n\
+    \bar" ==> "foo\n\nbar"
   ]
   where
     (==>) = test stripCpp
