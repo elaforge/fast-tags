@@ -1,3 +1,4 @@
+{-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {- | Tagify haskell source.
@@ -32,6 +33,7 @@ import qualified System.IO as IO
 
 import FastTags
 import qualified Paths_fast_tags
+import Token
 
 
 options :: [GetOpt.OptDescr Flag]
@@ -179,15 +181,15 @@ printSection file tags = Text.concat
     tagsLength = Text.length tagsText
 
 printEmacsTag :: Pos TagVal -> Text
-printEmacsTag (Pos (SrcPos _file line) (TagVal prefix _text _type)) =
-  Text.concat [prefix, "\x7f", Text.pack (show line)]
+printEmacsTag (Pos (SrcPos {posPrefix, posLine}) (TagVal _text _type)) =
+  Text.concat [posPrefix, "\x7f", Text.pack (show $ unLine posLine)]
 
 classifyTagsByFile :: [Pos TagVal] -> TagsTable
 classifyTagsByFile = foldr insertTag Map.empty
 
 insertTag :: Pos TagVal -> TagsTable -> TagsTable
-insertTag tag@(Pos (SrcPos file _) _) table =
-    Map.insertWith (<>) file [tag] table
+insertTag tag@(Pos (SrcPos {posFile}) _) table =
+    Map.insertWith (<>) posFile [tag] table
 
 mergeTags :: [FilePath] -> [Text] -> [Pos TagVal] -> [Text]
 mergeTags inputs old new =
@@ -215,10 +217,10 @@ isNewTag textFns line = Set.member fn textFns
 
 -- | Convert a Tag to text, e.g.: AbsoluteMark\tCmd/TimeStep.hs 67 ;" f
 showTag :: Pos TagVal -> Text
-showTag (Pos (SrcPos fn lineno) (TagVal _ text typ)) = Text.concat
+showTag (Pos (SrcPos {posFile, posLine}) (TagVal text typ)) = Text.concat
     [ text, "\t"
-    , Text.pack fn, "\t"
-    , Text.pack (show lineno), ";\"\t"
+    , Text.pack posFile, "\t"
+    , Text.pack (show $ unLine posLine), ";\"\t"
     , Text.singleton (showType typ)
     ]
 

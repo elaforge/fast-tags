@@ -2,18 +2,13 @@
 
 module MainTest where
 
-import qualified Control.Exception as Exception
-import Control.Monad
-import qualified Data.Either as Either
-import qualified Data.Monoid as Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
 
-import Control.Exception (assert)
-import qualified System.IO.Unsafe as Unsafe
-
 import qualified FastTags
-import FastTags (UnstrippedTokens(..), TokenVal(..), TagVal(..), Type(..), Tag, Pos(..))
+import FastTags hiding (process)
+import qualified Lexer
+import Token
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -25,11 +20,12 @@ main = defaultMain tests
 tests :: TestTree
 tests = testGroup "tests"
   [ testTokenize
-  , testSkipString
+  , testTokenizeWithNewlines
   , testStripComments
   , testBreakBlocks
   , testProcessAll
   , testProcess
+  , testStripCpp
   ]
 
 test :: (Show a, Eq b, Show b) => (a -> b) -> a -> b -> TestTree
@@ -37,63 +33,91 @@ test f x expected = testCase (take 70 $ show x) $ f x @?= expected
 
 testTokenize :: TestTree
 testTokenize = testGroup "tokenize"
-  [ "a::b->c"           ==> ["a", "::", "b", "->", "c"]
-  , "a∷b→c"             ==> ["a", "∷", "b", "→", "c"]
-  , "x{-\n  bc#-}\n"    ==> ["x", "{-", "nl 2", "bc#", "-}"]
-  , "X.Y"               ==> ["X.Y"]
-  , "x9"                ==> ["x9"]
+  [ "xyz  -- abc"       ==> [T "xyz", Newline 0]
+  , "xyz  --- abc"      ==> [T "xyz", Newline 0]
+  , "  {-   foo -}"     ==> [Newline 0]
+  , "  {-   foo \n\
+    \\n\
+    \-}"                ==> [Newline 0]
+  , "  {- foo {- bar-} -}" ==> [Newline 0]
+  , "  {-# INLINE #-}"  ==> [Newline 0]
+  , "a::b->c"           ==> [T "a", DoubleColon, T "b", Arrow, T "c", Newline 0]
+  , "a∷b→c"             ==> [T "a", DoubleColon, T "b", Arrow, T "c", Newline 0]
+  , "x{-\n  bc#-}\n"    ==> [T "x", Newline 0]
+  , "X.Y"               ==> [T "X.Y", Newline 0]
+  , "a=>b"              ==> [T "a", Implies, T "b", Newline 0]
+  , "a ⇒ b"             ==> [T "a", Implies, T "b", Newline 0]
+  , "x9"                ==> [T "x9", Newline 0]
   -- , "9x" ==> ["nl 0", "9", "x"]
-  , "x :+: y"           ==> ["x", ":+:", "y"]
-  , "(#$)"              ==> ["(", "#$", ")"]
-  , "Data.Map.map"      ==> ["Data.Map.map"]
-  , "Map.map"           ==> ["Map.map"]
-  , "forall a. f a"     ==> ["forall", "a", ".", "f", "a"]
-  , "forall a . Foo"    ==> ["forall", "a", ".", "Foo"]
-  , "forall a. Foo"     ==> ["forall", "a", ".", "Foo"]
-  , "forall a .Foo"     ==> ["forall", "a", ".", "Foo"]
-  , "forall a.Foo"      ==> ["forall", "a", ".", "Foo"]
-  , "$#-- hi"           ==> ["$#--", "hi"]
-  , "(*), (-)"          ==> ["(", "*", ")", ",", "(", "-", ")"]
-  , "(.::)"             ==> ["(", ".::", ")"]
+  , "x :+: y"           ==> [T "x", T ":+:", T "y", Newline 0]
+  , "(#$)"              ==> [LParen, T "#$", RParen, Newline 0]
+  , "Data.Map.map"      ==> [T "Data.Map.map", Newline 0]
+  , "Map.map"           ==> [T "Map.map", Newline 0]
+  , "forall a. f a"     ==> [KWForall, T "a", Dot, T "f", T "a", Newline 0]
+  , "forall a . Foo"    ==> [KWForall, T "a", Dot, T "Foo", Newline 0]
+  , "forall a. Foo"     ==> [KWForall, T "a", Dot, T "Foo", Newline 0]
+  , "forall a .Foo"     ==> [KWForall, T "a", Dot, T "Foo", Newline 0]
+  , "forall a.Foo"      ==> [KWForall, T "a", Dot, T "Foo", Newline 0]
+  , "$#-- hi"           ==> [T "$#--", T "hi", Newline 0]
+  , "(*), (-)"          ==> [LParen, T "*", RParen, Comma, LParen, T "-", RParen, Newline 0]
+  , "(.::)"             ==> [LParen, T ".::", RParen, Newline 0]
   -- we rely on this behavior
-  , "data (:+) a b"     ==> ["data", "(", ":+", ")", "a", "b"]
-  , "data (.::+::) a b" ==> ["data", "(", ".::+::", ")", "a", "b"]
+  , "data (:+) a b"     ==> [KWData, LParen, T ":+", RParen, T "a", T "b", Newline 0]
+  , "data (.::+::) a b" ==> [KWData, LParen, T ".::+::", RParen, T "a", T "b", Newline 0]
+  -- string tokenization
+  , "foo \"bar\" baz"   ==> [T "foo", String, T "baz", Newline 0]
+  -- multiline string
+  , "foo \"bar\\\n\
+    \  \\bar\" baz"     ==> [T "foo", String, T "baz", Newline 0]
+  , "(\\err -> case err of Foo -> True; _ -> False)" ==>
+    [LParen, T "\\", T "err", Arrow, KWCase, T "err", KWOf, T "Foo", Arrow, T "True", T "_", Arrow, T "False", RParen, Newline 0]
+  , "foo = \"foo\\n\\\n\
+    \  \\\" bar" ==>
+    [T "foo", Equals, String, T "bar", Newline 0]
+  , "foo = \"foo\\n\\\n\
+    \  \\x\" bar" ==>
+    [T "foo", Equals, String, T "bar", Newline 0]
+  , tokenizeSplices
   ]
   where
     (==>) = test f
-    f = tail . extractTokens . tokenize
+    f :: Text -> [TokenVal]
+    f = tail . map valOf . unstrippedTokensOf . tokenize
 
-testSkipString :: TestTree
-testSkipString = testGroup "skipString"
-  [ "hi \" there"             ==> " there"
-  , "hi \\a \" there"         ==> " there"
-  , "hi \\\" there\""         ==> ""
-  , "hi"                      ==> ""
-  -- String continuation
-  , test f' "hi \\\n    \\bar\" baz" ("hi bar\"", " baz")
+    tokenizeSplices = testGroup "tokenize splices"
+      [ "$(foo)" ==> [SpliceStart, T "foo", RParen, Newline 0]
+      , "$(foo [| baz |])" ==> [SpliceStart, T "foo", QuasiquoterStart, QuasiquoterEnd, RParen, Newline 0]
+      , "$(foo [bar| baz |])" ==> [SpliceStart, T "foo", QuasiquoterStart, QuasiquoterEnd, RParen, Newline 0]
+      , "$(foo [bar| bar!\nbaz!\n $(baz) |])" ==>
+        [SpliceStart, T "foo", QuasiquoterStart, SpliceStart, T "baz", RParen, QuasiquoterEnd, RParen, Newline 0]
+      ]
+
+testTokenizeWithNewlines :: TestTree
+testTokenizeWithNewlines = testGroup "tokenize with newlines"
+  [ "1\n2\n"     ==> [Newline 0, T "1", Newline 0, T "2", Newline 0]
+  , " 11\n 11\n" ==> [Newline 1, T "11", Newline 1, T "11", Newline 0]
   ]
   where
     (==>) = test f
-    f = snd . FastTags.breakString
-    f' = FastTags.breakString
+    f = map valOf . unstrippedTokensOf . tokenize
 
 testStripComments :: TestTree
 testStripComments = testGroup "stripComments"
-  [ "hello -- there"                                           ==> ["nl 0", "hello"]
-  , "hello --there"                                            ==> ["nl 0", "hello"]
-  , "hello {- there -} fred"                                   ==> ["nl 0", "hello", "fred"]
-  , "hello -- {- there -}\nfred"                               ==> ["nl 0", "hello", "nl 0", "fred"]
-  , "{-# LANG #-} hello {- there {- nested -} comment -} fred" ==> ["nl 0", "hello", "fred"]
-  , "hello {-\nthere\n------}\n fred"                          ==> ["nl 0", "hello",  "nl 1", "fred"]
-  , "hello {-  \nthere\n  ------}  \n fred"                    ==> ["nl 0", "hello",  "nl 1", "fred"]
-  , "hello {-\nthere\n-----}\n fred"                           ==> ["nl 0", "hello", "nl 1", "fred"]
-  , "hello {-  \nthere\n  -----}  \n fred"                     ==> ["nl 0", "hello",  "nl 1", "fred"]
-  , "hello {-\n-- there -}"                                    ==> ["nl 0", "hello"]
-  , "foo --- my comment\n--- my other comment\nbar"            ==> ["nl 0", "foo", "nl 0", "nl 0", "bar"]
+  [ "hello -- there"                                           ==> ["nl 0", "hello", "nl 0"]
+  , "hello --there"                                            ==> ["nl 0", "hello", "nl 0"]
+  , "hello {- there -} fred"                                   ==> ["nl 0", "hello", "fred", "nl 0"]
+  , "hello -- {- there -}\nfred"                               ==> ["nl 0", "hello", "nl 0", "fred", "nl 0"]
+  , "{-# LANG #-} hello {- there {- nested -} comment -} fred" ==> ["nl 0", "hello", "fred", "nl 0"]
+  , "hello {-\nthere\n------}\n fred"                          ==> ["nl 0", "hello",  "nl 1", "fred", "nl 0"]
+  , "hello {-  \nthere\n  ------}  \n fred"                    ==> ["nl 0", "hello",  "nl 1", "fred", "nl 0"]
+  , "hello {-\nthere\n-----}\n fred"                           ==> ["nl 0", "hello", "nl 1", "fred", "nl 0"]
+  , "hello {-  \nthere\n  -----}  \n fred"                     ==> ["nl 0", "hello",  "nl 1", "fred", "nl 0"]
+  , "hello {-\n-- there -}"                                    ==> ["nl 0", "hello", "nl 0"]
+  , "foo --- my comment\n--- my other comment\nbar"            ==> ["nl 0", "foo", "nl 0", "nl 0", "bar", "nl 0"]
   ]
   where
     (==>) = test f
-    f = extractTokens . FastTags.stripComments . tokenize
+    f = extractTokens . tokenize
 
 testBreakBlocks :: TestTree
 testBreakBlocks = testGroup "breakBlocks"
@@ -114,7 +138,7 @@ testBreakBlocks = testGroup "breakBlocks"
 
 testProcessAll :: TestTree
 testProcessAll = testGroup "processAll"
-  [ ["data X", "module X"]     ==> ["fn0:1 X Type", "fn1:1 X Module"]
+  [ ["data X", "module X"] ==> ["fn0:1 X Type", "fn1:1 X Module"]
   -- Type goes ahead of Module.
   , ["module X\n\
      \data X"]       ==> ["fn0:2 X Type", "fn0:1 X Module"]
@@ -134,12 +158,12 @@ testProcessAll = testGroup "processAll"
         . FastTags.processAll
         . map (\(i, t) -> fst $ FastTags.process ("fn" ++ show i) False t)
         . zip [0..]
-    showTag (Pos p (TagVal _ text typ)) =
+    showTag (Pos p (TagVal text typ)) =
       unwords [show p, T.unpack text, show typ]
 
 testProcess :: TestTree
 testProcess = testGroup "process"
-  [ testMisc
+  [ testPrefixes
   , testData
   , testGADT
   , testFamilies
@@ -151,16 +175,16 @@ testProcess = testGroup "process"
   , testFFI
   ]
 
-testMisc :: TestTree
-testMisc = testGroup "misc"
+testPrefixes :: TestTree
+testPrefixes = testGroup "prefix tracking"
   [ "module Bar.Foo where\n"
     ==>
-    [TagVal "module Bar.Foo" "Foo" Module]
+    [Pos (SrcPos fn 1 "module Bar.Foo") (TagVal "Foo" Module)]
   , "newtype Foo a b =\n\
     \\tBar x y z\n"
     ==>
-    [ TagVal "\tBar" "Bar" Constructor
-    ,  TagVal "newtype Foo" "Foo" Type
+    [ Pos (SrcPos fn 2 "\tBar") (TagVal "Bar" Constructor)
+    , Pos (SrcPos fn 1 "newtype Foo") (TagVal "Foo" Type)
     ]
   , "f :: A -> B\n\
     \g :: C -> D\n\
@@ -168,16 +192,17 @@ testMisc = testGroup "misc"
     \\tf :: A\n\
     \\t}\n"
     ==>
-    [ TagVal "data D = C" "C" Constructor
-    , TagVal "data D" "D" Type
-    , TagVal "\tf" "f" Function
-    , TagVal "f" "f" Function
-    , TagVal "g" "g" Function
+    [ Pos (SrcPos fn 3 "data D = C") (TagVal "C" Constructor)
+    , Pos (SrcPos fn 3 "data D") (TagVal "D" Type)
+    , Pos (SrcPos fn 4 "\tf") (TagVal "f" Function)
+    , Pos (SrcPos fn 1 "f") (TagVal "f" Function)
+    , Pos (SrcPos fn 2 "g") (TagVal "g" Function)
     ]
   ]
   where
     (==>) = test f
-    f = map valOf . fst . FastTags.process "fn.hs" False
+    f = fst . FastTags.process fn True
+    fn = "fn.hs"
 
 testData :: TestTree
 testData = testGroup "data"
@@ -218,6 +243,7 @@ testData = testGroup "data"
   , "data X = forall a.Y a"                    ==> ["X", "Y"]
   , "data X = forall a. Eq a => Y a"           ==> ["X", "Y"]
   , "data X = forall a. (Eq a) => Y a"         ==> ["X", "Y"]
+  , "data X = forall (a :: Nat). (Eq' a) => Y a" ==> ["X", "Y"]
   , "data X = forall a. (Eq a, Ord a) => Y a"  ==> ["X", "Y"]
   -- "data X = forall a. Ref :<: a => Y a"     ==> ["X", "Y"]
   -- "data X = forall a. (:<:) Ref a => Y a"   ==> ["X", "Y"]
@@ -245,6 +271,12 @@ testData = testGroup "data"
   -- "data Ref :<: f => X f = RRef f" ==> ["X", "RRef"]
   -- "data a :<: b => X a b = Add a" ==> ["X", "Add"]
   , "data (a :<: b) => X a b = Add a" ==> ["Add", "X"]
+  , "data a :><: b = a :>|<: b" ==> [":><:", ":>|<:"]
+  , "data (:><:) a b = (:>|<:) a b" ==> [":><:", ":>|<:"]
+  , "data (:><:) a b = Foo b | (:>|<:) a b" ==> [":><:", ":>|<:", "Foo"]
+  , "data (:><:) a b = Foo b | forall c. (:>|<:) a c" ==> [":><:", ":>|<:", "Foo"]
+  , "data (:><:) a b = Foo b | forall c. (Eq c) => (:>|<:) a c" ==> [":><:", ":>|<:", "Foo"]
+  , "data (:><:) a b = Foo b | forall c. Eq c => (:>|<:) a c" ==> [":><:", ":>|<:", "Foo"]
 
   , "newtype Eq a => X a = Add a"          ==> ["Add", "X"]
   , "newtype (Eq a) => X a = Add a"        ==> ["Add", "X"]
@@ -395,12 +427,13 @@ testFamilies = testGroup "families"
   , "type family (a :: Nat) :<: (b :: Nat) :: Nat\n"      ==> [":<:"]
   , "type family (a :: Nat) `Family` (b :: Nat) :: Nat\n" ==> ["Family"]
   , "type family (m :: Nat) <=? (n :: Nat) :: Bool"       ==> ["<=?"]
-  , "type family (m ∷ Nat) <=? (n ∷ Nat) ∷ Bool"          ==> ["<=?"]
+  , "type family (m ∷ Nat) <=? (n ∷ Nat) ∷ Bool"         ==> ["<=?"]
 
   , "data instance X a b = Y a | Z { unZ :: b }"                  ==> ["Y", "Z", "unZ"]
   , "data instance (Eq a, Eq b) => X a b = Y a | Z { unZ :: b }"  ==> ["Y", "Z", "unZ"]
   , "data instance XList Char = XCons !Char !(XList Char) | XNil" ==> ["XCons", "XNil"]
   , "newtype instance Cxt x => T [x] = A (B x) deriving (Z,W)"    ==> ["A"]
+  , "type instance Cxt x => T [x] = A (B x)"                      ==> []
   , "data instance G [a] b where\n\
     \   G1 :: c -> G [Int] b\n\
     \   G2 :: G [a] Bool"
@@ -470,6 +503,12 @@ testFunctions = testGroup "functions"
         , "x |+| y = x"   ==> ["|+|"]
         , "(!) x y = x" ==> ["!"]
         , "--- my comment" ==> []
+        , "foo :: Rec -> Bar\n\
+          \foo Rec{..} = Bar (recField + 1)" ==>
+          ["foo"]
+        , "foo :: Rec -> Bar\n\
+          \foo Rec { bar = Baz {..}} = Bar (recField + 1)" ==>
+          ["foo"]
         ]
     strictMatchTests = testGroup "strict match (!)"
       [ "f !x y = x"  ==> ["f"]
@@ -544,6 +583,11 @@ testClass = testGroup "class"
   , "class a :<: b where\n    f :: a -> b"         ==> [":<:", "f"]
   , "class (:<:) a b where\n    f :: a -> b"       ==> [":<:", "f"]
   , "class Eq a => a :<: b where\n    f :: a -> b" ==> [":<:", "f"]
+  , "class a ~ 'Foo => a :<: b where\n    f :: a -> b" ==> [":<:", "f"]
+  , "class 'Foo ~ a => a :<: b where\n    f :: a -> b" ==> [":<:", "f"]
+  , "class (Eq a) => a :<: b where\n    f :: a -> b" ==> [":<:", "f"]
+  , "class (a ~ 'Foo) => a :<: b where\n    f :: a -> b" ==> [":<:", "f"]
+  , "class ('Foo ~ a) => a :<: b where\n    f :: a -> b" ==> [":<:", "f"]
   -- , "class a :<<<: b => a :<: b where\n    f :: a -> b"
   --   ==>
   --   [":<:", "f"]
@@ -572,6 +616,12 @@ testClass = testGroup "class"
     ["A", "F", "getF", "mkF"]
   -- Not confused by a class context on a method.
   , "class X a where\n\tfoo :: Eq a => a -> a\n" ==> ["X", "foo"]
+  , "class Category cat where\n\
+    \    -- | the identity morphism\n\
+    \    id :: cat a a\n\
+    \ \n\
+    \    -- | morphism composition\n\
+    \    (.) :: cat b c -> cat a b -> cat a c" ==> [".", "Category", "id"]
   ]
   where
     (==>) = test process
@@ -654,6 +704,10 @@ testPatterns = testGroup "patterns"
     \pattern Pair a b = [a, b]"
     ==>
     ["Arrow", "Pair"]
+  , "pattern Sub a b = Op '-' [a, b]\n\
+    \pattern Pair a b = [a, b]"
+    ==>
+    ["Pair", "Sub"]
   ]
   where
     (==>) = test process
@@ -667,17 +721,49 @@ testFFI = testGroup "ffi"
   where
     (==>) = test process
 
+testStripCpp :: TestTree
+testStripCpp = testGroup "strip cpp"
+  [ "foo\n\
+    \#if 0\n\
+    \bar\n\
+    \baz\n\
+    \#endif\n\
+    \quux" ==> "foo\n\nbar\nbaz\n\nquux"
+  , "foo\n\
+    \#if 0\n\
+    \bar\n\
+    \#else\n\
+    \baz\n\
+    \#endif\n\
+    \quux" ==> "foo\n\nbar\n\nbaz\n\nquux"
+  , "foo\n\
+    \#let alignment t = \"%lu\", (unsigned long)offsetof(struct {char x__; t (y__); }, y__)\n\
+    \bar" ==> "foo\n\nbar"
+  , "foo\n\
+    \#let x = y\\\n\
+    \         z\\\n\
+    \         w\n\
+    \bar" ==> "foo\n\n\n\nbar"
+  ]
+  where
+    (==>) = test stripCpp
+
 process :: Text -> [String]
 process = map untag . fst . FastTags.process "fn.hs" False
 
 untag :: Pos TagVal -> String
-untag (Pos _ (TagVal _ name _)) = T.unpack name
+untag (Pos _ (TagVal name _)) = T.unpack name
 
 tokenize :: Text -> UnstrippedTokens
 tokenize =
-  Monoid.mconcat . map (FastTags.tokenize False) . FastTags.stripCpp . FastTags.annotate "fn"
+  either error UnstrippedTokens . Lexer.tokenize filename trackPrefixes . FastTags.stripCpp
+  where
+    filename      = "fn"
+    trackPrefixes = False
 
 extractTokens :: UnstrippedTokens -> [Text]
 extractTokens = map (\token -> case FastTags.valOf token of
-  Token _ name -> name
-  Newline n -> T.pack ("nl " ++ show n)) . FastTags.unstrippedTokensOf
+  T name    -> name
+  Newline n -> T.pack ("nl " ++ show n)
+  t         -> T.pack $ show t) . FastTags.unstrippedTokensOf
+
