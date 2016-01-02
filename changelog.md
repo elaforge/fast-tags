@@ -1,7 +1,13 @@
+1.2
+
+* Speedup thanks to <https://github.com/elaforge/fast-tags/pull/22>.
+Also many tags previously incorrectly marked as 'p' Pattern are not
+correctly 'f' Function.
+
 1.1.2:
 
 * Implement `--no-module-tags` command line parameter to optionally avoid
-  tagging modules.
+tagging modules.
 
 1.1.1:
 
