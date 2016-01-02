@@ -83,7 +83,7 @@ main = do
         trackPrefixes = emacs
         output        = last $ defaultOutput : [fn | Output fn <- flags]
         defaultOutput = if vim then "tags" else "TAGS"
-        filters       = if NoModuleTags `elem` flags then [noModuleTags] else []
+        noModuleTags  = NoModuleTags `elem` flags
 
     oldTags <- if vim && NoMerge `notElem` flags
         then do
@@ -103,7 +103,9 @@ main = do
     -- TODO try it and see if it really hurts performance that much.
     newTags <- fmap processAll $
         flip Async.mapConcurrently (zip [0..] inputs) $ \(i :: Int, fn) -> do
-            (newTags, warnings) <- processFile fn trackPrefixes filters
+            (newTags, warnings) <- processFile fn trackPrefixes
+            newTags <- return $ if noModuleTags
+                then filter ((/=Module) . typeOf) newTags else newTags
             mapM_ (IO.hPutStrLn IO.stderr) warnings
             when verbose $ do
                 let line = take 78 $ show i ++ ": " ++ fn
@@ -123,6 +125,10 @@ main = do
 
     where
     usage msg = putStr (GetOpt.usageInfo msg options) >> Exit.exitFailure
+
+typeOf :: Pos TagVal -> Type
+typeOf tagVal = case valOf tagVal of
+    TagVal _ typ -> typ
 
 -- | Expand file inputs. If there are no inputs, read them from stdin.  For
 -- directories, get *.hs inside, and continue to recurse if Recurse is set.

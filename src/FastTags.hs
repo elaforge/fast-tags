@@ -18,7 +18,6 @@ module FastTags
     , Pos(..)
     , SrcPos(..)
     , UnstrippedTokens(..)
-    , noModuleTags
     , processFile
     , processAll
     , process
@@ -75,20 +74,6 @@ data Type =
 
 instance NFData Type where
     rnf t = t `seq` ()
-
--- | 'TagFilter' is used to optionally filter-out some type of tags.
-type TagFilter = [Pos TagVal] -> [Pos TagVal]
-
--- | Filter for --no-module-tags.
-noModuleTags :: TagFilter
-noModuleTags = filter f
-  where
-    f Pos{ valOf = TagVal _ Module } = False
-    f _                              = True
-
-applyAll :: [a -> a] -> a -> a
-applyAll []       a = a
-applyAll (f : fs) a = applyAll fs (f a)
 
 data Tag =
     Tag !(Pos TagVal)
@@ -175,10 +160,10 @@ tagLine :: Pos TagVal -> Line
 tagLine = posLine . posOf
 
 -- | Read tags from one file.
-processFile :: FilePath -> Bool -> [TagFilter] -> IO ([Pos TagVal], [String])
-processFile fn trackPrefixes filters = do
+processFile :: FilePath -> Bool -> IO ([Pos TagVal], [String])
+processFile fn trackPrefixes = do
     (tags, warnings) <- process fn trackPrefixes <$> readFileLenient fn
-    return (applyAll filters tags, warnings)
+    return (tags, warnings)
 
 -- | Read a UTF8 file, but don't crash on encoding errors.
 readFileLenient :: FilePath -> IO Text
