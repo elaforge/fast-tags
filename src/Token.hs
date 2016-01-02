@@ -6,6 +6,7 @@ import Control.DeepSeq (NFData, rnf)
 import Data.Text (Text)
 import qualified Data.Text as Text
 
+
 data Pos a = Pos {
     posOf   :: {-# UNPACK #-} !SrcPos
     , valOf :: !a
@@ -84,9 +85,12 @@ data TokenVal =
     | RParen
     | Tilde
     | T !Text
-    | Newline !Int -- ^ Special token, not part of Haskell spec. Stores indentation
-    | String       -- ^ String contents is not tracked since it's irrelevant
-    | Character    -- ^ Actual character not tracked since it's irrelevant
+    -- | Special token, not part of Haskell spec. Stores indentation.
+    | Newline !Int
+    -- | String contents is not tracked since it's irrelevant.
+    | String
+    | Character
+    -- | Actual character not tracked since it's irrelevant.
     | QuasiquoterStart
     | QuasiquoterEnd
     | SpliceStart -- $(

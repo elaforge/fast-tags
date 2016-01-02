@@ -51,6 +51,7 @@ import Text.Printf (printf)
 import Lexer
 import Token
 
+
 -- * types
 
 data TagVal = TagVal
@@ -315,21 +316,26 @@ blockTags unstripped = case stripNewlines unstripped of
     Pos prevPos KWNewtype : toks ->
         maybeToList tag ++ newtypeTags pos rest
         where
-        (tag, pos, rest) = recordVanillaOrInfixName isTypeName Type prevPos "newtype * =" toks
+        (tag, pos, rest) =
+            recordVanillaOrInfixName isTypeName Type prevPos "newtype * =" toks
     -- type family X ...
     Pos prevPos KWType : Pos _ KWFamily : toks -> maybeToList tag
         where
-        (tag, _,  _) = recordVanillaOrInfixName isTypeFamilyName Type prevPos "type family * =" toks
+        (tag, _,  _) = recordVanillaOrInfixName isTypeFamilyName Type prevPos
+            "type family * =" toks
     -- type instance X * = ...
-    Pos _ KWType : Pos _ KWInstance : _ -> [] -- No tags in type family instances
+    -- No tags in type family instances
+    Pos _ KWType : Pos _ KWInstance : _ -> []
     -- type X * = ...
     Pos prevPos KWType : toks -> maybeToList tag
         where
-        (tag, _, _) = recordVanillaOrInfixName isTypeName Type prevPos "type * =" toks
+        (tag, _, _) = recordVanillaOrInfixName isTypeName Type prevPos
+            "type * =" toks
     -- data family X ...
     Pos prevPos KWData : Pos _ KWFamily : toks -> maybeToList tag
         where
-        (tag, _, _) = recordVanillaOrInfixName isTypeFamilyName Type prevPos "data family * =" toks
+        (tag, _, _) = recordVanillaOrInfixName isTypeFamilyName Type prevPos
+            "data family * =" toks
     -- data instance * = ...
     -- data instance * where ...
     Pos _ KWData : Pos _ KWInstance : (dropDataContext -> Pos pos _: _) ->
@@ -340,7 +346,8 @@ blockTags unstripped = case stripNewlines unstripped of
         maybeToList tag ++ dataConstructorTags pos (dropTokens 1 unstripped)
         where
         namePred = isTypeName -- isTypeFamilyName
-        (tag, pos, _) = recordVanillaOrInfixName namePred Type prevPos "data * =" toks
+        (tag, pos, _) = recordVanillaOrInfixName namePred Type prevPos
+            "data * =" toks
     -- class * => X where X :: * ...
     Pos pos KWClass : _ -> classTags pos (dropTokens 1 unstripped)
 
@@ -366,27 +373,21 @@ isTypeName x = case headt x of
 dropDataContext :: [Token] -> [Token]
 dropDataContext = stripParensKindsTypeVars . stripOptContext
 
-recordVanillaOrInfixName
-  :: (Text -> Bool)
-  -> Type
-  -> SrcPos
-  -> String
-  -> [Token]
-  -> (Maybe Tag, SrcPos, [Token])
+recordVanillaOrInfixName :: (Text -> Bool) -> Type -> SrcPos -> String
+    -> [Token] -> (Maybe Tag, SrcPos, [Token])
 recordVanillaOrInfixName isVanillaName tokenType prevPos context tokens =
     case dropDataContext tokens of
         Pos _ LParen   : Pos _ RParen : _ -> (Nothing, prevPos, tokens)
         Pos _ LBracket : _                -> (Nothing, prevPos, tokens)
         tok : toks ->
             case tok of
-                Pos pos (T name)
-                    | isVanillaName name -> (Just $ mkTag pos name tokenType, pos, toks)
-                _ ->
-                  case dropInfixTypeStart $ tok : toks of
-                      Pos pos (T name) : rest -> (Just $ mkTag pos name tokenType, pos, rest)
-                      rest                    -> (Just $ unexp pos rest, pos, tok : toks)
-                      where
-                      pos = posOf tok
+                Pos pos (T name) | isVanillaName name ->
+                    (Just $ mkTag pos name tokenType, pos, toks)
+                _ -> case dropInfixTypeStart $ tok : toks of
+                    Pos pos (T name) : rest ->
+                        (Just $ mkTag pos name tokenType, pos, rest)
+                    rest -> (Just $ unexp pos rest, pos, tok : toks)
+                        where pos = posOf tok
         [] -> (Just $ unexp prevPos [], prevPos, [])
     where
     unexp pos rest = unexpected pos (UnstrippedTokens tokens) rest context
@@ -416,7 +417,8 @@ stripNewlines = filter (not . isNewline) . (\(UnstrippedTokens t) -> t)
 foreignTags :: [Token] -> [Tag]
 foreignTags decl = case decl of
     Pos _ KWImport : decl'
-        | Pos pos (T name) : _ <- dropBefore (\case { Pos _ DoubleColon -> True; _ -> False}) decl'
+        | Pos pos (T name) : _ <- dropBefore
+                (\case { Pos _ DoubleColon -> True; _ -> False}) decl'
             -> [mkTag pos name Function]
     _ -> []
 
@@ -532,7 +534,8 @@ newtypeTags prevPos tokens = case dropUntil Equals tokens of
 dataConstructorTags :: SrcPos -> UnstrippedTokens -> [Tag]
 dataConstructorTags prevPos unstripped
     -- GADT
-    | any (\case { Pos _ KWWhere -> True; _ -> False }) (unstrippedTokensOf unstripped) =
+    | any (\case { Pos _ KWWhere -> True; _ -> False })
+            (unstrippedTokensOf unstripped) =
         concatMap gadtTags (whereBlock unstripped)
     -- plain ADT
     | otherwise = case strip unstripped of
@@ -591,12 +594,12 @@ dataConstructorTags prevPos unstripped
         stripTypeParam ts = drop 1 ts
 
     dropUntilNextCaseOrRecordStart :: [Token] -> [Token]
-    dropUntilNextCaseOrRecordStart =
-        dropWithStrippingBalanced (not . \case { Pipe -> True; LBrace -> True; _ -> False })
+    dropUntilNextCaseOrRecordStart = dropWithStrippingBalanced $
+        not . \case { Pipe -> True; LBrace -> True; _ -> False }
 
     dropUntilNextField :: [Token] -> [Token]
-    dropUntilNextField =
-        dropWithStrippingBalanced (not . \case { Comma -> True; RBrace -> True; Pipe -> True; _ -> False })
+    dropUntilNextField = dropWithStrippingBalanced $
+        not . \case { Comma -> True; RBrace -> True; Pipe -> True; _ -> False }
 
 stripOptForall :: [Token] -> [Token]
 stripOptForall (Pos _ KWForall  : rest) = dropUntil Dot rest
@@ -668,9 +671,8 @@ classTags prevPos unstripped =
     maybeToList tag ++ concatMap classBodyTags (whereBlock wherePart)
     where
     (classPart, wherePart) = spanUntil KWWhere unstripped
-    (tag, _, _) = recordVanillaOrInfixName isTypeName Class prevPos "class * =>" $
-                  stripUntilImplies $
-                  stripNewlines classPart
+    (tag, _, _) = recordVanillaOrInfixName isTypeName Class prevPos
+        "class * =>" $ stripUntilImplies $ stripNewlines classPart
 
 stripUntilImplies :: [Token] -> [Token]
 stripUntilImplies xs =
@@ -758,7 +760,8 @@ dropDups _ [] = []
 dropUntil :: TokenVal -> [Token] -> [Token]
 dropUntil token = drop 1 . dropWhile (not . (== token) . valOf)
 
-spanUntil :: TokenVal -> UnstrippedTokens -> (UnstrippedTokens, UnstrippedTokens)
+spanUntil :: TokenVal -> UnstrippedTokens
+    -> (UnstrippedTokens, UnstrippedTokens)
 spanUntil token =
     (UnstrippedTokens *** UnstrippedTokens) .
     span (not . (== token) . valOf) . unstrippedTokensOf

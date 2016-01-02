@@ -3,9 +3,6 @@
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RankNTypes        #-}
-
-{-# LANGUAGE ScopedTypeVariables #-}
 
 module LexerTypes where
 
@@ -152,7 +149,8 @@ alexGetByte input@(AlexInput {aiInput, aiBytes, aiLine}) =
                                , aiPrevChar = c
                                , aiLine     = advanceLine c aiLine
                                }
-            []   -> error "alexGetByte: should not happen - utf8 encoding of a character is empty"
+            []   -> error "alexGetByte: should not happen - utf8 encoding of\
+                \ a character is empty"
 
 -- Translate unicode character into special symbol we teached Alex to recognize.
 fixChar :: Char -> Maybe Char
