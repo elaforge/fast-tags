@@ -214,7 +214,7 @@ help = "usage: fast-tags [options] [filenames]\n" ++
 -- This tells vim that the file is sorted (but not case folded) so that
 -- it can do a bsearch and never needs to fall back to linear search.
 vimMagicLine :: Text
-vimMagicLine = "!_TAG_FILE_SORTED\t1\t~"
+vimMagicLine = "!_TAG_FILE_SORTED\t1\t//"
 
 isNewTag :: Set Text -> Text -> Bool
 isNewTag textFns line = Set.member fn textFns
