@@ -210,11 +210,19 @@ help = "usage: fast-tags [options] [filenames]\n" ++
        "In case no filenames provided on commandline, fast-tags expects " ++
        "list of files separated by newlines in stdin."
 
--- | Documented in vim :h tags-file-format.
--- This tells vim that the file is sorted (but not case folded) so that
--- it can do a bsearch and never needs to fall back to linear search.
+-- | This line is to tell vim that the file is sorted, so it can use binary
+-- search when looking for tags. This must come first in the tags file, and the
+-- format is documented in :h tags-file-format as:
+--
+--   !_TAG_FILE_SORTED<Tab>1<Tab>{anything}
+--
+-- However, simply leaving {anything} part empty or putting something random
+-- like ~ doesn't work when we want to extend the tags file with some tags from
+-- C files using ctags. ctags requires //, with optional comments in between two
+-- slashes. More about ctags' file format can be seen here:
+-- http://ctags.sourceforge.net/FORMAT.
 vimMagicLine :: Text
-vimMagicLine = "!_TAG_FILE_SORTED\t1\t~"
+vimMagicLine = "!_TAG_FILE_SORTED\t1\t//"
 
 isNewTag :: Set Text -> Text -> Bool
 isNewTag textFns line = Set.member fn textFns
