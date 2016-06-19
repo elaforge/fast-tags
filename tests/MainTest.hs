@@ -571,6 +571,10 @@ testFunctions = testGroup "functions"
           \f x (Just y) = y"
           ==>
           ["f"]
+        , "x `f` Nothing = x\n\
+          \x `f` (Just y) = y"
+          ==>
+          ["f"]
         , "f x y = g x\n\
           \  where\n\
           \    g _ = y"
