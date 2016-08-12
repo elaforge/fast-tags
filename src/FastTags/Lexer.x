@@ -69,7 +69,7 @@ $ident     = [$ident_nonsym $ident_syms]
 @forall      = ( "forall" | "∀" )
 
 $charesc    = [a b f n r t v \\ \" \' \&]
-$octdigit   = [0-9a-fA-F]
+$octdigit   = [0-7]
 $hexdigit   = [0-9a-fA-F]
 @charescape = [\\] ( $charesc | $asclarge+ | "o" $octdigit+ | "x" $hexdigit+ )
 
