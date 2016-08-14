@@ -76,6 +76,8 @@ data Context = CtxHaskell | CtxQuasiquoter
 data AlexState = AlexState {
     asInput              :: AlexInput
     , asFilename         :: FilePath
+    -- | Current Alex state the lexer is in. E.g. commens, string, TH quasiquoter
+    -- or vanilla toplevel mode.
     , asCode             :: {-# UNPACK #-} !Int
     , asCommentDepth     :: {-# UNPACK #-} !Int
     , asQuasiquoterDepth :: {-# UNPACK #-} !Int
@@ -115,7 +117,6 @@ retrieveToken :: AlexInput -> Int -> Text
 retrieveToken (AlexInput {aiInput}) len = Text.take len aiInput
 
 type AlexM = EitherKT String (State AlexState)
-type AlexMConstraint m = (MonadError String m, MonadState AlexState m)
 
 runAlexM :: FilePath -> Bool -> Text -> AlexM a -> Either String a
 runAlexM filename trackPrefixes input action =
