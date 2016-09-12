@@ -2,8 +2,7 @@
 -- alex doesn't quite produce warning-free code.
 {-# OPTIONS_GHC -fno-warn-missing-signatures -fno-warn-tabs
     -fno-warn-unused-binds -fno-warn-unused-matches
-    -fno-warn-unused-imports
-#-}
+    -fno-warn-unused-imports #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE MultiWayIf          #-}
 {-# LANGUAGE NamedFieldPuns      #-}
