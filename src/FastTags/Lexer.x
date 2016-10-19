@@ -125,8 +125,6 @@ $space*                 { \input len -> endIndentationCounting len }
 <string> ( $ws | [^ \" \\ $nl] )+ ;
 <string> ( . | $nl | [\\] . )     ;
 
-
-
 -- Characters
 <0> [\'] ( [^\'\\] | @charescape ) [\'] { kw Character }
 

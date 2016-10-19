@@ -176,6 +176,8 @@ testTokenize = testGroup "tokenize"
       ]
 
     , tokenizeSplices
+    , "import Foo hiding (Bar)" ==>
+      [KWImport, T "Foo", T "hiding", LParen, T "Bar", RParen, Newline 0]
     ]
     where
     (==>) = test f
