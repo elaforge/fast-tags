@@ -21,6 +21,8 @@ module FastTags.Tag (
     , processFile
     , qualify
     , process
+    , tokenizeInput
+    , processTokens
     -- * util
     , isHsFile
     , isLiterateFile
@@ -188,29 +190,15 @@ dropPrefix prefix txt = maybe txt id $ T.stripPrefix prefix txt
 -- | Process one file's worth of tags.
 process :: FilePath -> Bool -> Text -> ([Pos TagVal], [String])
 process fn trackPrefixes input =
-    case Lexer.tokenize fn trackPrefixes $ stripCpp $ unlit input of
-        Left msg -> ([], [msg])
-        Right toks ->
-            splitAndRemoveRepeats $
-            concatMap blockTags $
-            breakBlocks $
-            UnstrippedTokens toks
+    case tokenizeInput fn trackPrefixes input  of
+        Left msg   -> ([], [msg])
+        Right toks -> processTokens toks
+
+tokenizeInput :: FilePath -> Bool -> Text -> Either String [Token]
+tokenizeInput fn trackPrefixes =
+    Lexer.tokenize fn trackPrefixes . stripCpp . unlit
     where
-    splitAndRemoveRepeats :: [Tag] -> ([Pos TagVal], [String])
-    splitAndRemoveRepeats tags =
-        ( earliestRepeats ++ newTags
-        , map valOf warnings
-        )
-        where
-        (newTags, repeatableTags, warnings) = partitionTags tags
-        -- For RepeatableTag s with duplicate keys, pick the one with the lowest
-        -- posLine.
-        earliestRepeats :: [Pos TagVal]
-        earliestRepeats = Map.elems $ Map.fromListWith minLine $
-            Util.keyOn valOf repeatableTags
-        minLine x y
-            | tagLine x < tagLine y = x
-            | otherwise             = y
+    unlit :: Text -> Text
     unlit src
         | isLiterateFile fn =
             T.pack $ Unlit.unlit fn $ T.unpack $ stripLiterate src
@@ -228,6 +216,29 @@ stripLiterate src
         | otherwise = case Util.headt $ T.dropWhile Char.isSpace xs of
             Just '>' -> True
             _ -> False
+
+processTokens :: [Token] -> ([Pos TagVal], [String])
+processTokens =
+    splitAndRemoveRepeats .
+    concatMap blockTags .
+    breakBlocks .
+    UnstrippedTokens
+    where
+    splitAndRemoveRepeats :: [Tag] -> ([Pos TagVal], [String])
+    splitAndRemoveRepeats tags =
+        ( earliestRepeats ++ newTags
+        , map valOf warnings
+        )
+        where
+        (newTags, repeatableTags, warnings) = partitionTags tags
+        -- For RepeatableTag s with duplicate keys, pick the one with the lowest
+        -- posLine.
+        earliestRepeats :: [Pos TagVal]
+        earliestRepeats = Map.elems $ Map.fromListWith minLine $
+            Util.keyOn valOf repeatableTags
+        minLine x y
+            | tagLine x < tagLine y = x
+            | otherwise             = y
 
 -- | Strip cpp lines starting with #. Also strips out hsc detritus.
 stripCpp :: Text -> Text
@@ -534,7 +545,7 @@ dropInfixTypeStart = dropWhile f
 -- everywhere.  But I need to keep the newlines in in case I hit a @where@
 -- and need to call 'breakBlocks' again.
 stripNewlines :: UnstrippedTokens -> [Token]
-stripNewlines = filter (not . isNewline) . (\(UnstrippedTokens t) -> t)
+stripNewlines = filter (not . isNewline) . unstrippedTokensOf
 
 -- | Tags from foreign import.
 --
