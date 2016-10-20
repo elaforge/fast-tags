@@ -212,7 +212,9 @@ identChar considerDot c = Char.isAlphaNum c || c == '\'' || c == '_'
 
 -- unicode operators are not supported yet
 haskellOpChar :: Char -> Bool
-haskellOpChar c = IntSet.member (Char.ord c) opChars
+haskellOpChar c =
+    IntSet.member (Char.ord c) opChars ||
+    Util.isSymbolCharacterCategory (Char.generalCategory c)
     where
     opChars :: IntSet.IntSet
     opChars = IntSet.fromList $ map Char.ord "-!#$%&*+./<=>?@^|~:\\"
@@ -279,10 +281,16 @@ blockTags :: UnstrippedTokens -> [Tag]
 blockTags unstripped = case stripNewlines unstripped of
     [] -> []
     Pos _ KWModule : Pos pos (T name) : _ ->
-          [mkTag pos (snd (T.breakOnEnd "." name)) Module]
-    Pos _ KWPattern : Pos pos (T name) : _
-        | maybe False Char.isUpper (Util.headt name) ->
-            [mkTag pos name Pattern]
+        [mkTag pos (snd (T.breakOnEnd "." name)) Module]
+    stripped@(Pos _       (T "pattern") : Pos _ DoubleColon : _) ->
+        toplevelFunctionTags stripped
+    stripped@(Pos prevPos (T "pattern") : toks) ->
+        case tag of
+            Nothing -> toplevelFunctionTags stripped
+            Just x  -> [x]
+        where
+        (tag, _, _) =
+            recordVanillaOrInfixName isTypeName Pattern prevPos "pattern * =" toks
     Pos _ KWForeign : decl -> foreignTags decl
     -- newtype instance * = ...
     Pos _ KWNewtype : Pos _ KWInstance : (dropDataContext -> Pos pos _: rest) ->
@@ -320,8 +328,7 @@ blockTags unstripped = case stripNewlines unstripped of
     Pos prevPos KWData : toks ->
         maybeToList tag ++ dataConstructorTags pos (dropTokens 1 unstripped)
         where
-        namePred = isTypeName -- isTypeFamilyName
-        (tag, pos, _) = recordVanillaOrInfixName namePred Type prevPos
+        (tag, pos, _) = recordVanillaOrInfixName isTypeName Type prevPos
             "data * =" toks
     -- class * => X where X :: * ...
     Pos pos KWClass : _ -> classTags pos (dropTokens 1 unstripped)
@@ -349,12 +356,19 @@ isTypeName x = case Util.headt x of
 dropDataContext :: [Token] -> [Token]
 dropDataContext = stripParensKindsTypeVars . stripOptContext
 
-recordVanillaOrInfixName :: (Text -> Bool) -> Type -> SrcPos -> String
-    -> [Token] -> (Maybe Tag, SrcPos, [Token])
+recordVanillaOrInfixName
+    :: (Text -> Bool)               -- ^ Predicate for names to select
+    -> Type                         -- ^ Tope of detecte tag
+    -> SrcPos                       -- ^ Previous position to report in errors
+    -> String                       -- ^ Context to report in errors
+    -> [Token]                      -- ^ Tokens to analyze
+    -> (Maybe Tag, SrcPos, [Token]) -- ^ Possibly detected tag and rest of the tokens
 recordVanillaOrInfixName isVanillaName tokenType prevPos context tokens =
     case dropDataContext tokens of
         Pos _ LParen   : Pos _ RParen : _ -> (Nothing, prevPos, tokens)
         Pos _ LBracket : _                -> (Nothing, prevPos, tokens)
+        Pos _ Equals   : _                -> (Nothing, prevPos, tokens)
+        Pos _ Comma    : _                -> (Nothing, prevPos, tokens)
         tok : toks ->
             case tok of
                 Pos pos (T name) | isVanillaName name ->
@@ -370,7 +384,7 @@ recordVanillaOrInfixName isVanillaName tokenType prevPos context tokens =
 
 -- same as dropWhile with counting
 dropInfixTypeStart :: [Token] -> [Token]
-dropInfixTypeStart tokens = dropWhile f tokens
+dropInfixTypeStart = dropWhile f
     where
     f (Pos _ (T name)) = isInfixTypePrefix name
     f (Pos _ Backtick) = True
@@ -481,7 +495,7 @@ functionTags constructors = go []
         Nothing   -> tags
 
 functionName :: Bool -> Text -> Bool
-functionName constructors text = isFunction text
+functionName constructors = isFunction
     where
     isFunction text = case T.uncons text of
         Just (c, cs) ->
@@ -549,7 +563,7 @@ dataConstructorTags prevPos unstripped
 
 
     stripOptBang :: [Token] -> [Token]
-    stripOptBang ((Pos _ ExclamationMark) : rest) = rest
+    stripOptBang (Pos _ ExclamationMark : rest) = rest
     stripOptBang ts = ts
 
     extractInfixConstructor :: [Token] -> Maybe (Token, [Token])
@@ -563,9 +577,9 @@ dataConstructorTags prevPos unstripped
         extract _ = Nothing
 
         stripTypeParam :: [Token] -> [Token]
-        stripTypeParam input@((Pos _ LParen) : _) =
+        stripTypeParam input@(Pos _ LParen : _) =
             stripBalancedParens input
-        stripTypeParam input@((Pos _ LBracket) : _) =
+        stripTypeParam input@(Pos _ LBracket : _) =
             stripBalancedBrackets input
         stripTypeParam ts = drop 1 ts
 
@@ -578,8 +592,8 @@ dataConstructorTags prevPos unstripped
         not . \case { Comma -> True; RBrace -> True; Pipe -> True; _ -> False }
 
 stripOptForall :: [Token] -> [Token]
-stripOptForall (Pos _ KWForall  : rest) = dropUntil Dot rest
-stripOptForall xs                       = xs
+stripOptForall (Pos _ (T "forall") : rest) = dropUntil Dot rest
+stripOptForall xs                          = xs
 
 stripParensKindsTypeVars :: [Token] -> [Token]
 stripParensKindsTypeVars (Pos _ LParen : xs)  =

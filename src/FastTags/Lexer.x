@@ -44,10 +44,14 @@ $ascsmall  = [a-z]
 $unismall  = \x03
 $small     = [$ascsmall $unismall]
 
+-- These symbols can be part of operators but are reserved when occur by
+-- themselves.
+$symbols_reserved_as_standalone = [ \→ \∷ \⇒ \∀ ]
+
 $special_sym  = [\(\)\,\;\[\]\`\{\}]
 $ascsymbol    = [\!\#\$\%\&\*\+\.\/\<\=\>\?\@\\\^\|\-\~\:]
 $unisymbol    = \x04
-$symbol       = [$ascsymbol $unisymbol] # [$special_sym \_\'\"]
+$symbol       = [$ascsymbol $unisymbol $symbols_reserved_as_standalone] # [$special_sym \_\'\"]
 
 $ascident  = [$ascsmall $asclarge]
 $uniident  = [$unismall $unilarge]
@@ -66,7 +70,6 @@ $ident     = [$ident_nonsym $ident_syms]
 @arrow       = ( "->" | "→" )
 @doublecolon = ( "::" | "∷" )
 @implies     = ( "=>" | "⇒" )
-@forall      = ( "forall" | "∀" )
 
 $charesc    = [a b f n r t v \\ \" \' \&]
 $octdigit   = [0-7]
@@ -131,7 +134,8 @@ $nl $space*             { \_ len -> pure $ Newline $ len - 1 }
 "do"                    { kw KWDo }
 "else"                  { kw KWElse }
 "family"                { kw KWFamily }
-@forall                 { kw KWForall }
+"forall"                { \_ _ -> return $ T "forall" }
+"∀"                     { \_ _ -> return $ T "forall" }
 "foreign"               { kw KWForeign }
 "if"                    { kw KWIf }
 "import"                { kw KWImport }
@@ -144,7 +148,7 @@ $nl $space*             { \_ len -> pure $ Newline $ len - 1 }
 "module"                { kw KWModule }
 "newtype"               { kw KWNewtype }
 "of"                    { kw KWOf }
-"pattern"               { kw KWPattern }
+"pattern"               { \_ _ -> return $ T "pattern" }
 "then"                  { kw KWThen }
 "type"                  { kw KWType }
 "where"                 { kw KWWhere }

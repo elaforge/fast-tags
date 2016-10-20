@@ -57,11 +57,11 @@ testTokenize = testGroup "tokenize"
     , "(#$)"              ==> [LParen, T "#$", RParen, Newline 0]
     , "Data.Map.map"      ==> [T "Data.Map.map", Newline 0]
     , "Map.map"           ==> [T "Map.map", Newline 0]
-    , "forall a. f a"     ==> [KWForall, T "a", Dot, T "f", T "a", Newline 0]
-    , "forall a . Foo"    ==> [KWForall, T "a", Dot, T "Foo", Newline 0]
-    , "forall a. Foo"     ==> [KWForall, T "a", Dot, T "Foo", Newline 0]
-    , "forall a .Foo"     ==> [KWForall, T "a", Dot, T "Foo", Newline 0]
-    , "forall a.Foo"      ==> [KWForall, T "a", Dot, T "Foo", Newline 0]
+    , "forall a. f a"     ==> [T "forall", T "a", Dot, T "f", T "a", Newline 0]
+    , "forall a . Foo"    ==> [T "forall", T "a", Dot, T "Foo", Newline 0]
+    , "forall a. Foo"     ==> [T "forall", T "a", Dot, T "Foo", Newline 0]
+    , "forall a .Foo"     ==> [T "forall", T "a", Dot, T "Foo", Newline 0]
+    , "forall a.Foo"      ==> [T "forall", T "a", Dot, T "Foo", Newline 0]
     , "$#-- hi"           ==> [T "$#--", T "hi", Newline 0]
     , "(*), (-)"          ==>
         [LParen, T "*", RParen, Comma, LParen, T "-", RParen, Newline 0]
@@ -395,10 +395,18 @@ testData = testGroup "data"
       \ extract :: (u (v z)) }"
       ==>
       [":*:", "X", "extract"]
+    , "newtype (u :*: v) z = X {\n\
+      \ -- my insightful comment\n\
+      \ pattern :: (u (v z)) }"
+      ==>
+      [":*:", "X", "pattern"]
 
     , "data Hadron a b = Science { f :: a, g :: a, h :: b }"
       ==>
       ["Hadron", "Science", "f", "g", "h"]
+    , "data Hadron a b = Science { f :: a, g :: a, pattern :: b }"
+      ==>
+      ["Hadron", "Science", "f", "g", "pattern"]
     , "data Hadron a b = Science { f :: a, g :: (a, b), h :: b }"
       ==>
       ["Hadron", "Science", "f", "g", "h"]
@@ -504,14 +512,16 @@ testFamilies = testGroup "families"
     , "type family (m :: Nat) <=? (n :: Nat) :: Bool"       ==> ["<=?"]
     , "type family (m ∷ Nat) <=? (n ∷ Nat) ∷ Bool"         ==> ["<=?"]
 
-    , "data instance X a b = Y a | Z { unZ :: b }"                  ==>
+    , "data instance X a b = Y a | Z { unZ :: b }"                     ==>
         ["Y", "Z", "unZ"]
-    , "data instance (Eq a, Eq b) => X a b = Y a | Z { unZ :: b }"  ==>
+    , "data instance (Eq a, Eq b) => X a b = Y a | Z { unZ :: b }"     ==>
         ["Y", "Z", "unZ"]
-    , "data instance XList Char = XCons !Char !(XList Char) | XNil" ==>
+    , "data instance (Eq a, Eq b) => X a b = Y a | Z { pattern :: b }" ==>
+        ["Y", "Z", "pattern"]
+    , "data instance XList Char = XCons !Char !(XList Char) | XNil"    ==>
         ["XCons", "XNil"]
-    , "newtype instance Cxt x => T [x] = A (B x) deriving (Z,W)"    ==> ["A"]
-    , "type instance Cxt x => T [x] = A (B x)"                      ==> []
+    , "newtype instance Cxt x => T [x] = A (B x) deriving (Z,W)"       ==> ["A"]
+    , "type instance Cxt x => T [x] = A (B x)"                         ==> []
     , "data instance G [a] b where\n\
       \   G1 :: c -> G [Int] b\n\
       \   G2 :: G [a] Bool"
@@ -586,11 +596,24 @@ testFunctions = testGroup "functions"
         , "(!) x y = x" ==> ["!"]
         , "--- my comment" ==> []
         , "foo :: Rec -> Bar\n\
-          \foo Rec{..} = Bar (recField + 1)" ==>
+          \foo Rec{..} = Bar (recField + 1)"
+          ==>
           ["foo"]
         , "foo :: Rec -> Bar\n\
-          \foo Rec { bar = Baz {..}} = Bar (recField + 1)" ==>
+          \foo Rec { bar = Baz {..}} = Bar (recField + 1)"
+          ==>
           ["foo"]
+        -- Functions named "pattern"
+        , "pattern :: Int -> String -> [Int]"           ==> ["pattern"]
+        , "pattern, foo :: Int -> String -> [Int]"      ==> ["foo", "pattern"]
+        , "foo, pattern :: Int -> String -> [Int]"      ==> ["foo", "pattern"]
+        , "foo, pattern, bar :: Int -> String -> [Int]" ==> ["bar", "foo", "pattern"]
+        , "pattern x = x "                              ==> ["pattern"]
+        , "pattern x y = x + y"                         ==> ["pattern"]
+        , "x `pattern` y = x + y"                       ==> ["pattern"]
+        , "pattern x y z = x + y + z"                   ==> ["pattern"]
+        -- Arguments named "forall
+        , "f forall = forall + 1"                       ==> ["f"]
         ]
     strictMatchTests = testGroup "strict match (!)"
         [ "f !x y = x"                ==> ["f"]
@@ -723,6 +746,8 @@ testClass = testGroup "class"
       \ \n\
       \    -- | morphism composition\n\
       \    (.) :: cat b c -> cat a b -> cat a c" ==> [".", "Category", "id"]
+    , "class Match a b where\n\
+      \    pattern :: Pattern a b\n" ==> ["Match", "pattern"]
     ]
     where
     (==>) = testTagNames filename
@@ -810,6 +835,12 @@ testPatterns = testGroup "patterns"
       \pattern Pair a b = [a, b]"
       ==>
       ["Pair", "Sub"]
+    , "pattern (:++) x y = [x, y]"
+      ==>
+      [":++"]
+    , "pattern x :** y = [x, y]"
+      ==>
+      [":**"]
     ]
     where
     (==>) = testTagNames filename
@@ -819,6 +850,7 @@ testFFI = testGroup "ffi"
     [ "foreign import ccall foo :: Double -> IO Double"            ==> ["foo"]
     , "foreign import unsafe java foo :: Double -> IO Double"      ==> ["foo"]
     , "foreign import safe stdcall foo :: Double -> IO Double"     ==> ["foo"]
+    , "foreign import safe stdcall pattern :: Double -> IO Double" ==> ["pattern"]
     ]
     where
     (==>) = testTagNames filename

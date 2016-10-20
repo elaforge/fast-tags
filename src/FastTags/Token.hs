@@ -51,7 +51,6 @@ data TokenVal =
     | KWDo
     | KWElse
     | KWFamily
-    | KWForall
     | KWForeign
     | KWIf
     | KWImport
@@ -64,7 +63,6 @@ data TokenVal =
     | KWModule
     | KWNewtype
     | KWOf
-    | KWPattern
     | KWThen
     | KWType
     | KWWhere

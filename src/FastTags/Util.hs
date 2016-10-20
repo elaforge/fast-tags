@@ -1,8 +1,10 @@
 -- | Generic utilities.
 module FastTags.Util where
-import qualified Data.Map.Strict as Map
+import qualified Data.Char as Char
 import qualified Data.Function as Function
 import qualified Data.List as List
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Text (Text)
 
@@ -50,3 +52,17 @@ groupOn key = List.groupBy (\a b -> key a == key b)
 groupOnKey :: Ord key => (a -> key) -> [a] -> [(key, [a])]
 groupOnKey key = Map.toAscList . List.foldl' go Map.empty
     where go m x = Map.alter (Just . maybe [x] (x:)) (key x) m
+
+isSymbolCharacterCategory :: Char.GeneralCategory -> Bool
+isSymbolCharacterCategory cat = Set.member cat symbolCategories
+    where
+    symbolCategories :: Set.Set Char.GeneralCategory
+    symbolCategories = Set.fromList
+        [ Char.ConnectorPunctuation
+        , Char.DashPunctuation
+        , Char.OtherPunctuation
+        , Char.MathSymbol
+        , Char.CurrencySymbol
+        , Char.ModifierSymbol
+        , Char.OtherSymbol
+        ]

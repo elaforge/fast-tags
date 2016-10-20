@@ -23,6 +23,7 @@ import Data.Word (Word8)
 import Control.Monad.EitherK
 
 import FastTags.Token
+import qualified FastTags.Util as Util
 
 advanceLine :: Char -> Line -> Line
 advanceLine '\n' = increaseLine
@@ -158,7 +159,7 @@ alexGetByte input@(AlexInput {aiInput, aiBytes, aiLine}) =
 
 -- Translate unicode character into special symbol we teached Alex to recognize.
 fixChar :: Char -> Maybe Char
--- These should not be translated since Alex known about them
+-- These should not be translated since Alex knows about them
 fixChar '→' = Nothing
 fixChar '∷' = Nothing
 fixChar '⇒' = Nothing
@@ -174,15 +175,11 @@ fixChar c
           OtherLetter           -> Just lower
           DecimalNumber         -> Just digit
           OtherNumber           -> Just digit
-          ConnectorPunctuation  -> Just symbol
-          DashPunctuation       -> Just symbol
-          OtherPunctuation      -> Just symbol
-          MathSymbol            -> Just symbol
-          CurrencySymbol        -> Just symbol
-          ModifierSymbol        -> Just symbol
-          OtherSymbol           -> Just symbol
           Space                 -> Just space
-          _other                -> Nothing
+          other                 ->
+              if Util.isSymbolCharacterCategory other
+              then Just symbol
+              else Nothing
     where
     space  = '\x01'
     upper  = '\x02'
