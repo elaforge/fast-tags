@@ -48,13 +48,11 @@ import qualified Data.Text.Encoding.Error as Encoding.Error
 
 import qualified Language.Preprocessor.Unlit as Unlit
 import qualified System.FilePath as FilePath
-import Text.Printf (printf)
 
 import qualified FastTags.Lexer as Lexer
 import qualified FastTags.Token as Token
 import FastTags.Token (Pos(..), Token, SrcPos(..), TokenVal(..))
 import qualified FastTags.Util as Util
-
 
 -- * types
 
@@ -538,8 +536,9 @@ dataConstructorTags prevPos unstripped
             mkTag pos name Constructor : collectRest rest
         rest -> [unexpected prevPos unstripped rest "data * = *"]
     where
+    strip :: UnstrippedTokens -> [Token]
     strip = stripOptBang . stripOptContext . stripOptForall . dropUntil Equals
-         . stripNewlines
+          . stripNewlines
     collectRest :: [Token] -> [Tag]
     collectRest tokens
         | (tags@(_:_), rest) <- functionTags False tokens =
@@ -553,14 +552,11 @@ dataConstructorTags prevPos unstripped
         | Pos _ LParen : Pos pos (T name) : Pos _ RParen : rest'' <- rest' =
             mkTag pos name Constructor
                 : collectRest (dropUntilNextCaseOrRecordStart rest'')
-        | otherwise = error $
-            printf "syntax error@%d: | not followed by tokens\n"
-                (Token.unLine $ posLine pipePos)
+        | otherwise = [unexpected pipePos unstripped rest "| not followed by tokens"]
         where
         rest' = stripOptBang $ stripOptContext $ stripOptForall rest
     collectRest (_ : rest) = collectRest rest
     collectRest [] = []
-
 
     stripOptBang :: [Token] -> [Token]
     stripOptBang (Pos _ ExclamationMark : rest) = rest
@@ -653,7 +649,21 @@ stripBalanced open close (Pos _ tok : xs)
 stripBalanced _ _ xs = xs
 
 gadtTags :: UnstrippedTokens -> [Tag]
-gadtTags = fst . functionTags True . stripNewlines
+gadtTags unstripped = case rest of
+    Pos _ LBrace : rest' -> constructorTag ++ collectFields rest'
+    _                    -> constructorTag
+    where
+    (constructorTag, rest) = functionTags True $ stripNewlines unstripped
+    collectFields :: [Token] -> [Tag]
+    collectFields (Pos _ Comma : rest) = collectFields rest
+    collectFields (Pos _ RBrace : _)   = []
+    collectFields tokens
+        | (tags@(_:_), rest) <- functionTags False tokens =
+            tags ++ collectFields (dropUntilNextField rest)
+        | otherwise = []
+    dropUntilNextField :: [Token] -> [Token]
+    dropUntilNextField = dropWithStrippingBalanced $
+        not . \case { Comma -> True; RBrace -> True; _ -> False }
 
 -- | * => X where X :: * ...
 classTags :: SrcPos -> UnstrippedTokens -> [Tag]

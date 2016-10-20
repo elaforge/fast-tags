@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module MainTest where
+module MainTest (main) where
 
 import Control.Arrow (first)
 import qualified Data.List as List
@@ -496,6 +496,16 @@ testGADT = testGroup "gadt"
       \  SuccSing :: NatSing n -> NatSing ('Succ n)\n"
       ==>
       ["NatSing", "SuccSing", "ZeroSing"]
+    , "data Rec a where\n\
+      \  C :: { foo :: Int } -> Rec a"
+      ==> ["C", "Rec", "foo"]
+    , "data Rec a where\n\
+      \  C :: { foo :: Int, bar :: Int -> Int } -> Rec a"
+      ==> ["C", "Rec", "bar", "foo"]
+    , "data Rec a where\n\
+      \  C :: { foo :: Int, bar :: Int -> Int } -> Rec a\n\
+      \  D :: { baz :: (Int -> Int) -> Int, bar :: (((Int) -> (Int))) } -> Rec a"
+      ==> ["C", "D", "Rec", "bar", "bar", "baz", "foo"]
     ]
     where
     (==>) = testTagNames filename
