@@ -851,6 +851,15 @@ testPatterns = testGroup "patterns"
     , "pattern x :** y = [x, y]"
       ==>
       [":**"]
+    , "pattern Nil :: Vec2 a\n\
+      \pattern Nil = Vec2 []\n"
+      ==>
+      ["Nil", "Nil"]
+    , "pattern (:>) x xs <- ((\\ys -> (head $ unvec2 ys,Vec2 . tail $ unvec2 ys)) -> (x,xs))\n\
+      \where\n\
+      \   (:>) x xs = Vec2 (x:unvec2 xs)"
+      ==>
+      [":>"]
     ]
     where
     (==>) = testTagNames filename
