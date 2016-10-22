@@ -722,9 +722,8 @@ testClass = testGroup "class"
         [":<:", "f"]
     , "class ('Foo ~ a) => a :<: b where\n    f :: a -> b"           ==>
         [":<:", "f"]
-    -- , "class a :<<<: b => a :<: b where\n    f :: a -> b"
-    --   ==>
-    --   [":<:", "f"]
+    , "class a :<<<: b => a :<: b where\n    f :: a -> b"            ==>
+        [":<:", "f"]
     , "class (a :<<<: b) => a :<: b where\n    f :: a -> b"   ==> [":<:", "f"]
     , "class (a :<<<: b) ⇒ a :<: b where\n    f ∷ a → b"      ==> [":<:", "f"]
     , "class (Eq a, Ord b) => a :<: b where\n    f :: a -> b" ==> [":<:", "f"]
