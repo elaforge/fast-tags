@@ -369,10 +369,10 @@ recordVanillaOrInfixName isVanillaName tokenType prevPos context tokens =
         Pos _ Comma    : _                -> (Nothing, prevPos, tokens)
         tok : toks ->
             case tok of
-                Pos pos (T name) | isVanillaName name ->
+                Pos pos (tokToName -> Just name) | isVanillaName name ->
                     (Just $ mkTag pos name tokenType, pos, toks)
                 _ -> case dropInfixTypeStart $ tok : toks of
-                    Pos pos (T name) : rest ->
+                    Pos pos (tokToName -> Just name) : rest ->
                         (Just $ mkTag pos name tokenType, pos, rest)
                     rest -> (Just $ unexp pos rest, pos, tok : toks)
                         where pos = posOf tok
@@ -458,12 +458,17 @@ functionTagsNoSig toks = go toks
          [] -> []
 
 tokToOpName :: TokenVal -> Maybe Text
-tokToOpName (T name)
-    | T.all haskellOpChar name = Just name
-tokToOpName ExclamationMark = Just "!"
-tokToOpName Tilde           = Just "~"
-tokToOpName Dot             = Just "."
-tokToOpName _               = Nothing
+tokToOpName tok = case tokToName tok of
+    res@(Just name)
+        | T.all haskellOpChar name -> res
+    _ -> Nothing
+
+tokToName :: TokenVal -> Maybe Text
+tokToName (T name)        = Just name
+tokToName ExclamationMark = Just "!"
+tokToName Tilde           = Just "~"
+tokToName Dot             = Just "."
+tokToName _               = Nothing
 
 -- | Get tags from a function type declaration: token , token , token ::
 -- Return the tokens left over.

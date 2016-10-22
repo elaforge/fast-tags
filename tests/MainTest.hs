@@ -757,6 +757,12 @@ testClass = testGroup "class"
       \    (.) :: cat b c -> cat a b -> cat a c" ==> [".", "Category", "id"]
     , "class Match a b where\n\
       \    pattern :: Pattern a b\n" ==> ["Match", "pattern"]
+    , "class a ~~ b => (a :: k) ~ (b :: k) | a -> b, b -> a"
+      ==>
+      ["~"]
+    , "class a ~~ b => (a :: k) ! (b :: k) | a -> b, b -> a"
+      ==>
+      ["!"]
     ]
     where
     (==>) = testTagNames filename
