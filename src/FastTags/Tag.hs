@@ -620,15 +620,6 @@ stripOptContext origToks = go origToks
     go (_ : xs)                = go xs
     go []                      = origToks
 
-stripSingleClassContext :: [Token] -> [Token]
-stripSingleClassContext (Pos _ (T name) : xs)
-    | maybe False Char.isUpper (Util.headt name) =
-        dropWithStrippingBalanced f xs
-    where
-    f (T name) = isTypeVarStart name
-    f _        = False
-stripSingleClassContext xs = xs
-
 -- | Drop all tokens for which @pred@ returns True, also drop () or []
 -- parenthesized expressions.
 dropWithStrippingBalanced :: (TokenVal -> Bool) -> [Token] -> [Token]

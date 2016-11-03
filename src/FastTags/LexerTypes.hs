@@ -77,7 +77,7 @@ data Context = CtxHaskell | CtxQuasiquoter
 data AlexState = AlexState {
     asInput              :: AlexInput
     , asFilename         :: FilePath
-    -- | Current Alex state the lexer is in. E.g. commens, string, TH quasiquoter
+    -- | Current Alex state the lexer is in. E.g. comments, string, TH quasiquoter
     -- or vanilla toplevel mode.
     , asCode             :: {-# UNPACK #-} !Int
     , asCommentDepth     :: {-# UNPACK #-} !Int
