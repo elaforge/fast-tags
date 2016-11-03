@@ -607,9 +607,18 @@ stripParensKindsTypeVars (Pos _ (T name) : xs)
 stripParensKindsTypeVars xs = xs
 
 stripOptContext :: [Token] -> [Token]
-stripOptContext (stripBalancedParens     -> Pos _ Implies : xs) = xs
-stripOptContext (stripSingleClassContext -> Pos _ Implies : xs) = xs
-stripOptContext xs                                              = xs
+stripOptContext (stripBalancedParens -> Pos _ Implies : xs) = xs
+stripOptContext (stripBalancedParens -> Pos _ Implies : xs) = xs
+stripOptContext origToks = go origToks
+    where
+    go (Pos _ Implies : xs)    = xs
+    go (Pos _ Equals : _)      = origToks
+    go (Pos _ Pipe : _)        = origToks
+    go (Pos _ LBrace : _)      = origToks
+    go (Pos _ RBrace : _)      = origToks
+    go (Pos _ DoubleColon : _) = origToks
+    go (_ : xs)                = go xs
+    go []                      = origToks
 
 stripSingleClassContext :: [Token] -> [Token]
 stripSingleClassContext (Pos _ (T name) : xs)

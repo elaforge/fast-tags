@@ -283,8 +283,8 @@ testData = testGroup "data"
     , "data X = forall a. (Eq a) => Y a"           ==> ["X", "Y"]
     , "data X = forall (a :: Nat). (Eq' a) => Y a" ==> ["X", "Y"]
     , "data X = forall a. (Eq a, Ord a) => Y a"    ==> ["X", "Y"]
-    -- "data X = forall a. Ref :<: a => Y a"       ==> ["X", "Y"]
-    -- "data X = forall a. (:<:) Ref a => Y a"     ==> ["X", "Y"]
+    , "data X = forall a. Ref :<: a => Y a"        ==> ["X", "Y"]
+    , "data X = forall a. (:<:) Ref a => Y a"      ==> ["X", "Y"]
     , "data X = forall a. ((:<:) Ref a) => Y a"    ==> ["X", "Y"]
     , "data X = forall a. Y !a"                    ==> ["X", "Y"]
     , "data X = forall a. (Eq a, Ord a) => Y !a"   ==> ["X", "Y"]
@@ -304,10 +304,23 @@ testData = testGroup "data"
     , "data (Eq a, Ord a) => X a = Add a"     ==> ["Add", "X"]
     , "data (Eq (a), Ord (a)) => X a = Add a" ==> ["Add", "X"]
 
-    -- These are hard-to-deal-with uses of contexts, which are probably not that
-    -- common and therefoce can be ignored.
-    -- "data Ref :<: f => X f = RRef f" ==> ["X", "RRef"]
-    -- "data a :<: b => X a b = Add a" ==> ["X", "Add"]
+    , "data Ref :<: f => X f = RRef f"                                  ==>
+        ["RRef", "X"]
+    , "data a :<: b => X a b = Add a"                                   ==>
+        ["Add", "X"]
+    , "newtype Ref :<: f => X f = RRef f"                               ==>
+        ["RRef", "X"]
+    , "newtype a :<: b => X a b = Add a"                                ==>
+        ["Add", "X"]
+    , "data Ref :<: [f] => X f = RRef f"                                ==>
+        ["RRef", "X"]
+    , "data [a] :<: b => X a b = Add a"                                 ==>
+        ["Add", "X"]
+    , "newtype Ref :<: [f] => X f = RRef f"                             ==>
+        ["RRef", "X"]
+    , "newtype [a] :<: b => X a b = Add a"                              ==>
+        ["Add", "X"]
+
     , "data (a :<: b) => X a b = Add a"                                 ==>
         ["Add", "X"]
     , "data a :><: b = a :>|<: b"                                       ==>
