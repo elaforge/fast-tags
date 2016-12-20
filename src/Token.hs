@@ -93,7 +93,7 @@ data TokenVal =
     -- | Actual character not tracked since it's irrelevant.
     | QuasiquoterStart
     | QuasiquoterEnd
-    | SpliceStart -- $(
+    | SpliceStart -- \$(
     | EOF
     deriving (Show, Eq, Ord)
 

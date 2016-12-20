@@ -55,8 +55,8 @@ import Token
 -- * types
 
 data TagVal = TagVal
-    !Text -- ^ name
-    !Type -- ^ tag type
+    !Text --  name
+    !Type --  tag type
     deriving (Show, Eq, Ord)
 
 instance NFData TagVal where
