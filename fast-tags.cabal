@@ -54,6 +54,7 @@ library
         deepseq,
         array,
         utf8-string
+    build-tools: alex
     exposed-modules: Control.Monad.EitherK
                      FastTags
                      Lexer
