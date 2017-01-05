@@ -1,7 +1,11 @@
+1.2.1
+
+* Minor updates to cabal file, comments, etc.
+
 1.2
 
 * Speedup thanks to <https://github.com/elaforge/fast-tags/pull/22>.
-Also many tags previously incorrectly marked as 'p' Pattern are not
+Also many tags previously incorrectly marked as 'p' Pattern are now
 correctly 'f' Function.
 
 1.1.2:
