@@ -4,7 +4,7 @@
 {-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module LexerTypes where
+module FastTags.LexerTypes where
 
 import Codec.Binary.UTF8.String (encodeChar)
 import Control.Applicative
@@ -18,7 +18,7 @@ import Data.Word (Word8)
 
 import Control.Monad.EitherK
 
-import Token
+import FastTags.Token
 
 advanceLine :: Char -> Line -> Line
 advanceLine '\n' = increaseLine

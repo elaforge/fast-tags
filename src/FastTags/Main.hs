@@ -8,7 +8,7 @@
     hsc. That way I can hook it to the editor's save action and always keep
     the tags up to date.
 -}
-module Main (main) where
+module FastTags.Main (main) where
 import Control.Applicative
 import qualified Control.Concurrent.Async as Async
 import Control.Monad
@@ -31,9 +31,9 @@ import qualified System.Exit as Exit
 import System.FilePath ((</>))
 import qualified System.IO as IO
 
-import qualified Tag
+import qualified FastTags.Tag as Tag
 import qualified Paths_fast_tags
-import qualified Token
+import qualified FastTags.Token as Token
 
 
 options :: [GetOpt.OptDescr Flag]
@@ -56,15 +56,10 @@ options =
         "print current version"
     , GetOpt.Option [] ["no-module-tags"] (GetOpt.NoArg NoModuleTags)
         "do not generate tags for modules"
-    , GetOpt.Option [] ["qualified"] (GetOpt.NoArg Qualified)
-        "Each tag gets a version qualified with its module name, like M.f,\
-        \ and an unqualified version marked as a 'static' tag. Vim considers\
-        \ static tags to be local definitions and will prioritize them within\
-        \ the same file."
     ]
 
 data Flag = Output FilePath | Help | Verbose | ETags | Recurse | NoMerge
-    | ZeroSep | Version | NoModuleTags | Qualified
+    | ZeroSep | Version | NoModuleTags
     deriving (Eq, Show)
 
 main :: IO ()

@@ -5,17 +5,17 @@ module MainTest where
 import Data.Text (Text)
 import qualified Data.Text as T
 
-import qualified FastTags
-import FastTags hiding (process)
-import qualified Lexer
-import Token
+import qualified FastTags.Tag as Tag
+import FastTags.Tag hiding (process)
+import qualified FastTags.Lexer as Lexer
+import FastTags.Token
 
 import Test.Tasty
 import Test.Tasty.HUnit
 
+
 main :: IO ()
 main = defaultMain tests
-
 
 tests :: TestTree
 tests = testGroup "tests"
@@ -133,8 +133,8 @@ testBreakBlocks = testGroup "breakBlocks"
   ]
   where
     (==>) = test f
-    f = map (extractTokens . UnstrippedTokens . FastTags.stripNewlines)
-        . FastTags.breakBlocks . tokenize
+    f = map (extractTokens . UnstrippedTokens . Tag.stripNewlines)
+        . Tag.breakBlocks . tokenize
 
 testProcessAll :: TestTree
 testProcessAll = testGroup "processAll"
@@ -155,8 +155,8 @@ testProcessAll = testGroup "processAll"
   where
     (==>) = test f
     f = map showTag
-        . FastTags.processAll
-        . map (\(i, t) -> fst $ FastTags.process ("fn" ++ show i) False t)
+        . Tag.processAll
+        . map (\(i, t) -> fst $ Tag.process ("fn" ++ show i) False t)
         . zip [0..]
     showTag (Pos p (TagVal text typ)) =
       unwords [show p, T.unpack text, show typ]
@@ -201,7 +201,7 @@ testPrefixes = testGroup "prefix tracking"
   ]
   where
     (==>) = test f
-    f = fst . FastTags.process fn True
+    f = fst . Tag.process fn True
     fn = "fn.hs"
 
 testData :: TestTree
@@ -693,7 +693,7 @@ testLiterate = testGroup "literate"
   ]
   where
     (==>) = test f
-    f = map untag . fst . FastTags.process "fn.lhs" False
+    f = map untag . fst . Tag.process "fn.lhs" False
 
 testPatterns :: TestTree
 testPatterns = testGroup "patterns"
@@ -749,21 +749,22 @@ testStripCpp = testGroup "strip cpp"
     (==>) = test stripCpp
 
 process :: Text -> [String]
-process = map untag . fst . FastTags.process "fn.hs" False
+process = map untag . fst . Tag.process "fn.hs" False
 
 untag :: Pos TagVal -> String
 untag (Pos _ (TagVal name _)) = T.unpack name
 
 tokenize :: Text -> UnstrippedTokens
 tokenize =
-  either error UnstrippedTokens . Lexer.tokenize filename trackPrefixes . FastTags.stripCpp
+  either error UnstrippedTokens . Lexer.tokenize filename trackPrefixes
+    . Tag.stripCpp
   where
     filename      = "fn"
     trackPrefixes = False
 
 extractTokens :: UnstrippedTokens -> [Text]
-extractTokens = map (\token -> case FastTags.valOf token of
+extractTokens = map (\token -> case Tag.valOf token of
   T name    -> name
   Newline n -> T.pack ("nl " ++ show n)
-  t         -> T.pack $ show t) . FastTags.unstrippedTokensOf
+  t         -> T.pack $ show t) . Tag.unstrippedTokensOf
 

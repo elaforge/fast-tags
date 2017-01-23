@@ -8,7 +8,7 @@
 
 {-# OPTIONS_GHC -funbox-strict-fields #-}
 
-module Tag
+module FastTags.Tag
     ( isHsFile
     , isLiterateFile
     , merge
@@ -48,9 +48,9 @@ import qualified Data.Text.Encoding.Error as Encoding.Error
 import qualified Language.Preprocessor.Unlit as Unlit
 import Text.Printf (printf)
 
-import qualified Lexer
-import Token (Pos(..), Token, SrcPos(..), TokenVal(..))
-import qualified Token
+import qualified FastTags.Lexer as Lexer
+import FastTags.Token (Pos(..), Token, SrcPos(..), TokenVal(..))
+import qualified FastTags.Token as Token
 
 
 -- * types

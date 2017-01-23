@@ -1,6 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-module Token where
+module FastTags.Token where
 
 import Control.DeepSeq (NFData, rnf)
 import Data.Text (Text)

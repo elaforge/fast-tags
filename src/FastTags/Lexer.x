@@ -10,7 +10,7 @@
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Lexer (tokenize) where
+module FastTags.Lexer (tokenize) where
 
 import Control.Applicative
 import Control.Monad
@@ -18,8 +18,8 @@ import Control.Monad.Except
 import Control.Monad.State
 import Data.Text (Text)
 
-import LexerTypes
-import Token
+import FastTags.LexerTypes
+import FastTags.Token
 
 }
 
