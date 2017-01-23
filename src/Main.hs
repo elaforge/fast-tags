@@ -31,7 +31,7 @@ import qualified System.Exit as Exit
 import System.FilePath ((</>))
 import qualified System.IO as IO
 
-import qualified FastTags as Tag
+import qualified Tag
 import qualified Paths_fast_tags
 import qualified Token
 
@@ -56,10 +56,15 @@ options =
         "print current version"
     , GetOpt.Option [] ["no-module-tags"] (GetOpt.NoArg NoModuleTags)
         "do not generate tags for modules"
+    , GetOpt.Option [] ["qualified"] (GetOpt.NoArg Qualified)
+        "Each tag gets a version qualified with its module name, like M.f,\
+        \ and an unqualified version marked as a 'static' tag. Vim considers\
+        \ static tags to be local definitions and will prioritize them within\
+        \ the same file."
     ]
 
 data Flag = Output FilePath | Help | Verbose | ETags | Recurse | NoMerge
-    | ZeroSep | Version | NoModuleTags
+    | ZeroSep | Version | NoModuleTags | Qualified
     deriving (Eq, Show)
 
 main :: IO ()

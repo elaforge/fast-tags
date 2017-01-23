@@ -8,7 +8,7 @@
 
 {-# OPTIONS_GHC -funbox-strict-fields #-}
 
-module FastTags
+module Tag
     ( isHsFile
     , isLiterateFile
     , merge
