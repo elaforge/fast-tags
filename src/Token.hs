@@ -27,8 +27,9 @@ increaseLine (Line n) = Line $! n + 1
 data SrcPos = SrcPos {
     posFile     :: !FilePath
     , posLine   :: {-# UNPACK #-} !Line
-    , posPrefix :: Text -- ^ No need to keep prefix strict since most of the
-                        -- prefixes will not be used.
+    -- | No need to keep prefix strict since most of the prefixes will not be
+    -- used.
+    , posPrefix :: Text
     } deriving (Eq, Ord)
 
 instance NFData SrcPos where

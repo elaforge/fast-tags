@@ -48,8 +48,9 @@ import qualified Data.Text.Encoding.Error as Encoding.Error
 import qualified Language.Preprocessor.Unlit as Unlit
 import Text.Printf (printf)
 
-import Lexer
-import Token
+import qualified Lexer
+import Token (Pos(..), Token, SrcPos(..), TokenVal(..))
+import qualified Token
 
 
 -- * types
@@ -62,7 +63,7 @@ data TagVal = TagVal
 instance NFData TagVal where
     rnf (TagVal x y) = rnf x `seq` rnf y
 
--- don't swap constructors since we rely that Type < Constructor == True holds
+-- Don't swap constructors since we rely that Type < Constructor.
 data Type =
     Function
     | Type
@@ -157,7 +158,7 @@ tagText (Pos _ (TagVal text _)) = text
 tagType :: Pos TagVal -> Type
 tagType (Pos _ (TagVal _ t)) = t
 
-tagLine :: Pos TagVal -> Line
+tagLine :: Pos TagVal -> Token.Line
 tagLine = posLine . posOf
 
 -- | Read tags from one file.
@@ -178,7 +179,7 @@ tagSortingKey (Pos _ (TagVal name t)) = (name, t)
 -- | Process one file's worth of tags.
 process :: FilePath -> Bool -> Text -> ([Pos TagVal], [String])
 process fn trackPrefixes input =
-    case tokenize fn trackPrefixes $ stripCpp $ unlit' input of
+    case Lexer.tokenize fn trackPrefixes $ stripCpp $ unlit' input of
         Left msg -> ([], [msg])
         Right toks ->
             splitAndRemoveRepeats $
@@ -565,7 +566,7 @@ dataConstructorTags prevPos unstripped
                 : collectRest (dropUntilNextCaseOrRecordStart rest'')
         | otherwise = error $
             printf "syntax error@%d: | not followed by tokens\n"
-                (unLine $ posLine pipePos)
+                (Token.unLine $ posLine pipePos)
         where
         rest' = stripOptBang $ stripOptContext $ stripOptForall rest
     collectRest (_ : rest) = collectRest rest

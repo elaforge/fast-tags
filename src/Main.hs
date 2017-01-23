@@ -31,9 +31,9 @@ import qualified System.Exit as Exit
 import System.FilePath ((</>))
 import qualified System.IO as IO
 
-import FastTags
+import qualified FastTags as Tag
 import qualified Paths_fast_tags
-import Token
+import qualified Token
 
 
 options :: [GetOpt.OptDescr Flag]
@@ -43,7 +43,7 @@ options =
     , GetOpt.Option ['o'] [] (GetOpt.ReqArg Output "file")
         "output file, defaults to 'tags'"
     , GetOpt.Option ['e'] [] (GetOpt.NoArg ETags)
-        "print tags in Emacs format"
+        "generate tags in Emacs format"
     , GetOpt.Option ['v'] [] (GetOpt.NoArg Verbose)
         "print files as they are tagged, useful to track down slow files"
     , GetOpt.Option ['R'] [] (GetOpt.NoArg Recurse)
@@ -51,7 +51,7 @@ options =
     , GetOpt.Option ['0'] [] (GetOpt.NoArg ZeroSep)
         "expect list of file names on stdin to be 0-separated."
     , GetOpt.Option [] ["nomerge"] (GetOpt.NoArg NoMerge)
-        "do not merge tag files"
+        "replace an existing tags file instead of merging into it"
     , GetOpt.Option [] ["version"] (GetOpt.NoArg Version)
         "print current version"
     , GetOpt.Option [] ["no-module-tags"] (GetOpt.NoArg NoModuleTags)
@@ -101,11 +101,11 @@ main = do
     -- file won't be sorted properly.  To do that I'd have to parse all the
     -- old tags and run processAll on all of them, which is a hassle.
     -- TODO try it and see if it really hurts performance that much.
-    newTags <- fmap processAll $
+    newTags <- fmap Tag.processAll $
         flip Async.mapConcurrently (zip [0..] inputs) $ \(i :: Int, fn) -> do
-            (newTags, warnings) <- processFile fn trackPrefixes
+            (newTags, warnings) <- Tag.processFile fn trackPrefixes
             newTags <- return $ if noModuleTags
-                then filter ((/=Module) . typeOf) newTags else newTags
+                then filter ((/=Tag.Module) . typeOf) newTags else newTags
             mapM_ (IO.hPutStrLn IO.stderr) warnings
             when verbose $ do
                 let line = take 78 $ show i ++ ": " ++ fn
@@ -126,24 +126,23 @@ main = do
     where
     usage msg = putStr (GetOpt.usageInfo msg options) >> Exit.exitFailure
 
-typeOf :: Pos TagVal -> Type
-typeOf tagVal = case valOf tagVal of
-    TagVal _ typ -> typ
+typeOf :: Token.Pos Tag.TagVal -> Tag.Type
+typeOf tagVal = case Token.valOf tagVal of
+    Tag.TagVal _ typ -> typ
 
 -- | Expand file inputs. If there are no inputs, read them from stdin.  For
 -- directories, get *.hs inside, and continue to recurse if Recurse is set.
 getInputs :: [Flag] -> [FilePath] -> IO [FilePath]
 getInputs flags inputs
-    | null inputs = split sep <$> getContents
+    | null inputs = Tag.split sep <$> getContents
     | otherwise = fmap concat $ forM inputs $ \input -> do
-        -- if an input is a directory then we find the
-        -- haskell files inside it, optionally recursing
-        -- further if the -R switch is specified
+        -- If an input is a directory then we find the haskell files inside it,
+        -- optionally recursing further if the -R switch is specified.
         isDirectory <- Directory.doesDirectoryExist input
         if isDirectory
-            then filter isHsFile <$> contents input
+            then filter Tag.isHsFile <$> contents input
             else return [input]
-        where
+    where
     contents
         | Recurse `elem` flags = getRecursiveDirContents
         | otherwise = getProperDirContents
@@ -169,15 +168,15 @@ getRecursiveDirContents topdir = do
     return (concat paths')
 
 
-type TagsTable = Map FilePath [Pos TagVal]
+type TagsTable = Map FilePath [Token.Pos Tag.TagVal]
 
-prepareEmacsTags :: [Pos TagVal] -> [Text]
+prepareEmacsTags :: [Token.Pos Tag.TagVal] -> [Text]
 prepareEmacsTags = printTagsTable . classifyTagsByFile
 
 printTagsTable :: TagsTable -> [Text]
 printTagsTable = map (uncurry printSection) . Map.assocs
 
-printSection :: FilePath -> [Pos TagVal] -> Text
+printSection :: FilePath -> [Token.Pos Tag.TagVal] -> Text
 printSection file tags = Text.concat
     ["\x0c\x0a", Text.pack file, ","
     , Text.pack $ show tagsLength, "\x0a", tagsText
@@ -186,22 +185,25 @@ printSection file tags = Text.concat
     tagsText = Text.unlines $ map printEmacsTag tags
     tagsLength = Text.length tagsText
 
-printEmacsTag :: Pos TagVal -> Text
-printEmacsTag (Pos (SrcPos {posPrefix, posLine}) (TagVal _text _type)) =
-  Text.concat [posPrefix, "\x7f", Text.pack (show $ unLine posLine)]
+printEmacsTag :: Token.Pos Tag.TagVal -> Text
+printEmacsTag (Token.Pos pos (Tag.TagVal {})) = Text.concat
+    [ Token.posPrefix pos
+    , "\x7f"
+    , Text.pack (show $ Token.unLine (Token.posLine pos))
+    ]
 
-classifyTagsByFile :: [Pos TagVal] -> TagsTable
+classifyTagsByFile :: [Token.Pos Tag.TagVal] -> TagsTable
 classifyTagsByFile = foldr insertTag Map.empty
 
-insertTag :: Pos TagVal -> TagsTable -> TagsTable
-insertTag tag@(Pos (SrcPos {posFile}) _) table =
-    Map.insertWith (<>) posFile [tag] table
+insertTag :: Token.Pos Tag.TagVal -> TagsTable -> TagsTable
+insertTag tag@(Token.Pos pos _) table =
+    Map.insertWith (<>) (Token.posFile pos) [tag] table
 
-mergeTags :: [FilePath] -> [Text] -> [Pos TagVal] -> [Text]
+mergeTags :: [FilePath] -> [Text] -> [Token.Pos Tag.TagVal] -> [Text]
 mergeTags inputs old new =
     -- 'new' was already been sorted by 'process', but then I just concat
     -- the tags from each file, so they need sorting again.
-    merge (map showTag new) (filter (not . isNewTag textFns) old)
+    Tag.merge (map showTag new) (filter (not . isNewTag textFns) old)
     where
     textFns = Set.fromList $ map Text.pack inputs
 
@@ -230,23 +232,23 @@ isNewTag textFns line = Set.member fn textFns
     fn = Text.takeWhile (/='\t') $ Text.drop 1 $ Text.dropWhile (/='\t') line
 
 -- | Convert a Tag to text, e.g.: AbsoluteMark\tCmd/TimeStep.hs 67 ;" f
-showTag :: Pos TagVal -> Text
-showTag (Pos (SrcPos {posFile, posLine}) (TagVal text typ)) = Text.concat
+showTag :: Token.Pos Tag.TagVal -> Text
+showTag (Token.Pos pos (Tag.TagVal text typ)) = mconcat
     [ text, "\t"
-    , Text.pack posFile, "\t"
-    , Text.pack (show $ unLine posLine), ";\"\t"
+    , Text.pack (Token.posFile pos), "\t"
+    , Text.pack (show $ Token.unLine (Token.posLine pos)), ";\"\t"
     , Text.singleton (showType typ)
     ]
 
 -- | Vim takes this to be the \"kind:\" annotation.  It's just an arbitrary
 -- string and these letters conform to no standard.  Presumably there are some
 -- vim extensions that can make use of it.
-showType :: Type -> Char
+showType :: Tag.Type -> Char
 showType typ = case typ of
-    Module      -> 'm'
-    Function    -> 'f'
-    Class       -> 'c'
-    Type        -> 't'
-    Constructor -> 'C'
-    Operator    -> 'o'
-    Pattern     -> 'p'
+    Tag.Module      -> 'm'
+    Tag.Function    -> 'f'
+    Tag.Class       -> 'c'
+    Tag.Type        -> 't'
+    Tag.Constructor -> 'C'
+    Tag.Operator    -> 'o'
+    Tag.Pattern     -> 'p'
