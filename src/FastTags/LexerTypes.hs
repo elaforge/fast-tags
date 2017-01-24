@@ -61,14 +61,12 @@ updatePrefix :: Char -> AlexInput -> AlexInput
 updatePrefix c input@(AlexInput {aiTrackPrefixes, aiPrefix})
     | aiTrackPrefixes = input
         { aiPrefix = case c of
-                         '\n' -> Text.empty
-                         _    -> Text.snoc aiPrefix c
+            '\n' -> Text.empty
+            _    -> Text.snoc aiPrefix c
         }
     | otherwise       = input
 
-data Context
-    = CtxHaskell
-    | CtxQuasiquoter
+data Context = CtxHaskell | CtxQuasiquoter
     deriving (Show, Eq, Ord)
 
 data AlexState = AlexState {

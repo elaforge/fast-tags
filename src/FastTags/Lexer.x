@@ -189,7 +189,7 @@ scanTokens = do
 alexMonadScan :: AlexM Token
 alexMonadScan = do
     tokVal <- alexScanTokenVal
-    -- Use input after reading toking to get proper prefix that includes
+    -- Use input after reading token to get proper prefix that includes
     -- token we currently read.
     AlexState {asInput, asFilename} <- get
     return $ Pos (mkSrcPos asFilename asInput) tokVal
@@ -202,7 +202,8 @@ alexScanTokenVal = do
             return EOF
         AlexError (AlexInput {aiLine, aiInput}) -> do
             AlexState {asCode} <- get
-            throwError $ "lexical error while in state " ++ show asCode ++ " at line " ++
+            throwError $ "lexical error while in state " ++ show asCode
+                ++ " at line " ++
                 show (unLine aiLine) ++ ": " ++ take 40 (show aiInput)
         AlexSkip input _ ->
             alexSetInput input >> alexScanTokenVal

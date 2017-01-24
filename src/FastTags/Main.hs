@@ -83,7 +83,6 @@ main = do
         trackPrefixes = emacs
         output        = last $ defaultOutput : [fn | Output fn <- flags]
         defaultOutput = if vim then "tags" else "TAGS"
-        noModuleTags  = NoModuleTags `elem` flags
 
     oldTags <- if vim && NoMerge `notElem` flags
         then do
@@ -99,13 +98,16 @@ main = do
     -- This will merge and sort the new tags.  But I don't run it on the
     -- the result of merging the old and new tags, so tags from another
     -- file won't be sorted properly.  To do that I'd have to parse all the
-    -- old tags and run processAll on all of them, which is a hassle.
+    -- old tags and run postProcess on all of them, which is a hassle.
     -- TODO try it and see if it really hurts performance that much.
-    newTags <- fmap Tag.processAll $
+    -- TODO I think this is only for the type order?  Because I do keep
+    -- everything sorted.
+    newTags <- fmap Tag.postProcess $
         flip Async.mapConcurrently (zip [0..] inputs) $ \(i :: Int, fn) -> do
             (newTags, warnings) <- Tag.processFile fn trackPrefixes
-            newTags <- return $ if noModuleTags
-                then filter ((/=Tag.Module) . typeOf) newTags else newTags
+            newTags <- return $ if NoModuleTags `elem` flags
+                then filter ((/=Tag.Module) . typeOf) newTags
+                else newTags
             mapM_ (IO.hPutStrLn IO.stderr) warnings
             when verbose $ do
                 let line = take 78 $ show i ++ ": " ++ fn

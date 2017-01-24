@@ -11,7 +11,6 @@
 module FastTags.Tag
     ( isHsFile
     , isLiterateFile
-    , merge
     , TagVal(..)
     , Type(..)
     , Tag(..)
@@ -19,18 +18,19 @@ module FastTags.Tag
     , SrcPos(..)
     , UnstrippedTokens(..)
     , processFile
-    , processAll
+    , postProcess
     , process
     , stripCpp
     , stripNewlines
     , breakBlocks
     , unstrippedTokensOf
     , split
+    , merge
+    , mergeTags
     )
 where
 import Control.Arrow ((***), (&&&))
 import Control.DeepSeq (NFData, rnf)
-
 import qualified Data.ByteString as ByteString
 import qualified Data.Char as Char
 import Data.Function (on)
@@ -49,29 +49,38 @@ import qualified Language.Preprocessor.Unlit as Unlit
 import Text.Printf (printf)
 
 import qualified FastTags.Lexer as Lexer
-import FastTags.Token (Pos(..), Token, SrcPos(..), TokenVal(..))
 import qualified FastTags.Token as Token
+import FastTags.Token (Pos(..), Token, SrcPos(..), TokenVal(..))
 
 
 -- * types
 
-data TagVal = TagVal
-    !Text --  name
-    !Type --  tag type
-    deriving (Show, Eq, Ord)
+data TagVal = TagVal {
+    tvName :: !Text
+    , tvType :: !Type
+    -- -- | If true, this tag will be marked static, which vim treats as an
+    -- -- internal definition.
+    -- , tvStatic :: !Bool
+    } deriving (Show, Eq, Ord)
+
+tagName :: Pos TagVal -> Text
+tagName = tvName . valOf
+
+tagType :: Pos TagVal -> Type
+tagType = tvType . valOf
+
+tagLine :: Pos TagVal -> Token.Line
+tagLine = posLine . posOf
 
 instance NFData TagVal where
     rnf (TagVal x y) = rnf x `seq` rnf y
 
--- Don't swap constructors since we rely that Type < Constructor.
-data Type =
-    Function
-    | Type
-    | Constructor
-    | Class
-    | Module
-    | Operator
-    | Pattern
+-- | The Ord instance is used to sort tags with the same name.  Given multiple
+-- matches, vim will visit them in order, so this should be in the order of
+-- interest.
+--
+-- We rely that Type < Constructor.  TODO how and where?
+data Type = Function | Type | Constructor | Class | Module | Operator | Pattern
     deriving (Eq, Ord, Show)
 
 instance NFData Type where
@@ -83,13 +92,15 @@ data Tag =
     | Warning !(Pos String)
     deriving (Show, Eq, Ord)
 
+-- | Partition Tag, RepeatableTag, and Warning.
 partitionTags :: [Tag] -> ([Pos TagVal], [Pos TagVal], [Pos String])
-partitionTags ts = go ts [] [] []
+partitionTags = go [] [] []
     where
-    go []                     xs ys zs = (xs, ys, reverse zs)
-    go (Tag t : ts)           xs ys zs = go ts (t:xs) ys     zs
-    go (RepeatableTag t : ts) xs ys zs = go ts xs     (t:ys) zs
-    go (Warning warn : ts)    xs ys zs = go ts xs     ys     (warn:zs)
+    go tags repeats warns [] = (tags, repeats, reverse warns)
+    go tags repeats warns (t:ts) = case t of
+        Tag a           -> go (a:tags) repeats warns ts
+        RepeatableTag a -> go tags (a:repeats) warns ts
+        Warning a       -> go tags repeats (a:warns) ts
 
 -- | Newlines have to remain in the tokens because 'breakBlocks' relies on
 -- them.  But they make pattern matching on the tokens unreliable because
@@ -114,19 +125,19 @@ dropTokens n = mapTokens (f n)
     f n (Pos _ (Newline _) : xs) = f n xs
     f n (Pos _ _           : xs) = f (n - 1) xs
 
--- * process
+-- * postProcess
 
--- | Global processing for when all tags are together.
-processAll :: [[Pos TagVal]] -> [Pos TagVal]
-processAll =
+-- | Global postprocessing for when all tags are together.
+postProcess :: [[Pos TagVal]] -> [Pos TagVal]
+postProcess =
     sortDups . dropDups isDuplicatePair
-        . combineBalanced (mergeOn tagSortingKey)
+        . combineBalanced mergeTags
         . map (dropDups isDuplicatePair)
     where
     isDuplicatePair :: Pos TagVal -> Pos TagVal -> Bool
     isDuplicatePair t t' =
         posOf t == posOf t'
-        && tagText t == tagText t'
+        && tagName t == tagName t'
         && tagType t == tagType t'
 
 combineBalanced :: forall a. (a -> a -> a) -> [a] -> a
@@ -152,14 +163,7 @@ sortDups :: [Pos TagVal] -> [Pos TagVal]
 sortDups = concatMap (sortOn tagType) .  Map.elems . Map.fromAscListWith (++)
     . map (fst . tagSortingKey &&& (:[]))
 
-tagText :: Pos TagVal -> Text
-tagText (Pos _ (TagVal text _)) = text
-
-tagType :: Pos TagVal -> Type
-tagType (Pos _ (TagVal _ t)) = t
-
-tagLine :: Pos TagVal -> Token.Line
-tagLine = posLine . posOf
+-- * processFile
 
 -- | Read tags from one file.
 processFile :: FilePath -> Bool -> IO ([Pos TagVal], [String])
@@ -189,7 +193,7 @@ process fn trackPrefixes input =
     where
     splitAndRemoveRepeats :: [Tag] -> ([Pos TagVal], [String])
     splitAndRemoveRepeats tags =
-        (mergeOn tagSortingKey (sortOn tagSortingKey newTags) earliestRepeats,
+        (mergeTags (sortOn tagSortingKey newTags) earliestRepeats,
             map valOf warnings)
         where
         (newTags, repeatableTags, warnings) = partitionTags tags
@@ -453,8 +457,7 @@ functionTagsNoSig toks = go toks
     go (Pos _ Pipe : _)             = functionOrOp toks
     go toks@(Pos _ LBrace : _)      = go $ stripBalancedBraces toks
     go (Pos _ Backtick : Pos pos' (T name') : _)
-        | functionName False name'  =
-            [mkRepeatableTag pos' name' Function]
+        | functionName False name'  = [mkRepeatableTag pos' name' Function]
     go (Pos pos (T name) : _)
         | T.all haskellOpChar name  = [mkRepeatableTag pos name Operator]
     go (_ : ts)                     = go ts
@@ -464,10 +467,9 @@ functionTagsNoSig toks = go toks
     functionOrOp toks = case stripOpeningParens toks of
          Pos pos (T name) : _
              | functionName False name -> [mkRepeatableTag pos name Function]
-         Pos pos tok : _ ->
-             case tokToOpName tok of
-               Just name -> [mkRepeatableTag pos name Operator]
-               Nothing   -> []
+         Pos pos tok : _ -> case tokToOpName tok of
+             Just name -> [mkRepeatableTag pos name Operator]
+             Nothing   -> []
          [] -> []
 
 tokToOpName :: TokenVal -> Maybe Text
@@ -716,8 +718,7 @@ mkTag :: SrcPos -> Text -> Type -> Tag
 mkTag pos name typ = Tag $ Pos pos (TagVal name typ)
 
 mkRepeatableTag :: SrcPos -> Text -> Type -> Tag
-mkRepeatableTag pos name typ =
-    RepeatableTag $ Pos pos (TagVal name typ)
+mkRepeatableTag pos name typ = RepeatableTag $ Pos pos (TagVal name typ)
 
 warning :: SrcPos -> String -> Tag
 warning pos warn = Warning $ Pos pos $ show pos ++ ": " ++ warn
@@ -786,6 +787,9 @@ isLiterateFile fn = ".lhs" `List.isSuffixOf` fn
 
 merge :: Ord a => [a] -> [a] -> [a]
 merge = mergeBy compare
+
+mergeTags :: [Pos TagVal] -> [Pos TagVal] -> [Pos TagVal]
+mergeTags = mergeOn tagSortingKey
 
 mergeOn :: (Ord b) => (a -> b) -> [a] -> [a] -> [a]
 mergeOn f = mergeBy (compare `on` f)
