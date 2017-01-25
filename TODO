@@ -13,12 +13,12 @@ output.
 / Lots of parse errors on ghc source.
   . Looks like it's just weird primitive syntax like data (a, b) = (a, b).
 
-- Implement --qualified flag.
+* Implement --qualified flag.
   . The only reason to have static is that the same name is prioritized if
     local.  But with qualified names, none are local.  No wait, I still have
     all the unqualified ones for local jumping.  But vim already knows the
     filename, so won't it already prioritize that?  Yes, it will.
-  . Verify that local definitions get priority.
+  . Verify that local definitions get priority.  They do.
   - Write vim binding to bind to ^] and expand to keyword + '.', without
     having to modify iskeyword.
     . Problems with adding '.' to iskeyword:

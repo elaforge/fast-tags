@@ -1,3 +1,5 @@
+* A --qualified flag which emits tags qualified by module name.
+
 * Tags should be always sorted now, instead of being
 inconsistently-but-mostly-sorted as they were before.  I replaced
 complicated code trying to keep the output sorted with one sort at the end.

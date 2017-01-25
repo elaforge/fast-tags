@@ -18,6 +18,7 @@ module FastTags.Tag (
     , UnstrippedTokens(..)
     -- * process
     , processFile
+    , qualify
     , process
     -- * util
     , isHsFile
@@ -39,7 +40,7 @@ import qualified Data.IntSet as IntSet
 import qualified Data.List as List
 import qualified Data.Map as Map
 import Data.Maybe (maybeToList)
-import Data.Monoid (Monoid)
+import Data.Monoid (Monoid, (<>))
 import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.Text.Encoding as Encoding
@@ -155,6 +156,17 @@ dropTokens n = mapTokens (f n)
 -- | Read tags from one file.
 processFile :: FilePath -> Bool -> IO ([Pos TagVal], [String])
 processFile fn trackPrefixes = process fn trackPrefixes <$> readFileLenient fn
+
+-- * qualify
+
+-- | Each tag is split into a one qualified with its module name and one
+-- without but marked Static.
+qualify :: Pos TagVal -> Pos TagVal
+qualify (Token.Pos pos (TagVal name typ)) =
+    Token.Pos pos $ TagVal (T.pack module_ <> "." <> name) typ
+    where
+    module_ = FilePath.dropExtension $ FilePath.takeFileName $
+        Token.posFile pos
 
 -- | Read a UTF8 file, but don't crash on encoding errors.
 readFileLenient :: FilePath -> IO Text

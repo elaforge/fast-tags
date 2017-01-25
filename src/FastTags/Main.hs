@@ -56,6 +56,9 @@ options =
         "print current version"
     , GetOpt.Option [] ["no-module-tags"] (GetOpt.NoArg NoModuleTags)
         "do not generate tags for modules"
+    , GetOpt.Option [] ["qualified"] (GetOpt.NoArg Qualified)
+        "Each tag gets a version qualified with its module name, like M.f,\
+        \ and an unqualified version."
     ]
 
 help :: String
@@ -65,7 +68,7 @@ help =
     \a list of files separated by newlines in stdin."
 
 data Flag = Output FilePath | Help | Verbose | ETags | Recurse | NoMerge
-    | ZeroSep | Version | NoModuleTags
+    | ZeroSep | Version | NoModuleTags | Qualified
     deriving (Eq, Show)
 
 main :: IO ()
@@ -106,7 +109,9 @@ main = do
         \(i :: Int, fn) -> do
             (newTags, warnings) <- Tag.processFile fn trackPrefixes
             newTags <- return $ if NoModuleTags `elem` flags
-                then filter ((/=Tag.Module) . typeOf) newTags
+                then filter ((/=Tag.Module) . typeOf) newTags else newTags
+            newTags <- return $ if Qualified `elem` flags
+                then newTags ++ map Tag.qualify newTags
                 else newTags
             -- Try to do work before taking the lock.
             warnings `DeepSeq.deepseq` return ()
