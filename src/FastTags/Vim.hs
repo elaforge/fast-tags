@@ -1,22 +1,23 @@
 {-# LANGUAGE OverloadedStrings #-}
 -- | Functions specific to vim tags.
 module FastTags.Vim where
+import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Text (Text)
-import qualified Data.Set as Set
 
 import qualified FastTags.Tag as Tag
 import qualified FastTags.Token as Token
+import qualified FastTags.Util as Util
 
 
 -- | Format new tags, drop old tags from the loaded files, merge old and
 -- new, and sort.
 merge :: [FilePath] -> [[Token.Pos Tag.TagVal]] -> [Text] -> [Text]
-merge fns new old = map snd $ Tag.sortOn fst $ newTags ++ oldTags
+merge fns new old = map snd $ Util.sortOn fst $ newTags ++ oldTags
     where
-    newTags = Tag.keyOn parseTag $ map showTag (concat new)
+    newTags = Util.keyOn parseTag $ map showTag (concat new)
     oldTags = filter (maybe True ((`Set.notMember` fnSet) . filename) . fst) $
-        Tag.keyOn parseTag old
+        Util.keyOn parseTag old
     fnSet = Set.fromList $ map Text.pack fns
 
 data Parsed = Parsed {
@@ -30,7 +31,7 @@ parseTag :: Text -> Maybe Parsed
 parseTag t = case Text.split (=='\t') t of
     text : fname : type_ : _ -> Just $ Parsed
         { name = text
-        , type_ = Tag.fromVimType =<< Tag.headt type_
+        , type_ = Tag.fromVimType =<< Util.headt type_
         , filename = Text.dropEnd 2 fname
         }
     _ -> Nothing

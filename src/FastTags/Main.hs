@@ -28,6 +28,7 @@ import qualified System.IO as IO
 import qualified FastTags.Emacs as Emacs
 import qualified FastTags.Tag as Tag
 import qualified FastTags.Token as Token
+import qualified FastTags.Util as Util
 import qualified FastTags.Vim as Vim
 
 import qualified Paths_fast_tags
@@ -133,7 +134,7 @@ typeOf tagVal = case Token.valOf tagVal of
 -- directories, get *.hs inside, and continue to recurse if Recurse is set.
 getInputs :: [Flag] -> [FilePath] -> IO [FilePath]
 getInputs flags inputs
-    | null inputs = Tag.split sep <$> getContents
+    | null inputs = Util.split sep <$> getContents
     | otherwise = fmap concat $ forM inputs $ \input -> do
         -- If an input is a directory then we find the haskell files inside it,
         -- optionally recursing further if the -R switch is specified.

@@ -14,6 +14,7 @@ import qualified FastTags.Lexer as Lexer
 import qualified FastTags.Tag as Tag
 import FastTags.Tag hiding (process)
 import FastTags.Token
+import qualified FastTags.Util as Util
 
 
 main :: IO ()
@@ -182,7 +183,7 @@ testPostProcess = testGroup "postProcess"
     ]
     where
     (==>) = test f
-    f = map showTag . Tag.sortOn Tag.valOf . concat
+    f = map showTag . Util.sortOn Tag.valOf . concat
         . map (\(i, t) -> fst $ Tag.process ("fn" ++ show i) False t)
         . zip [0..]
     showTag (Pos p (TagVal text typ)) =

@@ -8,33 +8,32 @@
 
 {-# OPTIONS_GHC -funbox-strict-fields #-}
 
-module FastTags.Tag
-    ( isHsFile
-    , isLiterateFile
-    , TagVal(..)
+module FastTags.Tag (
+    -- * types
+    TagVal(..)
     , Type(..), toVimType, fromVimType
     , Tag(..)
     , Pos(..)
     , SrcPos(..)
     , UnstrippedTokens(..)
+    -- * process
     , processFile
     , process
+    -- * util
+    , isHsFile
+    , isLiterateFile
+
+    -- TODO for testing
+    , unstrippedTokensOf
     , stripCpp
     , stripNewlines
     , breakBlocks
-    , unstrippedTokensOf
-    -- * util
-    , split
-    , sortOn
-    , headt
-    , keyOn
     )
 where
 import Control.Arrow ((***))
 import Control.DeepSeq (NFData, rnf)
 import qualified Data.ByteString as ByteString
 import qualified Data.Char as Char
-import Data.Function (on)
 import Data.Functor ((<$>))
 import qualified Data.IntSet as IntSet
 import qualified Data.List as List
@@ -53,6 +52,7 @@ import Text.Printf (printf)
 import qualified FastTags.Lexer as Lexer
 import qualified FastTags.Token as Token
 import FastTags.Token (Pos(..), Token, SrcPos(..), TokenVal(..))
+import qualified FastTags.Util as Util
 
 
 -- * types
@@ -184,7 +184,7 @@ process fn trackPrefixes input =
         -- Or: group by key, then map mininumOn tagLine
         earliestRepeats :: [Pos TagVal]
         earliestRepeats = Map.elems $ Map.fromListWith minLine $
-            keyOn valOf repeatableTags
+            Util.keyOn valOf repeatableTags
         minLine x y
             | tagLine x < tagLine y = x
             | otherwise             = y
@@ -202,7 +202,7 @@ process fn trackPrefixes input =
         birdLiterateLine :: Text -> Bool
         birdLiterateLine xs
             | T.null xs = False
-            | otherwise = case headt $ T.dropWhile Char.isSpace xs of
+            | otherwise = case Util.headt $ T.dropWhile Char.isSpace xs of
                 Just '>' -> True
                 _ -> False
 
@@ -234,7 +234,7 @@ haskellOpChar c = IntSet.member (Char.ord c) opChars
     opChars = IntSet.fromList $ map Char.ord "-!#$%&*+./<=>?@^|~:\\"
 
 isTypeVarStart :: Text -> Bool
-isTypeVarStart x = case headt x of
+isTypeVarStart x = case Util.headt x of
     Just c -> Char.isLower c || c == '_'
     _ -> False
 
@@ -297,7 +297,7 @@ blockTags unstripped = case stripNewlines unstripped of
     Pos _ KWModule : Pos pos (T name) : _ ->
           [mkTag pos (snd (T.breakOnEnd "." name)) Module]
     Pos _ KWPattern : Pos pos (T name) : _
-        | maybe False Char.isUpper (headt name) ->
+        | maybe False Char.isUpper (Util.headt name) ->
             [mkTag pos name Pattern]
     Pos _ KWForeign : decl -> foreignTags decl
     -- newtype instance * = ...
@@ -354,10 +354,11 @@ blockTags unstripped = case stripNewlines unstripped of
     stripped -> toplevelFunctionTags stripped
 
 isTypeFamilyName :: Text -> Bool
-isTypeFamilyName = maybe False (\c -> Char.isUpper c || haskellOpChar c) . headt
+isTypeFamilyName =
+    maybe False (\c -> Char.isUpper c || haskellOpChar c) . Util.headt
 
 isTypeName  :: Text -> Bool
-isTypeName x = case headt x of
+isTypeName x = case Util.headt x of
     Just c -> Char.isUpper c || c == ':'
     _ -> False
 
@@ -393,7 +394,7 @@ dropInfixTypeStart tokens = dropWhile f tokens
     f _                = False
 
     isInfixTypePrefix :: Text -> Bool
-    isInfixTypePrefix = maybe False Char.isLower . headt
+    isInfixTypePrefix = maybe False Char.isLower . Util.headt
 
 -- | It's easier to scan for tokens without pesky newlines popping up
 -- everywhere.  But I need to keep the newlines in in case I hit a @where@
@@ -408,10 +409,12 @@ stripNewlines = filter (not . isNewline) . (\(UnstrippedTokens t) -> t)
 foreignTags :: [Token] -> [Tag]
 foreignTags decl = case decl of
     Pos _ KWImport : decl'
-        | Pos pos (T name) : _ <- dropBefore
-                (\case { Pos _ DoubleColon -> True; _ -> False}) decl'
-            -> [mkTag pos name Function]
+        | Pos pos (T name) : _ <- Util.dropBefore isDoubleColon decl' ->
+            [mkTag pos name Function]
     _ -> []
+    where
+    isDoubleColon (Pos _ DoubleColon) = True
+    isDoubleColon _ = False
 
 toplevelFunctionTags :: [Token] -> [Tag]
 toplevelFunctionTags toks = case tags of
@@ -611,7 +614,7 @@ stripOptContext xs                                              = xs
 
 stripSingleClassContext :: [Token] -> [Token]
 stripSingleClassContext (Pos _ (T name) : xs)
-    | maybe False Char.isUpper (headt name) =
+    | maybe False Char.isUpper (Util.headt name) =
         dropWithStrippingBalanced f xs
     where
     f (T name) = isTypeVarStart name
@@ -713,28 +716,15 @@ unexpected :: SrcPos -> UnstrippedTokens -> [Token] -> String -> Tag
 unexpected prevPos (UnstrippedTokens tokensBefore) tokensHere declaration =
     warning pos ("unexpected " ++ thing ++ " after " ++ declaration)
     where
-    thing = maybe "end of block" (show . valOf) (mhead tokensHere)
+    thing = maybe "end of block" (show . valOf) (Util.mhead tokensHere)
     pos
-        | Just t <- mhead tokensHere = posOf t
-        | Just t <- mlast tokensBefore = posOf t
+        | Just t <- Util.mhead tokensHere = posOf t
+        | Just t <- Util.mlast tokensBefore = posOf t
         | otherwise = prevPos
 
 isNewline :: Token -> Bool
 isNewline (Pos _ (Newline _)) = True
 isNewline _                   = False
-
--- * generic utils
-
--- | Drop until the element before the matching one.  Return [] if the function
--- never matches.
-dropBefore :: (a -> Bool) -> [a] -> [a]
-dropBefore f = go
-    where
-    go [] = []
-    go [_] = []
-    go xs@(_ : rest@(y:_))
-        | f y = xs
-        | otherwise = go rest
 
 dropUntil :: TokenVal -> [Token] -> [Token]
 dropUntil token = drop 1 . dropWhile (not . (== token) . valOf)
@@ -742,17 +732,8 @@ dropUntil token = drop 1 . dropWhile (not . (== token) . valOf)
 spanUntil :: TokenVal -> UnstrippedTokens
     -> (UnstrippedTokens, UnstrippedTokens)
 spanUntil token =
-    (UnstrippedTokens *** UnstrippedTokens) .
-    span (not . (== token) . valOf) . unstrippedTokensOf
-
-sortOn :: (Ord k) => (a -> k) -> [a] -> [a]
-sortOn key = List.sortBy (compare `on` key)
-
--- | Split list into chunks delimited by specified element.
-split :: (Eq a) => a -> [a] -> [[a]]
-split _ [] = []
-split x xs = xs': split x (drop 1 xs'')
-    where (xs', xs'') = break (==x) xs
+    (UnstrippedTokens *** UnstrippedTokens)
+    .  span (not . (== token) . valOf) . unstrippedTokensOf
 
 -- | Crude predicate for Haskell files
 isHsFile :: FilePath -> Bool
@@ -760,18 +741,3 @@ isHsFile = (`elem` [".hs", ".hsc", ".lhs"]) . FilePath.takeExtension
 
 isLiterateFile :: FilePath -> Bool
 isLiterateFile = (==".lhs") . FilePath.takeExtension
-
-headt :: Text -> Maybe Char
-headt = fmap fst . T.uncons
-
-mhead :: [a] -> Maybe a
-mhead [] = Nothing
-mhead (x:_) = Just x
-
-mlast :: [a] -> Maybe a
-mlast xs
-    | null xs = Nothing
-    | otherwise = Just (last xs)
-
-keyOn :: (a -> k) -> [a] -> [(k, a)]
-keyOn f xs = zip (map f xs) xs
