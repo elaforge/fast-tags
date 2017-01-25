@@ -82,6 +82,7 @@ executable fast-tags
         text (> 0.11.1.12 || < 0.11.1.12),
         async,
         bytestring,
+        deepseq,
         fast-tags
     ghc-options: -main-is FastTags.Main -Wall -fno-warn-name-shadowing -threaded
     ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all -threaded

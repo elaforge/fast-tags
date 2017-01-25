@@ -7,10 +7,11 @@ LEGEND
   . Time old and new versions against ghc source.
   . Do emacs tags need to be sorted?  Apparently not.
 
-- I get scrambled warning output, probably due to threads not locking the
+* I get scrambled warning output, probably due to threads not locking the
 output.
 
-- Lots of parse errors on ghc source.
+/ Lots of parse errors on ghc source.
+  . Looks like it's just weird primitive syntax like data (a, b) = (a, b).
 
 - Implement --qualified flag.
   . The only reason to have static is that the same name is prioritized if

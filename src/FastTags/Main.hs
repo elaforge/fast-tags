@@ -11,6 +11,8 @@
 module FastTags.Main (main) where
 import Control.Applicative
 import qualified Control.Concurrent.Async as Async
+import qualified Control.Concurrent.MVar as MVar
+import qualified Control.DeepSeq as DeepSeq
 import Control.Monad
 
 import qualified Data.List as List
@@ -99,13 +101,17 @@ main = do
     inputs <- getInputs flags inputs
     when (null inputs) $
         usage "no input files on either command line or stdin\n"
+    stderr <- MVar.newMVar IO.stderr
     newTags <- flip Async.mapConcurrently (zip [0..] inputs) $
         \(i :: Int, fn) -> do
             (newTags, warnings) <- Tag.processFile fn trackPrefixes
             newTags <- return $ if NoModuleTags `elem` flags
                 then filter ((/=Tag.Module) . typeOf) newTags
                 else newTags
-            mapM_ (IO.hPutStrLn IO.stderr) warnings
+            -- Try to do work before taking the lock.
+            warnings `DeepSeq.deepseq` return ()
+            MVar.withMVar stderr $ \hdl ->
+                mapM_ (IO.hPutStrLn hdl) warnings
             when verbose $ do
                 let line = take 78 $ show i ++ ": " ++ fn
                 putStr $ '\r' : line ++ replicate (78 - length line) ' '
