@@ -56,11 +56,14 @@ library
         array,
         utf8-string
     build-tools: alex
-    exposed-modules: Control.Monad.EitherK
-                     FastTags.Tag
-                     FastTags.Lexer
-                     FastTags.LexerTypes
-                     FastTags.Token
+    exposed-modules:
+        Control.Monad.EitherK
+        FastTags.Tag
+        FastTags.Emacs
+        FastTags.Vim
+        FastTags.Lexer
+        FastTags.LexerTypes
+        FastTags.Token
     hs-source-dirs: src
     ghc-options: -Wall -fno-warn-name-shadowing
     ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all

@@ -1,3 +1,8 @@
+* Tags should be always sorted now, instead of being
+inconsistently-but-mostly-sorted as they were before.  I replaced
+complicated code trying to keep the output sorted with one sort at the end.
+It's simpler and doesn't seem to be measurably slower.
+
 1.2.1
 
 * Minor updates to cabal file, comments, etc.

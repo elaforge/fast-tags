@@ -1,5 +1,5 @@
-{-# LANGUAGE NamedFieldPuns      #-}
-{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {- | Tagify haskell source.
 
@@ -14,13 +14,7 @@ import qualified Control.Concurrent.Async as Async
 import Control.Monad
 
 import qualified Data.List as List
-import qualified Data.Map as Map
-import Data.Map (Map)
-import Data.Monoid ((<>))
-import qualified Data.Set as Set
-import Data.Set (Set)
 import qualified Data.Text as Text
-import Data.Text (Text)
 import qualified Data.Text.IO as Text.IO
 import qualified Data.Version as Version
 
@@ -31,9 +25,12 @@ import qualified System.Exit as Exit
 import System.FilePath ((</>))
 import qualified System.IO as IO
 
+import qualified FastTags.Emacs as Emacs
 import qualified FastTags.Tag as Tag
-import qualified Paths_fast_tags
 import qualified FastTags.Token as Token
+import qualified FastTags.Vim as Vim
+
+import qualified Paths_fast_tags
 
 
 options :: [GetOpt.OptDescr Flag]
@@ -57,6 +54,12 @@ options =
     , GetOpt.Option [] ["no-module-tags"] (GetOpt.NoArg NoModuleTags)
         "do not generate tags for modules"
     ]
+
+help :: String
+help =
+    "usage: fast-tags [options] [filenames]\n\
+    \In case no filenames provided on the command line, fast-tags expects \
+    \a list of files separated by newlines in stdin."
 
 data Flag = Output FilePath | Help | Verbose | ETags | Recurse | NoMerge
     | ZeroSep | Version | NoModuleTags
@@ -89,21 +92,14 @@ main = do
             exists <- Directory.doesFileExist output
             if exists
                 then Text.lines <$> Text.IO.readFile output
-                else return [vimMagicLine]
+                else return [Vim.vimMagicLine]
         else return [] -- we do not support tags merging for emacs for now
 
     inputs <- getInputs flags inputs
     when (null inputs) $
         usage "no input files on either command line or stdin\n"
-    -- This will merge and sort the new tags.  But I don't run it on the
-    -- the result of merging the old and new tags, so tags from another
-    -- file won't be sorted properly.  To do that I'd have to parse all the
-    -- old tags and run postProcess on all of them, which is a hassle.
-    -- TODO try it and see if it really hurts performance that much.
-    -- TODO I think this is only for the type order?  Because I do keep
-    -- everything sorted.
-    newTags <- fmap Tag.postProcess $
-        flip Async.mapConcurrently (zip [0..] inputs) $ \(i :: Int, fn) -> do
+    newTags <- flip Async.mapConcurrently (zip [0..] inputs) $
+        \(i :: Int, fn) -> do
             (newTags, warnings) <- Tag.processFile fn trackPrefixes
             newTags <- return $ if NoModuleTags `elem` flags
                 then filter ((/=Tag.Module) . typeOf) newTags
@@ -117,13 +113,14 @@ main = do
 
     when verbose $ putChar '\n'
 
-    let write = if output == "-"
-            then Text.IO.hPutStr IO.stdout
-            else Text.IO.writeFile output
-
-    write $ if vim
-        then Text.unlines $ mergeTags inputs oldTags newTags
-        else Text.concat $ prepareEmacsTags newTags
+    let allTags = if vim
+            then Vim.merge inputs newTags oldTags
+            else Emacs.format (concat newTags)
+    let write = if vim then Text.IO.hPutStrLn else Text.IO.hPutStr
+    let withOutput action = if output == "-"
+            then action IO.stdout
+            else IO.withFile output IO.WriteMode action
+    withOutput $ \hdl -> mapM_ (write hdl) allTags
 
     where
     usage msg = putStr (GetOpt.usageInfo msg options) >> Exit.exitFailure
@@ -168,89 +165,3 @@ getRecursiveDirContents topdir = do
             then getRecursiveDirContents path
             else return [path]
     return (concat paths')
-
-
-type TagsTable = Map FilePath [Token.Pos Tag.TagVal]
-
-prepareEmacsTags :: [Token.Pos Tag.TagVal] -> [Text]
-prepareEmacsTags = printTagsTable . classifyTagsByFile
-
-printTagsTable :: TagsTable -> [Text]
-printTagsTable = map (uncurry printSection) . Map.assocs
-
-printSection :: FilePath -> [Token.Pos Tag.TagVal] -> Text
-printSection file tags = Text.concat
-    ["\x0c\x0a", Text.pack file, ","
-    , Text.pack $ show tagsLength, "\x0a", tagsText
-    ]
-    where
-    tagsText = Text.unlines $ map printEmacsTag tags
-    tagsLength = Text.length tagsText
-
-printEmacsTag :: Token.Pos Tag.TagVal -> Text
-printEmacsTag (Token.Pos pos (Tag.TagVal {})) = Text.concat
-    [ Token.posPrefix pos
-    , "\x7f"
-    , Text.pack (show $ Token.unLine (Token.posLine pos))
-    ]
-
-classifyTagsByFile :: [Token.Pos Tag.TagVal] -> TagsTable
-classifyTagsByFile = foldr insertTag Map.empty
-
-insertTag :: Token.Pos Tag.TagVal -> TagsTable -> TagsTable
-insertTag tag@(Token.Pos pos _) table =
-    Map.insertWith (<>) (Token.posFile pos) [tag] table
-
-mergeTags :: [FilePath] -> [Text] -> [Token.Pos Tag.TagVal] -> [Text]
-mergeTags inputs old new =
-    -- 'new' was already been sorted by 'process', but then I just concat
-    -- the tags from each file, so they need sorting again.
-    Tag.merge (map showTag new) (filter (not . isNewTag textFns) old)
-    where
-    textFns = Set.fromList $ map Text.pack inputs
-
-help :: String
-help = "usage: fast-tags [options] [filenames]\n" ++
-       "In case no filenames provided on commandline, fast-tags expects " ++
-       "list of files separated by newlines in stdin."
-
--- | This line is to tell vim that the file is sorted, so it can use binary
--- search when looking for tags. This must come first in the tags file, and the
--- format is documented in :h tags-file-format as:
---
---   !_TAG_FILE_SORTED<Tab>1<Tab>{anything}
---
--- However, simply leaving {anything} part empty or putting something random
--- like ~ doesn't work when we want to extend the tags file with some tags from
--- C files using ctags. ctags requires //, with optional comments in between two
--- slashes. More about ctags' file format can be seen here:
--- http://ctags.sourceforge.net/FORMAT.
-vimMagicLine :: Text
-vimMagicLine = "!_TAG_FILE_SORTED\t1\t//"
-
-isNewTag :: Set Text -> Text -> Bool
-isNewTag textFns line = Set.member fn textFns
-    where
-    fn = Text.takeWhile (/='\t') $ Text.drop 1 $ Text.dropWhile (/='\t') line
-
--- | Convert a Tag to text, e.g.: AbsoluteMark\tCmd/TimeStep.hs 67 ;" f
-showTag :: Token.Pos Tag.TagVal -> Text
-showTag (Token.Pos pos (Tag.TagVal text typ)) = mconcat
-    [ text, "\t"
-    , Text.pack (Token.posFile pos), "\t"
-    , Text.pack (show $ Token.unLine (Token.posLine pos)), ";\"\t"
-    , Text.singleton (showType typ)
-    ]
-
--- | Vim takes this to be the \"kind:\" annotation.  It's just an arbitrary
--- string and these letters conform to no standard.  Presumably there are some
--- vim extensions that can make use of it.
-showType :: Tag.Type -> Char
-showType typ = case typ of
-    Tag.Module      -> 'm'
-    Tag.Function    -> 'f'
-    Tag.Class       -> 'c'
-    Tag.Type        -> 't'
-    Tag.Constructor -> 'C'
-    Tag.Operator    -> 'o'
-    Tag.Pattern     -> 'p'

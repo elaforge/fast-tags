@@ -1,21 +1,23 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module MainTest where
-
-import Data.Text (Text)
+import qualified Data.List as List
 import qualified Data.Text as T
+import Data.Text (Text)
 
+import qualified Test.Tasty as Tasty
+import Test.Tasty (TestTree, testGroup)
+import qualified Test.Tasty.HUnit as HUnit
+import Test.Tasty.HUnit ((@?=))
+
+import qualified FastTags.Lexer as Lexer
 import qualified FastTags.Tag as Tag
 import FastTags.Tag hiding (process)
-import qualified FastTags.Lexer as Lexer
 import FastTags.Token
-
-import Test.Tasty
-import Test.Tasty.HUnit
 
 
 main :: IO ()
-main = defaultMain tests
+main = Tasty.defaultMain tests
 
 tests :: TestTree
 tests = testGroup "tests"
@@ -29,7 +31,7 @@ tests = testGroup "tests"
     ]
 
 test :: (Show a, Eq b, Show b) => (a -> b) -> a -> b -> TestTree
-test f x expected = testCase (take 70 $ show x) $ f x @?= expected
+test f x expected = HUnit.testCase (take 70 $ show x) $ f x @?= expected
 
 testTokenize :: TestTree
 testTokenize = testGroup "tokenize"
@@ -37,8 +39,8 @@ testTokenize = testGroup "tokenize"
     , "xyz  --- abc"      ==> [T "xyz", Newline 0]
     , "  {-   foo -}"     ==> [Newline 0]
     , "  {-   foo \n\
-    \\n\
-    \-}"                ==> [Newline 0]
+      \\n\
+      \-}"                ==> [Newline 0]
     , "  {- foo {- bar-} -}" ==> [Newline 0]
     , "  {-# INLINE #-}"  ==> [Newline 0]
     , "a::b->c"           ==>
@@ -63,8 +65,7 @@ testTokenize = testGroup "tokenize"
     , "$#-- hi"           ==> [T "$#--", T "hi", Newline 0]
     , "(*), (-)"          ==>
         [LParen, T "*", RParen, Comma, LParen, T "-", RParen, Newline 0]
-    , "(.::)"             ==>
-        [LParen, T ".::", RParen, Newline 0]
+    , "(.::)"             ==> [LParen, T ".::", RParen, Newline 0]
     -- we rely on this behavior
     , "data (:+) a b"     ==>
         [KWData, LParen, T ":+", RParen, T "a", T "b", Newline 0]
@@ -157,6 +158,9 @@ testBreakBlocks = testGroup "breakBlocks"
     f = map (extractTokens . UnstrippedTokens . Tag.stripNewlines)
         . Tag.breakBlocks . tokenize
 
+-- TODO actually, this doesn't test postProcess since it doesn't exist anymore.
+-- But it tests that de-duplication stuff, where should it go?
+-- or tests RepeatableTag
 testPostProcess :: TestTree
 testPostProcess = testGroup "postProcess"
     [ ["data X", "module X"] ==> ["fn0:1 X Type", "fn1:1 X Module"]
@@ -178,7 +182,7 @@ testPostProcess = testGroup "postProcess"
     ]
     where
     (==>) = test f
-    f = map showTag . Tag.postProcess
+    f = map showTag . Tag.sortOn Tag.valOf . concat
         . map (\(i, t) -> fst $ Tag.process ("fn" ++ show i) False t)
         . zip [0..]
     showTag (Pos p (TagVal text typ)) =
@@ -204,24 +208,24 @@ testPrefixes = testGroup "prefix tracking"
         [Pos (SrcPos fn 1 "module Bar.Foo") (TagVal "Foo" Module)]
     , "newtype Foo a b =\n\
       \\tBar x y z\n" ==>
-        [ Pos (SrcPos fn 2 "\tBar") (TagVal "Bar" Constructor)
-        , Pos (SrcPos fn 1 "newtype Foo") (TagVal "Foo" Type)
+        [ Pos (SrcPos fn 1 "newtype Foo") (TagVal "Foo" Type)
+        , Pos (SrcPos fn 2 "\tBar") (TagVal "Bar" Constructor)
         ]
     , "f :: A -> B\n\
       \g :: C -> D\n\
       \data D = C {\n\
       \\tf :: A\n\
       \\t}\n" ==>
-        [ Pos (SrcPos fn 3 "data D = C") (TagVal "C" Constructor)
-        , Pos (SrcPos fn 3 "data D") (TagVal "D" Type)
-        , Pos (SrcPos fn 4 "\tf") (TagVal "f" Function)
-        , Pos (SrcPos fn 1 "f") (TagVal "f" Function)
+        [ Pos (SrcPos fn 1 "f") (TagVal "f" Function)
         , Pos (SrcPos fn 2 "g") (TagVal "g" Function)
+        , Pos (SrcPos fn 3 "data D") (TagVal "D" Type)
+        , Pos (SrcPos fn 3 "data D = C") (TagVal "C" Constructor)
+        , Pos (SrcPos fn 4 "\tf") (TagVal "f" Function)
         ]
     ]
     where
     (==>) = test f
-    f = fst . Tag.process fn True
+    f = List.sort . fst . Tag.process fn True
     fn = "fn.hs"
 
 testData :: TestTree
@@ -740,7 +744,7 @@ testLiterate = testGroup "literate"
     ]
     where
     (==>) = test f
-    f = map untag . fst . Tag.process "fn.lhs" False
+    f = List.sort . map untag . fst . Tag.process "fn.lhs" False
 
 testPatterns :: TestTree
 testPatterns = testGroup "patterns"
@@ -796,7 +800,7 @@ testStripCpp = testGroup "strip cpp"
     (==>) = test stripCpp
 
 process :: Text -> [String]
-process = map untag . fst . Tag.process "fn.hs" False
+process = List.sort . map untag . fst . Tag.process "fn.hs" False
 
 untag :: Pos TagVal -> String
 untag (Pos _ (TagVal name _)) = T.unpack name

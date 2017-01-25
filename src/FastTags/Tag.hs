@@ -12,24 +12,25 @@ module FastTags.Tag
     ( isHsFile
     , isLiterateFile
     , TagVal(..)
-    , Type(..)
+    , Type(..), toVimType, fromVimType
     , Tag(..)
     , Pos(..)
     , SrcPos(..)
     , UnstrippedTokens(..)
     , processFile
-    , postProcess
     , process
     , stripCpp
     , stripNewlines
     , breakBlocks
     , unstrippedTokensOf
+    -- * util
     , split
-    , merge
-    , mergeTags
+    , sortOn
+    , headt
+    , keyOn
     )
 where
-import Control.Arrow ((***), (&&&))
+import Control.Arrow ((***))
 import Control.DeepSeq (NFData, rnf)
 import qualified Data.ByteString as ByteString
 import qualified Data.Char as Char
@@ -46,6 +47,7 @@ import qualified Data.Text.Encoding as Encoding
 import qualified Data.Text.Encoding.Error as Encoding.Error
 
 import qualified Language.Preprocessor.Unlit as Unlit
+import qualified System.FilePath as FilePath
 import Text.Printf (printf)
 
 import qualified FastTags.Lexer as Lexer
@@ -63,12 +65,6 @@ data TagVal = TagVal {
     -- , tvStatic :: !Bool
     } deriving (Show, Eq, Ord)
 
-tagName :: Pos TagVal -> Text
-tagName = tvName . valOf
-
-tagType :: Pos TagVal -> Type
-tagType = tvType . valOf
-
 tagLine :: Pos TagVal -> Token.Line
 tagLine = posLine . posOf
 
@@ -79,15 +75,44 @@ instance NFData TagVal where
 -- matches, vim will visit them in order, so this should be in the order of
 -- interest.
 --
--- We rely that Type < Constructor.  TODO how and where?
+-- We rely that Type < Constructor.  TODO how and where?  For sorting tags?
 data Type = Function | Type | Constructor | Class | Module | Operator | Pattern
     deriving (Eq, Ord, Show)
+
+-- | Vim takes this to be the \"kind:\" annotation.  It's just an arbitrary
+-- string and these letters conform to no standard.  Presumably there are some
+-- vim extensions that can make use of it.
+toVimType :: Type -> Char
+toVimType typ = case typ of
+    Module      -> 'm'
+    Function    -> 'f'
+    Class       -> 'c'
+    Type        -> 't'
+    Constructor -> 'C'
+    Operator    -> 'o'
+    Pattern     -> 'p'
+
+fromVimType :: Char -> Maybe Type
+fromVimType c = case c of
+    'm' -> Just Module
+    'f' -> Just Function
+    'c' -> Just Class
+    't' -> Just Type
+    'C' -> Just Constructor
+    'o' -> Just Operator
+    'p' -> Just Pattern
+    _ -> Nothing
 
 instance NFData Type where
     rnf t = t `seq` ()
 
 data Tag =
     Tag !(Pos TagVal)
+    -- | Just like Tag, except these should be deduplicated by their TagVal,
+    -- where the one with the lowest line number will be preferred.
+    -- The idea seems to be that functions will emit a tag for both the
+    -- signature and definition.  TODO seems like a hack, why not just
+    -- deduplicate all tags?
     | RepeatableTag !(Pos TagVal)
     | Warning !(Pos String)
     deriving (Show, Eq, Ord)
@@ -125,65 +150,21 @@ dropTokens n = mapTokens (f n)
     f n (Pos _ (Newline _) : xs) = f n xs
     f n (Pos _ _           : xs) = f (n - 1) xs
 
--- * postProcess
-
--- | Global postprocessing for when all tags are together.
-postProcess :: [[Pos TagVal]] -> [Pos TagVal]
-postProcess =
-    sortDups . dropDups isDuplicatePair
-        . combineBalanced mergeTags
-        . map (dropDups isDuplicatePair)
-    where
-    isDuplicatePair :: Pos TagVal -> Pos TagVal -> Bool
-    isDuplicatePair t t' =
-        posOf t == posOf t'
-        && tagName t == tagName t'
-        && tagType t == tagType t'
-
-combineBalanced :: forall a. (a -> a -> a) -> [a] -> a
-combineBalanced f xs = go xs
-    where
-    go :: [a] -> a
-    go [] = error "cannot combine empty list"
-    go xs@(_:_) = case combine xs of
-        []  -> error "unexpected empty list when combining nonempty lists"
-        [x] -> x
-        xs' -> go xs'
-    combine :: [a] -> [a]
-    combine []        = []
-    combine [x]       = [x]
-    combine (x:x':xs) = f x x' : combine xs
-
--- | Given multiple matches, vim will jump to the first one.  So sort adjacent
--- tags with the same text by their type.
---
--- Mostly this is so that given a type with the same name as its module,
--- the type will come first.
-sortDups :: [Pos TagVal] -> [Pos TagVal]
-sortDups = concatMap (sortOn tagType) .  Map.elems . Map.fromAscListWith (++)
-    . map (fst . tagSortingKey &&& (:[]))
-
 -- * processFile
 
 -- | Read tags from one file.
 processFile :: FilePath -> Bool -> IO ([Pos TagVal], [String])
-processFile fn trackPrefixes = do
-    (tags, warnings) <- process fn trackPrefixes <$> readFileLenient fn
-    return (tags, warnings)
+processFile fn trackPrefixes = process fn trackPrefixes <$> readFileLenient fn
 
 -- | Read a UTF8 file, but don't crash on encoding errors.
 readFileLenient :: FilePath -> IO Text
-readFileLenient fname = do
-    bytes <- ByteString.readFile fname
-    return $ Encoding.decodeUtf8With Encoding.Error.lenientDecode bytes
-
-tagSortingKey :: Pos TagVal -> (Text, Type)
-tagSortingKey (Pos _ (TagVal name t)) = (name, t)
+readFileLenient = fmap (Encoding.decodeUtf8With Encoding.Error.lenientDecode)
+    . ByteString.readFile
 
 -- | Process one file's worth of tags.
 process :: FilePath -> Bool -> Text -> ([Pos TagVal], [String])
 process fn trackPrefixes input =
-    case Lexer.tokenize fn trackPrefixes $ stripCpp $ unlit' input of
+    case Lexer.tokenize fn trackPrefixes $ stripCpp $ unlit input of
         Left msg -> ([], [msg])
         Right toks ->
             splitAndRemoveRepeats $
@@ -193,26 +174,31 @@ process fn trackPrefixes input =
     where
     splitAndRemoveRepeats :: [Tag] -> ([Pos TagVal], [String])
     splitAndRemoveRepeats tags =
-        (mergeTags (sortOn tagSortingKey newTags) earliestRepeats,
-            map valOf warnings)
+        ( earliestRepeats ++ newTags
+        , map valOf warnings
+        )
         where
         (newTags, repeatableTags, warnings) = partitionTags tags
+        -- For RepeatableTag s with duplicate keys, pick the one with the lowest
+        -- posLine.
+        -- Or: group by key, then map mininumOn tagLine
         earliestRepeats :: [Pos TagVal]
         earliestRepeats = Map.elems $ Map.fromListWith minLine $
-            map (tagSortingKey &&& id) repeatableTags
+            keyOn valOf repeatableTags
         minLine x y
             | tagLine x < tagLine y = x
             | otherwise             = y
-    unlit' :: Text -> Text
-    unlit' s
-        | isLiterateFile fn = T.pack $ Unlit.unlit fn $ T.unpack s'
-        | otherwise = s
+    unlit :: Text -> Text
+    unlit src
+        | isLiterateFile fn = T.pack $ Unlit.unlit fn $ T.unpack stripped
+        | otherwise = src
         where
-        s' :: Text
-        s'  | "\\begin{code}" `T.isInfixOf` s
-                    && "\\end{code}" `T.isInfixOf` s =
-                T.unlines $ filter (not . birdLiterateLine) $ T.lines s
-            | otherwise = s
+        stripped :: Text
+        stripped
+            | "\\begin{code}" `T.isInfixOf` src
+                    && "\\end{code}" `T.isInfixOf` src =
+                T.unlines $ filter (not . birdLiterateLine) $ T.lines src
+            | otherwise = src
         birdLiterateLine :: Text -> Bool
         birdLiterateLine xs
             | T.null xs = False
@@ -433,7 +419,7 @@ toplevelFunctionTags toks = case tags of
     -- from the type signature because there will definitely be tags from the
     -- body and they should be sorted out if type signature is present.
     [] -> functionTagsNoSig toks
-    _  -> map toRepeatableTag $ tags
+    _  -> map toRepeatableTag tags
     where
     -- first try to detect tags from type signature, if it fails then
     -- do the actual work of detecting from body
@@ -750,15 +736,6 @@ dropBefore f = go
         | f y = xs
         | otherwise = go rest
 
-dropDups :: (a -> a -> Bool) -> [a] -> [a]
-dropDups cmp (x:xs) = go x xs
-    where
-    go a [] = [a]
-    go a (b:bs)
-        | cmp a b   = go a bs
-        | otherwise = a : go b bs
-dropDups _ [] = []
-
 dropUntil :: TokenVal -> [Token] -> [Token]
 dropUntil token = drop 1 . dropWhile (not . (== token) . valOf)
 
@@ -779,30 +756,10 @@ split x xs = xs': split x (drop 1 xs'')
 
 -- | Crude predicate for Haskell files
 isHsFile :: FilePath -> Bool
-isHsFile fn = ".hs" `List.isSuffixOf` fn  || ".hsc" `List.isSuffixOf` fn
-    || isLiterateFile fn
+isHsFile = (`elem` [".hs", ".hsc", ".lhs"]) . FilePath.takeExtension
 
 isLiterateFile :: FilePath -> Bool
-isLiterateFile fn = ".lhs" `List.isSuffixOf` fn
-
-merge :: Ord a => [a] -> [a] -> [a]
-merge = mergeBy compare
-
-mergeTags :: [Pos TagVal] -> [Pos TagVal] -> [Pos TagVal]
-mergeTags = mergeOn tagSortingKey
-
-mergeOn :: (Ord b) => (a -> b) -> [a] -> [a] -> [a]
-mergeOn f = mergeBy (compare `on` f)
-
-mergeBy :: (a -> a -> Ordering) -> [a] -> [a] -> [a]
-mergeBy f xs ys = go xs ys
-    where
-    go []     ys     = ys
-    go xs     []     = xs
-    go (x:xs) (y:ys) = case f x y of
-        EQ -> x: y: go xs ys
-        LT -> x: go xs (y:ys)
-        GT -> y: go (x:xs) ys
+isLiterateFile = (==".lhs") . FilePath.takeExtension
 
 headt :: Text -> Maybe Char
 headt = fmap fst . T.uncons
@@ -815,3 +772,6 @@ mlast :: [a] -> Maybe a
 mlast xs
     | null xs = Nothing
     | otherwise = Just (last xs)
+
+keyOn :: (a -> k) -> [a] -> [(k, a)]
+keyOn f xs = zip (map f xs) xs
