@@ -4,6 +4,7 @@ module FastTags.Vim where
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Text (Text)
+import qualified Data.Text.Read as Text.Read
 
 import qualified FastTags.Tag as Tag
 import qualified FastTags.Token as Token
@@ -22,18 +23,19 @@ merge fns new old = map snd $ Util.sortOn fst $ newTags ++ oldTags
 
 data Parsed = Parsed {
     name :: !Text
-    , type_ :: !(Maybe Tag.Type)
+    , type_ :: !Tag.Type
     , filename :: !Text
+    , line :: !Int
     } deriving (Eq, Ord, Show)
 
--- text <tab> fname;" <tab> type
+-- text <tab> fname <tab> line;" <tab> type
 parseTag :: Text -> Maybe Parsed
 parseTag t = case Text.split (=='\t') t of
-    text : fname : type_ : _ -> Just $ Parsed
-        { name = text
-        , type_ = Tag.fromVimType =<< Util.headt type_
-        , filename = Text.dropEnd 2 fname
-        }
+    text : fname : line : type_ : _ -> Parsed
+        <$> Just text
+        <*> (Tag.fromVimType =<< Util.headt type_)
+        <*> Just fname
+        <*> either (const Nothing) (Just . fst) (Text.Read.decimal line)
     _ -> Nothing
 
 -- | This line is to tell vim that the file is sorted, so it can use binary

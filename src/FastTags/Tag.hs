@@ -61,9 +61,6 @@ import qualified FastTags.Util as Util
 data TagVal = TagVal {
     tvName :: !Text
     , tvType :: !Type
-    -- -- | If true, this tag will be marked static, which vim treats as an
-    -- -- internal definition.
-    -- , tvStatic :: !Bool
     } deriving (Show, Eq, Ord)
 
 tagLine :: Pos TagVal -> Token.Line
@@ -193,30 +190,29 @@ process fn trackPrefixes input =
         (newTags, repeatableTags, warnings) = partitionTags tags
         -- For RepeatableTag s with duplicate keys, pick the one with the lowest
         -- posLine.
-        -- Or: group by key, then map mininumOn tagLine
         earliestRepeats :: [Pos TagVal]
         earliestRepeats = Map.elems $ Map.fromListWith minLine $
             Util.keyOn valOf repeatableTags
         minLine x y
             | tagLine x < tagLine y = x
             | otherwise             = y
-    unlit :: Text -> Text
     unlit src
-        | isLiterateFile fn = T.pack $ Unlit.unlit fn $ T.unpack stripped
+        | isLiterateFile fn =
+            T.pack $ Unlit.unlit fn $ T.unpack $ stripLiterate src
         | otherwise = src
-        where
-        stripped :: Text
-        stripped
-            | "\\begin{code}" `T.isInfixOf` src
-                    && "\\end{code}" `T.isInfixOf` src =
-                T.unlines $ filter (not . birdLiterateLine) $ T.lines src
-            | otherwise = src
-        birdLiterateLine :: Text -> Bool
-        birdLiterateLine xs
-            | T.null xs = False
-            | otherwise = case Util.headt $ T.dropWhile Char.isSpace xs of
-                Just '>' -> True
-                _ -> False
+
+stripLiterate :: Text -> Text
+stripLiterate src
+    | "\\begin{code}" `T.isInfixOf` src
+            && "\\end{code}" `T.isInfixOf` src =
+        T.unlines $ filter (not . birdLiterateLine) $ T.lines src
+    | otherwise = src
+    where
+    birdLiterateLine xs
+        | T.null xs = False
+        | otherwise = case Util.headt $ T.dropWhile Char.isSpace xs of
+            Just '>' -> True
+            _ -> False
 
 -- | Strip cpp lines starting with #. Also strips out hsc detritus.
 stripCpp :: Text -> Text

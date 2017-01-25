@@ -15,6 +15,7 @@ import qualified FastTags.Tag as Tag
 import FastTags.Tag hiding (process)
 import FastTags.Token
 import qualified FastTags.Util as Util
+import qualified FastTags.Vim as Vim
 
 
 main :: IO ()
@@ -27,6 +28,7 @@ tests = testGroup "tests"
     , testStripComments
     , testBreakBlocks
     , testPostProcess
+    , testVim
     , testProcess
     , testStripCpp
     ]
@@ -188,6 +190,19 @@ testPostProcess = testGroup "postProcess"
         . zip [0..]
     showTag (Pos p (TagVal text typ)) =
         unwords [show p, T.unpack text, show typ]
+
+testVim :: TestTree
+testVim = testGroup "Vim" [parseTag]
+
+parseTag :: TestTree
+parseTag = testGroup "parseTag"
+    [ ("fn", 1, "text", Tag.Function) ==>
+        Just (Vim.Parsed "text" Tag.Function "fn" 1)
+    ]
+    where
+    (==>) = test f
+    f (fn, line, text, typ) =
+        Vim.parseTag $ Vim.showTag (Pos (SrcPos fn line "") (TagVal text typ))
 
 testProcess :: TestTree
 testProcess = testGroup "process"
