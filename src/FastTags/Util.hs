@@ -1,5 +1,6 @@
 -- | Generic utilities.
 module FastTags.Util where
+import qualified Data.Map.Strict as Map
 import qualified Data.Function as Function
 import qualified Data.List as List
 import qualified Data.Text as Text
@@ -43,3 +44,9 @@ keyOn f xs = zip (map f xs) xs
 
 groupOn :: Eq k => (a -> k) -> [a] -> [[a]]
 groupOn key = List.groupBy (\a b -> key a == key b)
+
+-- | Group the unsorted list into @(key x, xs)@ where all @xs@ compare equal
+-- after @key@ is applied to them.  List is returned in sorted order.
+groupOnKey :: Ord key => (a -> key) -> [a] -> [(key, [a])]
+groupOnKey key = Map.toAscList . List.foldl' go Map.empty
+    where go m x = Map.alter (Just . maybe [x] (x:)) (key x) m
