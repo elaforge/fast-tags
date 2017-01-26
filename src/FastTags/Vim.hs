@@ -62,7 +62,7 @@ parseTag :: Text -> Maybe Parsed
 parseTag t = case Text.split (=='\t') t of
     text : fname : line : type_ : _ -> Parsed
         <$> Just text
-        <*> (Tag.fromVimType =<< Util.headt type_)
+        <*> (fromType =<< Util.headt type_)
         <*> Just fname
         <*> either (const Nothing) (Just . fst) (Text.Read.decimal line)
     _ -> Nothing
@@ -87,5 +87,29 @@ showTag (Token.Pos pos (Tag.TagVal text typ)) = mconcat
     [ text, "\t"
     , Text.pack (Token.posFile pos), "\t"
     , Text.pack (show $ Token.unLine (Token.posLine pos)), ";\"\t"
-    , Text.singleton (Tag.toVimType typ)
+    , Text.singleton (toType typ)
     ]
+
+-- | Vim takes this to be the \"kind:\" annotation.  It's just an arbitrary
+-- string and these letters conform to no standard.  Presumably there are some
+-- vim extensions that can make use of it.
+toType :: Tag.Type -> Char
+toType typ = case typ of
+    Tag.Module      -> 'm'
+    Tag.Function    -> 'f'
+    Tag.Class       -> 'c'
+    Tag.Type        -> 't'
+    Tag.Constructor -> 'C'
+    Tag.Operator    -> 'o'
+    Tag.Pattern     -> 'p'
+
+fromType :: Char -> Maybe Tag.Type
+fromType c = case c of
+    'm' -> Just Tag.Module
+    'f' -> Just Tag.Function
+    'c' -> Just Tag.Class
+    't' -> Just Tag.Type
+    'C' -> Just Tag.Constructor
+    'o' -> Just Tag.Operator
+    'p' -> Just Tag.Pattern
+    _ -> Nothing

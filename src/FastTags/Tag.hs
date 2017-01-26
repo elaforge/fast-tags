@@ -11,7 +11,7 @@
 module FastTags.Tag (
     -- * types
     TagVal(..)
-    , Type(..), toVimType, fromVimType
+    , Type(..)
     , Tag(..)
     , Pos(..)
     , SrcPos(..)
@@ -76,32 +76,6 @@ instance NFData TagVal where
 -- We rely that Type < Constructor.  TODO how and where?  For sorting tags?
 data Type = Function | Type | Constructor | Class | Module | Operator | Pattern
     deriving (Eq, Ord, Show)
-
--- TODO move to Vim
--- | Vim takes this to be the \"kind:\" annotation.  It's just an arbitrary
--- string and these letters conform to no standard.  Presumably there are some
--- vim extensions that can make use of it.
-toVimType :: Type -> Char
-toVimType typ = case typ of
-    Module      -> 'm'
-    Function    -> 'f'
-    Class       -> 'c'
-    Type        -> 't'
-    Constructor -> 'C'
-    Operator    -> 'o'
-    Pattern     -> 'p'
-
--- TODO move to Vim
-fromVimType :: Char -> Maybe Type
-fromVimType c = case c of
-    'm' -> Just Module
-    'f' -> Just Function
-    'c' -> Just Class
-    't' -> Just Type
-    'C' -> Just Constructor
-    'o' -> Just Operator
-    'p' -> Just Pattern
-    _ -> Nothing
 
 instance NFData Type where
     rnf t = t `seq` ()
