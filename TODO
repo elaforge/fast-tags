@@ -28,7 +28,9 @@ output.
         finding a definition by doing *, switching to its file, then n.  But
         maybe I should be using tags for that!
 
-- Option to collapse different typed tags on the same line.  Didn't I add
+* Option to collapse different typed tags on the same line.  Didn't I add
 something like this long ago?
+  - I think I can get rid of RepeatedTag now, but I should probably implement
+    merging for emacs tags.
 
 - Would it make a difference to use Vector for tags instead of lists?

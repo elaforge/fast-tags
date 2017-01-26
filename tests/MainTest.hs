@@ -27,7 +27,6 @@ tests = testGroup "tests"
     , testTokenizeWithNewlines
     , testStripComments
     , testBreakBlocks
-    , testPostProcess
     , testVim
     , testProcess
     , testStripCpp
@@ -161,38 +160,8 @@ testBreakBlocks = testGroup "breakBlocks"
     f = map (extractTokens . UnstrippedTokens . Tag.stripNewlines)
         . Tag.breakBlocks . tokenize
 
--- TODO actually, this doesn't test postProcess since it doesn't exist anymore.
--- But it tests that de-duplication stuff, where should it go?
--- or tests RepeatableTag
-testPostProcess :: TestTree
-testPostProcess = testGroup "postProcess"
-    [ ["data X", "module X"] ==> ["fn0:1 X Type", "fn1:1 X Module"]
-    -- Type goes ahead of Module.
-    , ["module X\n\
-       \data X"] ==>
-        ["fn0:2 X Type", "fn0:1 X Module"]
-    -- Extra X was filtered.
-    , ["module X\n\
-       \data X = X\n"] ==>
-        ["fn0:2 X Type", "fn0:2 X Constructor", "fn0:1 X Module"]
-    , ["module X\n\
-       \data X a =\n\
-       \  X a\n"] ==>
-        ["fn0:2 X Type", "fn0:3 X Constructor", "fn0:1 X Module"]
-    , ["newtype A f a b = A\n\
-       \  { unA :: f (a -> b) }"] ==>
-        ["fn0:1 A Type", "fn0:1 A Constructor", "fn0:2 unA Function"]
-    ]
-    where
-    (==>) = test f
-    f = map showTag . Util.sortOn Tag.valOf . concat
-        . map (\(i, t) -> fst $ Tag.process ("fn" ++ show i) False t)
-        . zip [0..]
-    showTag (Pos p (TagVal text typ)) =
-        unwords [show p, T.unpack text, show typ]
-
 testVim :: TestTree
-testVim = testGroup "Vim" [parseTag]
+testVim = testGroup "Vim" [parseTag, dropAdjacent]
 
 parseTag :: TestTree
 parseTag = testGroup "parseTag"
@@ -203,6 +172,28 @@ parseTag = testGroup "parseTag"
     (==>) = test f
     f (fn, line, text, typ) =
         Vim.parseTag $ Vim.showTag (Pos (SrcPos fn line "") (TagVal text typ))
+
+dropAdjacent :: TestTree
+dropAdjacent = testGroup "dropAdjacent"
+    [ [fna 0] ==> [fna 0]
+    , [fna 0, fna 1] ==> [fna 0]
+    -- Line number order dosen't matter.
+    , [fna 1, fna 0] ==> [fna 0]
+    , [fna 0, fna 1, fna 2] ==> [fna 0]
+    , [fna 0, fna 1, fna 2, fna 3] ==> [fna 0, fna 3]
+
+    -- Filename differs.
+    , [fna 0, ("fn2", 1, "a")] ==> [fna 0, ("fn2", 1, "a")]
+    -- Tag name differs.
+    , [fna 0, ("fn", 1, "b")] ==> [fna 0, ("fn", 1, "b")]
+    ]
+    where
+    fna n = ("fn", n, "a")
+    (==>) = test f
+    f = map extract . map fst . Vim.dropAdjacent 2
+        . Vim.keyOnJust Vim.parseTag . map (Vim.showTag . makeTag)
+    extract t = (Vim.filename t, Vim.line t, Vim.name t)
+    makeTag (fn, line, text) = Pos (SrcPos fn line "") (TagVal text Function)
 
 testProcess :: TestTree
 testProcess = testGroup "process"
@@ -511,9 +502,8 @@ testFamilies = testGroup "families"
 
 testFunctions :: TestTree
 testFunctions = testGroup "functions"
-    [
     -- Multiple declarations.
-      "a,b::X"      ==> ["a", "b"]
+    [ "a,b::X"      ==> ["a", "b"]
     -- With an operator.
     , "(+), a :: X" ==> ["+", "a"]
     -- Don't get fooled by literals.
@@ -537,6 +527,7 @@ testFunctions = testGroup "functions"
         , "infixl 5 |+|" ==> []
         , "infixr 5 |+|" ==> []
         , "f = g"        ==> ["f"]
+        -- Relies on RepeatableTag.
         , "f :: a -> b -> a\n\
           \f x y = x"
           ==>

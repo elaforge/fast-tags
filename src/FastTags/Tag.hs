@@ -77,6 +77,7 @@ instance NFData TagVal where
 data Type = Function | Type | Constructor | Class | Module | Operator | Pattern
     deriving (Eq, Ord, Show)
 
+-- TODO move to Vim
 -- | Vim takes this to be the \"kind:\" annotation.  It's just an arbitrary
 -- string and these letters conform to no standard.  Presumably there are some
 -- vim extensions that can make use of it.
@@ -90,6 +91,7 @@ toVimType typ = case typ of
     Operator    -> 'o'
     Pattern     -> 'p'
 
+-- TODO move to Vim
 fromVimType :: Char -> Maybe Type
 fromVimType c = case c of
     'm' -> Just Module
@@ -110,7 +112,7 @@ data Tag =
     -- where the one with the lowest line number will be preferred.
     -- The idea seems to be that functions will emit a tag for both the
     -- signature and definition.  TODO seems like a hack, why not just
-    -- deduplicate all tags?
+    -- deduplicate all tags?  And I think I do that now with dropAdjacent.
     | RepeatableTag !(Pos TagVal)
     | Warning !(Pos String)
     deriving (Show, Eq, Ord)

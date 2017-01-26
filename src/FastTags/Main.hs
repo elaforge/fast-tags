@@ -62,10 +62,12 @@ options =
     ]
 
 help :: String
-help =
-    "usage: fast-tags [options] [filenames]\n\
-    \In case no filenames provided on the command line, fast-tags expects \
-    \a list of files separated by newlines in stdin."
+help = "usage: fast-tags [options] [filenames]\n\
+    \If no filenames are given, fast-tags expects a list of files separated\n\
+    \by newlines on stdin.\n\n\
+    \A tag will suppress any other tags with the same name within 2\n\
+    \lines.  This should prevent multiple tag matches for things like\n\
+    \`data X = X`.  Currently the 2 is not configurable."
 
 data Flag = Output FilePath | Help | Verbose | ETags | Recurse | NoMerge
     | ZeroSep | Version | NoModuleTags | Qualified

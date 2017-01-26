@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 -- | Functions specific to vim tags.
 module FastTags.Vim where
+import Control.Arrow (first)
+import qualified Data.Maybe as Maybe
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Text (Text)
@@ -14,13 +16,36 @@ import qualified FastTags.Util as Util
 -- | Format new tags, drop old tags from the loaded files, merge old and
 -- new, and sort.
 merge :: [FilePath] -> [[Token.Pos Tag.TagVal]] -> [Text] -> [Text]
-merge fns new old = map snd $ Util.sortOn fst $ newTags ++ oldTags
+merge fns new old = (vimMagicLine:) $
+    map snd $ dropAdjacent maxSeparation $ Util.sortOn fst $ newTags ++ oldTags
+    -- The existing vimMagicLine will fail parseTag and be dropped.
     where
-    newTags = Util.keyOn parseTag $ map showTag (concat new)
-    oldTags = filter (maybe True ((`Set.notMember` fnSet) . filename) . fst) $
-        Util.keyOn parseTag old
+    maxSeparation = 2
+    newTags = keyOnJust parseTag $ map showTag (concat new)
+    oldTags = filter ((`Set.notMember` fnSet) . filename . fst) $
+        keyOnJust parseTag old
     fnSet = Set.fromList $ map Text.pack fns
 
+keyOnJust :: (a -> Maybe k) -> [a] -> [(k, a)]
+keyOnJust f xs = [(k, x) | (Just k, x) <- Util.keyOn f xs]
+
+-- | If there are multiple tags with the same name and filename within a few
+-- lines, drop all but the first.
+dropAdjacent :: Int -> [(Parsed, a)] -> [(Parsed, a)]
+dropAdjacent maxSeparation =
+    concatMap (Util.sortOn fst . stripName) . Util.groupOn (name . fst)
+    where
+    -- Group by filename, sort by line number, drop lines too close.
+    stripName tag@[_] = tag
+    stripName tags = concatMap stripFile . Util.groupOn (filename . fst)
+        . Util.sortOn (filename . fst) $ tags
+    stripFile = stripLine . Util.sortOn (line . fst)
+    stripLine [] = []
+    stripLine ((tag, a) : tags) =
+        (tag, a) : stripLine (dropWhile (tooClose tag) tags)
+    tooClose tag = (<= line tag + maxSeparation) . line . fst
+
+-- | The Ord instance determines the sort order for the tags file.
 data Parsed = Parsed {
     name :: !Text
     , type_ :: !Tag.Type

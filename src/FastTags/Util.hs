@@ -42,8 +42,5 @@ mlast xs
 keyOn :: (a -> k) -> [a] -> [(k, a)]
 keyOn f xs = zip (map f xs) xs
 
--- | Group the unsorted list into @(key x, xs)@ where all @xs@ compare equal
--- after @key@ is applied to them.  List is returned in sorted order.
-groupOn :: Ord key => (a -> key) -> [a] -> [(key, [a])]
-groupOn key = Map.toAscList . foldr go Map.empty
-    where go x = Map.alter (Just . maybe [x] (x:)) (key x)
+groupOn :: Eq k => (a -> k) -> [a] -> [[a]]
+groupOn key = List.groupBy (\a b -> key a == key b)

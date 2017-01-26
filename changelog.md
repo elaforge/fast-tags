@@ -1,3 +1,9 @@
+* A tag will suppress any other tags with the same name within 2 lines.
+This should prevent multiple tag matches for things like `data X = X`.
+Currently the 2 is not configurable.
+
+* Lock stderr when writing so warnings don't get scrambled.
+
 * A --qualified flag which emits tags qualified by module name.
 
 * Tags should be always sorted now, instead of being
