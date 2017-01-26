@@ -14,7 +14,6 @@ import qualified FastTags.Lexer as Lexer
 import qualified FastTags.Tag as Tag
 import FastTags.Tag hiding (process)
 import FastTags.Token
-import qualified FastTags.Util as Util
 import qualified FastTags.Vim as Vim
 
 

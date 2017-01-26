@@ -1,6 +1,5 @@
 -- | Generic utilities.
 module FastTags.Util where
-import qualified Data.Map.Strict as Map
 import qualified Data.Function as Function
 import qualified Data.List as List
 import qualified Data.Text as Text

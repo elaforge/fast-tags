@@ -69,6 +69,10 @@ help = "usage: fast-tags [options] [filenames]\n\
     \lines.  This should prevent multiple tag matches for things like\n\
     \`data X = X`.  Currently the 2 is not configurable."
 
+-- | Suppress tags with the same name within this number of lines.
+maxSeparation :: Int
+maxSeparation = 2
+
 data Flag = Output FilePath | Help | Verbose | ETags | Recurse | NoMerge
     | ZeroSep | Version | NoModuleTags | Qualified
     deriving (Eq, Show)
@@ -128,8 +132,8 @@ main = do
     when verbose $ putChar '\n'
 
     let allTags = if vim
-            then Vim.merge inputs newTags oldTags
-            else Emacs.format (concat newTags)
+            then Vim.merge maxSeparation inputs newTags oldTags
+            else Emacs.format maxSeparation (concat newTags)
     let write = if vim then Text.IO.hPutStrLn else Text.IO.hPutStr
     let withOutput action = if output == "-"
             then action IO.stdout

@@ -8,14 +8,18 @@ import Data.Text (Text)
 
 import qualified FastTags.Tag as Tag
 import qualified FastTags.Token as Token
+import qualified FastTags.Vim as Vim
 
 
 type TagsTable = Map.Map FilePath [Token.Pos Tag.TagVal]
 
--- TODO this is just groupByKey
-format :: [Token.Pos Tag.TagVal] -> [Text]
-format = showTagsTable . foldr insertTag Map.empty
+format :: Int -> [Token.Pos Tag.TagVal] -> [Text]
+format maxSeparation = showTagsTable
+    . fmap (Vim.dropAdjacentInFile lineOf maxSeparation)
+    . foldr insertTag Map.empty
+    where lineOf = Token.unLine . Token.posLine . Token.posOf
 
+-- TODO this is just groupByKey
 insertTag :: Token.Pos Tag.TagVal -> TagsTable -> TagsTable
 insertTag tag@(Token.Pos pos _) = Map.insertWith (<>) (Token.posFile pos) [tag]
 

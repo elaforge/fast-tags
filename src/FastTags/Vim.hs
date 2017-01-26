@@ -1,8 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 -- | Functions specific to vim tags.
-module FastTags.Vim where
-import Control.Arrow (first)
-import qualified Data.Maybe as Maybe
+module FastTags.Vim {- (merge, dropAdjacentInFile) -} where
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Text (Text)
@@ -15,12 +13,11 @@ import qualified FastTags.Util as Util
 
 -- | Format new tags, drop old tags from the loaded files, merge old and
 -- new, and sort.
-merge :: [FilePath] -> [[Token.Pos Tag.TagVal]] -> [Text] -> [Text]
-merge fns new old = (vimMagicLine:) $
+merge :: Int -> [FilePath] -> [[Token.Pos Tag.TagVal]] -> [Text] -> [Text]
+merge maxSeparation fns new old = (vimMagicLine:) $
     map snd $ dropAdjacent maxSeparation $ Util.sortOn fst $ newTags ++ oldTags
     -- The existing vimMagicLine will fail parseTag and be dropped.
     where
-    maxSeparation = 2
     newTags = keyOnJust parseTag $ map showTag (concat new)
     oldTags = filter ((`Set.notMember` fnSet) . filename . fst) $
         keyOnJust parseTag old
@@ -39,11 +36,18 @@ dropAdjacent maxSeparation =
     stripName tag@[_] = tag
     stripName tags = concatMap stripFile . Util.groupOn (filename . fst)
         . Util.sortOn (filename . fst) $ tags
-    stripFile = stripLine . Util.sortOn (line . fst)
+    stripFile = dropAdjacentInFile (line . fst) maxSeparation
+
+-- | Split this out so I can share it with emacs.
+dropAdjacentInFile :: (a -> Int) -> Int -> [a] -> [a]
+dropAdjacentInFile lineOf maxSeparation = stripFile
+    where
+    stripFile = stripLine . Util.sortOn lineOf
     stripLine [] = []
-    stripLine ((tag, a) : tags) =
-        (tag, a) : stripLine (dropWhile (tooClose tag) tags)
-    tooClose tag = (<= line tag + maxSeparation) . line . fst
+    stripLine (tag : tags) =
+        tag : stripLine (dropWhile (tooClose tag) tags)
+    tooClose tag = (<= lineOf tag + maxSeparation) . lineOf
+
 
 -- | The Ord instance determines the sort order for the tags file.
 data Parsed = Parsed {
