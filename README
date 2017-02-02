@@ -1,6 +1,2 @@
 See vimrc for an example of how to keep the tags file up to date
 automatically.
-
-TODO:
-
-- \ continuation in strings is not parsed correctly.

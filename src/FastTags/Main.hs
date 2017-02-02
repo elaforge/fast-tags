@@ -104,7 +104,7 @@ main = do
             exists <- Directory.doesFileExist output
             if exists
                 then Text.lines <$> Text.IO.readFile output
-                else return [Vim.vimMagicLine]
+                else return []
         else return [] -- we do not support tags merging for emacs for now
 
     inputs <- getInputs flags inputs
