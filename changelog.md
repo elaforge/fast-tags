@@ -1,10 +1,15 @@
+1.3
+
 * A tag will suppress any other tags with the same name within 2 lines.
 This should prevent multiple tag matches for things like `data X = X`.
-Currently the 2 is not configurable.
+Currently the 2 is not configurable, but could be easily enough if someone
+wanted that.
 
 * Lock stderr when writing so warnings don't get scrambled.
 
-* A --qualified flag which emits tags qualified by module name.
+* A --qualified flag which emits tags qualified by module name.  There's an
+example vimrc line that can use that without having to permanently modify
+iskeyword.
 
 * Tags should be always sorted now, instead of being
 inconsistently-but-mostly-sorted as they were before.  I replaced
