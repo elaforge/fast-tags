@@ -16,7 +16,6 @@ import Control.Monad.Except
 #else
 import Control.Monad.Error
 #endif
-import Control.Monad.Reader
 import Control.Monad.State
 
 newtype EitherKT e m a =
