@@ -254,6 +254,9 @@ testData = testGroup "data"
     , "data R = R { a∷X, b∷Y }"             ==> ["R", "R", "a", "b"]
     , "data R = R {\n\ta::X\n\t, b::Y\n\t}" ==> ["R", "R", "a", "b"]
     , "data R = R {\n\ta,b::X\n\t}"         ==> ["R", "R", "a", "b"]
+    -- Record operators
+    , "data Foo a b = (:*:) { foo :: a, bar :: b }" ==>
+        [":*:", "Foo", "bar", "foo"]
 
     , "data R = R {\n\
       \    a :: !RealTime\n\
