@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns      #-}
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE ConstraintKinds   #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE NamedFieldPuns    #-}
@@ -8,7 +8,11 @@ module FastTags.LexerTypes where
 
 import Codec.Binary.UTF8.String (encodeChar)
 import Control.Applicative
+#if MIN_VERSION_mtl(2,2,0)
+import Control.Monad.Except
+#else
 import Control.Monad.Error
+#endif
 import Control.Monad.State.Strict
 import Data.Char
 import Data.Maybe
@@ -147,8 +151,9 @@ alexGetByte input@(AlexInput {aiInput, aiBytes, aiLine}) =
                                , aiPrevChar = c
                                , aiLine     = advanceLine c aiLine
                                }
-            []   -> error "alexGetByte: should not happen - utf8 encoding of\
-                \ a character is empty"
+            []   -> emptyUtfEncodingError
+    emptyUtfEncodingError = error
+        "alexGetByte: should not happen - utf8 encoding of a character is empty"
 
 -- Translate unicode character into special symbol we teached Alex to recognize.
 fixChar :: Char -> Maybe Char

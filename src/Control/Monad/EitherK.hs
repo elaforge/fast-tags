@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP                   #-}
 {-# LANGUAGE DeriveFunctor         #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -10,7 +11,12 @@ module Control.Monad.EitherK (
     , runEitherKT
 ) where
 import Control.Applicative
+#if MIN_VERSION_mtl(2,2,0)
+import Control.Monad.Except
+#else
 import Control.Monad.Error
+#endif
+import Control.Monad.Reader
 import Control.Monad.State
 
 newtype EitherKT e m a =

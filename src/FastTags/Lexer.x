@@ -3,6 +3,7 @@
 {-# OPTIONS_GHC -fno-warn-missing-signatures -fno-warn-tabs
     -fno-warn-unused-binds -fno-warn-unused-matches
     -fno-warn-unused-imports #-}
+{-# LANGUAGE CPP                 #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE MultiWayIf          #-}
 {-# LANGUAGE NamedFieldPuns      #-}
@@ -14,7 +15,11 @@ module FastTags.Lexer (tokenize) where
 
 import Control.Applicative
 import Control.Monad
+#if MIN_VERSION_mtl(2,2,0)
 import Control.Monad.Except
+#else
+import Control.Monad.Error
+#endif
 import Control.Monad.State
 import Data.Text (Text)
 
