@@ -13,6 +13,7 @@ import Control.Applicative
 import qualified Control.Concurrent.Async as Async
 import qualified Control.Concurrent.MVar as MVar
 import qualified Control.DeepSeq as DeepSeq
+import qualified Control.Exception as Exception
 import Control.Monad
 
 import qualified Data.List as List
@@ -120,7 +121,7 @@ main = do
                 then newTags ++ map Tag.qualify newTags
                 else newTags
             -- Try to do work before taking the lock.
-            warnings `DeepSeq.deepseq` return ()
+            Exception.evaluate $ DeepSeq.rnf warnings
             MVar.withMVar stderr $ \hdl ->
                 mapM_ (IO.hPutStrLn hdl) warnings
             when verbose $ do
