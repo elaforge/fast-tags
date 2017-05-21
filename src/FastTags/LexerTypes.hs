@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns      #-}
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE ConstraintKinds   #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE NamedFieldPuns    #-}
@@ -8,7 +8,11 @@ module FastTags.LexerTypes where
 
 import Codec.Binary.UTF8.String (encodeChar)
 import Control.Applicative
+#if MIN_VERSION_mtl(2,2,0)
+import Control.Monad.Except
+#else
 import Control.Monad.Error
+#endif
 import Control.Monad.State.Strict
 import Data.Char
 import Data.Maybe
@@ -19,6 +23,7 @@ import Data.Word (Word8)
 import Control.Monad.EitherK
 
 import FastTags.Token
+import qualified FastTags.Util as Util
 
 advanceLine :: Char -> Line -> Line
 advanceLine '\n' = increaseLine
@@ -72,6 +77,8 @@ data Context = CtxHaskell | CtxQuasiquoter
 data AlexState = AlexState {
     asInput              :: AlexInput
     , asFilename         :: FilePath
+    -- | Current Alex state the lexer is in. E.g. comments, string, TH quasiquoter
+    -- or vanilla toplevel mode.
     , asCode             :: {-# UNPACK #-} !Int
     , asCommentDepth     :: {-# UNPACK #-} !Int
     , asQuasiquoterDepth :: {-# UNPACK #-} !Int
@@ -111,7 +118,6 @@ retrieveToken :: AlexInput -> Int -> Text
 retrieveToken (AlexInput {aiInput}) len = Text.take len aiInput
 
 type AlexM = EitherKT String (State AlexState)
-type AlexMConstraint m = (MonadError String m, MonadState AlexState m)
 
 runAlexM :: FilePath -> Bool -> Text -> AlexM a -> Either String a
 runAlexM filename trackPrefixes input action =
@@ -147,12 +153,13 @@ alexGetByte input@(AlexInput {aiInput, aiBytes, aiLine}) =
                                , aiPrevChar = c
                                , aiLine     = advanceLine c aiLine
                                }
-            []   -> error "alexGetByte: should not happen - utf8 encoding of\
-                \ a character is empty"
+            []   -> emptyUtfEncodingError
+    emptyUtfEncodingError = error
+        "alexGetByte: should not happen - utf8 encoding of a character is empty"
 
 -- Translate unicode character into special symbol we teached Alex to recognize.
 fixChar :: Char -> Maybe Char
--- These should not be translated since Alex known about them
+-- These should not be translated since Alex knows about them
 fixChar '→' = Nothing
 fixChar '∷' = Nothing
 fixChar '⇒' = Nothing
@@ -168,15 +175,11 @@ fixChar c
           OtherLetter           -> Just lower
           DecimalNumber         -> Just digit
           OtherNumber           -> Just digit
-          ConnectorPunctuation  -> Just symbol
-          DashPunctuation       -> Just symbol
-          OtherPunctuation      -> Just symbol
-          MathSymbol            -> Just symbol
-          CurrencySymbol        -> Just symbol
-          ModifierSymbol        -> Just symbol
-          OtherSymbol           -> Just symbol
           Space                 -> Just space
-          _other                -> Nothing
+          other                 ->
+              if Util.isSymbolCharacterCategory other
+              then Just symbol
+              else Nothing
     where
     space  = '\x01'
     upper  = '\x02'

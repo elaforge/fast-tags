@@ -3,6 +3,7 @@
 {-# OPTIONS_GHC -fno-warn-missing-signatures -fno-warn-tabs
     -fno-warn-unused-binds -fno-warn-unused-matches
     -fno-warn-unused-imports #-}
+{-# LANGUAGE CPP                 #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE MultiWayIf          #-}
 {-# LANGUAGE NamedFieldPuns      #-}
@@ -14,7 +15,11 @@ module FastTags.Lexer (tokenize) where
 
 import Control.Applicative
 import Control.Monad
+#if MIN_VERSION_mtl(2,2,0)
 import Control.Monad.Except
+#else
+import Control.Monad.Error
+#endif
 import Control.Monad.State
 import Data.Text (Text)
 
@@ -39,10 +44,14 @@ $ascsmall  = [a-z]
 $unismall  = \x03
 $small     = [$ascsmall $unismall]
 
+-- These symbols can be part of operators but are reserved when occur by
+-- themselves.
+$symbols_reserved_as_standalone = [ \→ \∷ \⇒ \∀ ]
+
 $special_sym  = [\(\)\,\;\[\]\`\{\}]
 $ascsymbol    = [\!\#\$\%\&\*\+\.\/\<\=\>\?\@\\\^\|\-\~\:]
 $unisymbol    = \x04
-$symbol       = [$ascsymbol $unisymbol] # [$special_sym \_\'\"]
+$symbol       = [$ascsymbol $unisymbol $symbols_reserved_as_standalone] # [$special_sym \_\'\"]
 
 $ascident  = [$ascsmall $asclarge]
 $uniident  = [$unismall $unilarge]
@@ -61,10 +70,9 @@ $ident     = [$ident_nonsym $ident_syms]
 @arrow       = ( "->" | "→" )
 @doublecolon = ( "::" | "∷" )
 @implies     = ( "=>" | "⇒" )
-@forall      = ( "forall" | "∀" )
 
 $charesc    = [a b f n r t v \\ \" \' \&]
-$octdigit   = [0-9a-fA-F]
+$octdigit   = [0-7]
 $hexdigit   = [0-9a-fA-F]
 @charescape = [\\] ( $charesc | $asclarge+ | "o" $octdigit+ | "x" $hexdigit+ )
 
@@ -126,7 +134,8 @@ $nl $space*             { \_ len -> pure $ Newline $ len - 1 }
 "do"                    { kw KWDo }
 "else"                  { kw KWElse }
 "family"                { kw KWFamily }
-@forall                 { kw KWForall }
+"forall"                { \_ _ -> return $ T "forall" }
+"∀"                     { \_ _ -> return $ T "forall" }
 "foreign"               { kw KWForeign }
 "if"                    { kw KWIf }
 "import"                { kw KWImport }
@@ -139,7 +148,7 @@ $nl $space*             { \_ len -> pure $ Newline $ len - 1 }
 "module"                { kw KWModule }
 "newtype"               { kw KWNewtype }
 "of"                    { kw KWOf }
-"pattern"               { kw KWPattern }
+"pattern"               { \_ _ -> return $ T "pattern" }
 "then"                  { kw KWThen }
 "type"                  { kw KWType }
 "where"                 { kw KWWhere }

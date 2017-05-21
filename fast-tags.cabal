@@ -28,7 +28,7 @@ license-file: LICENSE
 author: Evan Laforge
 maintainer: Evan Laforge <qdunkan@gmail.com>
 stability: stable
-tested-with: GHC>=7.0.3
+tested-with: GHC ==7.8.4, GHC ==7.10.3, GHC ==8.0.2
 data-files: README
 extra-source-files:
     changelog.md

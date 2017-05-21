@@ -48,13 +48,11 @@ import qualified Data.Text.Encoding.Error as Encoding.Error
 
 import qualified Language.Preprocessor.Unlit as Unlit
 import qualified System.FilePath as FilePath
-import Text.Printf (printf)
 
 import qualified FastTags.Lexer as Lexer
 import qualified FastTags.Token as Token
 import FastTags.Token (Pos(..), Token, SrcPos(..), TokenVal(..))
 import qualified FastTags.Util as Util
-
 
 -- * types
 
@@ -212,7 +210,9 @@ identChar considerDot c = Char.isAlphaNum c || c == '\'' || c == '_'
 
 -- unicode operators are not supported yet
 haskellOpChar :: Char -> Bool
-haskellOpChar c = IntSet.member (Char.ord c) opChars
+haskellOpChar c =
+    IntSet.member (Char.ord c) opChars ||
+    Util.isSymbolCharacterCategory (Char.generalCategory c)
     where
     opChars :: IntSet.IntSet
     opChars = IntSet.fromList $ map Char.ord "-!#$%&*+./<=>?@^|~:\\"
@@ -279,10 +279,16 @@ blockTags :: UnstrippedTokens -> [Tag]
 blockTags unstripped = case stripNewlines unstripped of
     [] -> []
     Pos _ KWModule : Pos pos (T name) : _ ->
-          [mkTag pos (snd (T.breakOnEnd "." name)) Module]
-    Pos _ KWPattern : Pos pos (T name) : _
-        | maybe False Char.isUpper (Util.headt name) ->
-            [mkTag pos name Pattern]
+        [mkTag pos (snd (T.breakOnEnd "." name)) Module]
+    stripped@(Pos _       (T "pattern") : Pos _ DoubleColon : _) ->
+        toplevelFunctionTags stripped
+    stripped@(Pos prevPos (T "pattern") : toks) ->
+        case tag of
+            Nothing -> toplevelFunctionTags stripped
+            Just x  -> [x]
+        where
+        (tag, _, _) =
+            recordVanillaOrInfixName isTypeName Pattern prevPos "pattern * =" toks
     Pos _ KWForeign : decl -> foreignTags decl
     -- newtype instance * = ...
     Pos _ KWNewtype : Pos _ KWInstance : (dropDataContext -> Pos pos _: rest) ->
@@ -320,8 +326,7 @@ blockTags unstripped = case stripNewlines unstripped of
     Pos prevPos KWData : toks ->
         maybeToList tag ++ dataConstructorTags pos (dropTokens 1 unstripped)
         where
-        namePred = isTypeName -- isTypeFamilyName
-        (tag, pos, _) = recordVanillaOrInfixName namePred Type prevPos
+        (tag, pos, _) = recordVanillaOrInfixName isTypeName Type prevPos
             "data * =" toks
     -- class * => X where X :: * ...
     Pos pos KWClass : _ -> classTags pos (dropTokens 1 unstripped)
@@ -349,18 +354,25 @@ isTypeName x = case Util.headt x of
 dropDataContext :: [Token] -> [Token]
 dropDataContext = stripParensKindsTypeVars . stripOptContext
 
-recordVanillaOrInfixName :: (Text -> Bool) -> Type -> SrcPos -> String
-    -> [Token] -> (Maybe Tag, SrcPos, [Token])
+recordVanillaOrInfixName
+    :: (Text -> Bool)               -- ^ Predicate for names to select
+    -> Type                         -- ^ Tope of detecte tag
+    -> SrcPos                       -- ^ Previous position to report in errors
+    -> String                       -- ^ Context to report in errors
+    -> [Token]                      -- ^ Tokens to analyze
+    -> (Maybe Tag, SrcPos, [Token]) -- ^ Possibly detected tag and rest of the tokens
 recordVanillaOrInfixName isVanillaName tokenType prevPos context tokens =
     case dropDataContext tokens of
         Pos _ LParen   : Pos _ RParen : _ -> (Nothing, prevPos, tokens)
         Pos _ LBracket : _                -> (Nothing, prevPos, tokens)
+        Pos _ Equals   : _                -> (Nothing, prevPos, tokens)
+        Pos _ Comma    : _                -> (Nothing, prevPos, tokens)
         tok : toks ->
             case tok of
-                Pos pos (T name) | isVanillaName name ->
+                Pos pos (tokToName -> Just name) | isVanillaName name ->
                     (Just $ mkTag pos name tokenType, pos, toks)
                 _ -> case dropInfixTypeStart $ tok : toks of
-                    Pos pos (T name) : rest ->
+                    Pos pos (tokToName -> Just name) : rest ->
                         (Just $ mkTag pos name tokenType, pos, rest)
                     rest -> (Just $ unexp pos rest, pos, tok : toks)
                         where pos = posOf tok
@@ -370,7 +382,7 @@ recordVanillaOrInfixName isVanillaName tokenType prevPos context tokens =
 
 -- same as dropWhile with counting
 dropInfixTypeStart :: [Token] -> [Token]
-dropInfixTypeStart tokens = dropWhile f tokens
+dropInfixTypeStart = dropWhile f
     where
     f (Pos _ (T name)) = isInfixTypePrefix name
     f (Pos _ Backtick) = True
@@ -446,12 +458,17 @@ functionTagsNoSig toks = go toks
          [] -> []
 
 tokToOpName :: TokenVal -> Maybe Text
-tokToOpName (T name)
-    | T.all haskellOpChar name = Just name
-tokToOpName ExclamationMark = Just "!"
-tokToOpName Tilde           = Just "~"
-tokToOpName Dot             = Just "."
-tokToOpName _               = Nothing
+tokToOpName tok = case tokToName tok of
+    res@(Just name)
+        | T.all haskellOpChar name -> res
+    _ -> Nothing
+
+tokToName :: TokenVal -> Maybe Text
+tokToName (T name)        = Just name
+tokToName ExclamationMark = Just "!"
+tokToName Tilde           = Just "~"
+tokToName Dot             = Just "."
+tokToName _               = Nothing
 
 -- | Get tags from a function type declaration: token , token , token ::
 -- Return the tokens left over.
@@ -481,7 +498,7 @@ functionTags constructors = go []
         Nothing   -> tags
 
 functionName :: Bool -> Text -> Bool
-functionName constructors text = isFunction text
+functionName constructors = isFunction
     where
     isFunction text = case T.uncons text of
         Just (c, cs) ->
@@ -524,8 +541,9 @@ dataConstructorTags prevPos unstripped
             mkTag pos name Constructor : collectRest rest
         rest -> [unexpected prevPos unstripped rest "data * = *"]
     where
+    strip :: UnstrippedTokens -> [Token]
     strip = stripOptBang . stripOptContext . stripOptForall . dropUntil Equals
-         . stripNewlines
+          . stripNewlines
     collectRest :: [Token] -> [Tag]
     collectRest tokens
         | (tags@(_:_), rest) <- functionTags False tokens =
@@ -539,17 +557,14 @@ dataConstructorTags prevPos unstripped
         | Pos _ LParen : Pos pos (T name) : Pos _ RParen : rest'' <- rest' =
             mkTag pos name Constructor
                 : collectRest (dropUntilNextCaseOrRecordStart rest'')
-        | otherwise = error $
-            printf "syntax error@%d: | not followed by tokens\n"
-                (Token.unLine $ posLine pipePos)
+        | otherwise = [unexpected pipePos unstripped rest "| not followed by tokens"]
         where
         rest' = stripOptBang $ stripOptContext $ stripOptForall rest
     collectRest (_ : rest) = collectRest rest
     collectRest [] = []
 
-
     stripOptBang :: [Token] -> [Token]
-    stripOptBang ((Pos _ ExclamationMark) : rest) = rest
+    stripOptBang (Pos _ ExclamationMark : rest) = rest
     stripOptBang ts = ts
 
     extractInfixConstructor :: [Token] -> Maybe (Token, [Token])
@@ -563,9 +578,9 @@ dataConstructorTags prevPos unstripped
         extract _ = Nothing
 
         stripTypeParam :: [Token] -> [Token]
-        stripTypeParam input@((Pos _ LParen) : _) =
+        stripTypeParam input@(Pos _ LParen : _) =
             stripBalancedParens input
-        stripTypeParam input@((Pos _ LBracket) : _) =
+        stripTypeParam input@(Pos _ LBracket : _) =
             stripBalancedBrackets input
         stripTypeParam ts = drop 1 ts
 
@@ -578,8 +593,8 @@ dataConstructorTags prevPos unstripped
         not . \case { Comma -> True; RBrace -> True; Pipe -> True; _ -> False }
 
 stripOptForall :: [Token] -> [Token]
-stripOptForall (Pos _ KWForall  : rest) = dropUntil Dot rest
-stripOptForall xs                       = xs
+stripOptForall (Pos _ (T "forall") : rest) = dropUntil Dot rest
+stripOptForall xs                          = xs
 
 stripParensKindsTypeVars :: [Token] -> [Token]
 stripParensKindsTypeVars (Pos _ LParen : xs)  =
@@ -592,18 +607,18 @@ stripParensKindsTypeVars (Pos _ (T name) : xs)
 stripParensKindsTypeVars xs = xs
 
 stripOptContext :: [Token] -> [Token]
-stripOptContext (stripBalancedParens     -> Pos _ Implies : xs) = xs
-stripOptContext (stripSingleClassContext -> Pos _ Implies : xs) = xs
-stripOptContext xs                                              = xs
-
-stripSingleClassContext :: [Token] -> [Token]
-stripSingleClassContext (Pos _ (T name) : xs)
-    | maybe False Char.isUpper (Util.headt name) =
-        dropWithStrippingBalanced f xs
+stripOptContext (stripBalancedParens -> Pos _ Implies : xs) = xs
+stripOptContext (stripBalancedParens -> Pos _ Implies : xs) = xs
+stripOptContext origToks = go origToks
     where
-    f (T name) = isTypeVarStart name
-    f _        = False
-stripSingleClassContext xs = xs
+    go (Pos _ Implies : xs)    = xs
+    go (Pos _ Equals : _)      = origToks
+    go (Pos _ Pipe : _)        = origToks
+    go (Pos _ LBrace : _)      = origToks
+    go (Pos _ RBrace : _)      = origToks
+    go (Pos _ DoubleColon : _) = origToks
+    go (_ : xs)                = go xs
+    go []                      = origToks
 
 -- | Drop all tokens for which @pred@ returns True, also drop () or []
 -- parenthesized expressions.
@@ -639,7 +654,21 @@ stripBalanced open close (Pos _ tok : xs)
 stripBalanced _ _ xs = xs
 
 gadtTags :: UnstrippedTokens -> [Tag]
-gadtTags = fst . functionTags True . stripNewlines
+gadtTags unstripped = case rest of
+    Pos _ LBrace : rest' -> constructorTag ++ collectFields rest'
+    _                    -> constructorTag
+    where
+    (constructorTag, rest) = functionTags True $ stripNewlines unstripped
+    collectFields :: [Token] -> [Tag]
+    collectFields (Pos _ Comma : rest) = collectFields rest
+    collectFields (Pos _ RBrace : _)   = []
+    collectFields tokens
+        | (tags@(_:_), rest) <- functionTags False tokens =
+            tags ++ collectFields (dropUntilNextField rest)
+        | otherwise = []
+    dropUntilNextField :: [Token] -> [Token]
+    dropUntilNextField = dropWithStrippingBalanced $
+        not . \case { Comma -> True; RBrace -> True; _ -> False }
 
 -- | * => X where X :: * ...
 classTags :: SrcPos -> UnstrippedTokens -> [Tag]

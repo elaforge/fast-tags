@@ -1,6 +1,8 @@
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE CPP                 #-}
+{-# LANGUAGE NamedFieldPuns      #-}
+{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+
 {- | Tagify haskell source.
 
     The key features are to be fast, incremental (i.e. merge tags with one
@@ -9,7 +11,10 @@
     the tags up to date.
 -}
 module FastTags.Main (main) where
+
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
+#endif
 import qualified Control.Concurrent.Async as Async
 import qualified Control.Concurrent.MVar as MVar
 import qualified Control.DeepSeq as DeepSeq
@@ -57,18 +62,21 @@ options =
         "print current version"
     , GetOpt.Option [] ["no-module-tags"] (GetOpt.NoArg NoModuleTags)
         "do not generate tags for modules"
-    , GetOpt.Option [] ["qualified"] (GetOpt.NoArg Qualified)
-        "Each tag gets a version qualified with its module name, like M.f,\
-        \ and an unqualified version."
+    , GetOpt.Option [] ["qualified"] (GetOpt.NoArg Qualified) $ concat
+        [ "Each tag gets a version qualified with its module name, like M.f,"
+        , " and an unqualified version."
+        ]
     ]
 
 help :: String
-help = "usage: fast-tags [options] [filenames]\n\
-    \If no filenames are given, fast-tags expects a list of files separated\n\
-    \by newlines on stdin.\n\n\
-    \A tag will suppress any other tags with the same name within 2\n\
-    \lines.  This should prevent multiple tag matches for things like\n\
-    \`data X = X`.  Currently the 2 is not configurable."
+help = concat
+    [ "usage: fast-tags [options] [filenames]\n"
+    , "If no filenames are given, fast-tags expects a list of files separated\n"
+    , "by newlines on stdin.\n\n"
+    , "A tag will suppress any other tags with the same name within 2\n"
+    , "lines.  This should prevent multiple tag matches for things like\n"
+    , "`data X = X`.  Currently the 2 is not configurable."
+    ]
 
 -- | Suppress tags with the same name within this number of lines.
 maxSeparation :: Int

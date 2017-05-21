@@ -1,6 +1,14 @@
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE OverloadedStrings #-}
+
 -- | Functions specific to vim tags.
 module FastTags.Vim {- (merge, dropAdjacentInFile) -} where
+
+#if !MIN_VERSION_base(4,8,0)
+import Control.Applicative
+import Data.Monoid
+#endif
+
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Text (Text)

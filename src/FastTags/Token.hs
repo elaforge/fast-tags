@@ -51,7 +51,6 @@ data TokenVal =
     | KWDo
     | KWElse
     | KWFamily
-    | KWForall
     | KWForeign
     | KWIf
     | KWImport
@@ -64,7 +63,6 @@ data TokenVal =
     | KWModule
     | KWNewtype
     | KWOf
-    | KWPattern
     | KWThen
     | KWType
     | KWWhere
@@ -90,8 +88,8 @@ data TokenVal =
     | Newline !Int
     -- | String contents is not tracked since it's irrelevant.
     | String
-    | Character
     -- | Actual character not tracked since it's irrelevant.
+    | Character
     | QuasiquoterStart
     | QuasiquoterEnd
     | SpliceStart -- \$(
