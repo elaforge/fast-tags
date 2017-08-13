@@ -147,7 +147,9 @@ main = do
     let withOutput action = if output == "-"
             then action IO.stdout
             else IO.withFile output IO.WriteMode action
-    withOutput $ \hdl -> mapM_ (write hdl) allTags
+    withOutput $ \hdl -> do
+      IO.hSetEncoding hdl IO.utf8
+      mapM_ (write hdl) allTags
 
     where
     usage msg = putStr (GetOpt.usageInfo msg options) >> Exit.exitFailure
