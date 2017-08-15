@@ -112,7 +112,7 @@ main = do
         then do
             exists <- Directory.doesFileExist output
             if exists
-                then Text.lines <$> Text.IO.readFile output
+                then Text.lines <$> Util.readFileLenient output
                 else return []
         else return [] -- we do not support tags merging for emacs for now
 

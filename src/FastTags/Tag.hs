@@ -43,8 +43,6 @@ import Data.Maybe (maybeToList)
 import Data.Monoid (Monoid, (<>))
 import qualified Data.Text as T
 import Data.Text (Text)
-import qualified Data.Text.Encoding as Encoding
-import qualified Data.Text.Encoding.Error as Encoding.Error
 
 import qualified Language.Preprocessor.Unlit as Unlit
 import qualified System.FilePath as FilePath
@@ -126,7 +124,8 @@ dropTokens n = mapTokens (f n)
 
 -- | Read tags from one file.
 processFile :: FilePath -> Bool -> IO ([Pos TagVal], [String])
-processFile fn trackPrefixes = process fn trackPrefixes <$> readFileLenient fn
+processFile fn trackPrefixes =
+    process fn trackPrefixes <$> Util.readFileLenient fn
 
 -- * qualify
 
@@ -138,11 +137,6 @@ qualify (Token.Pos pos (TagVal name typ)) =
     where
     module_ = FilePath.dropExtension $ FilePath.takeFileName $
         Token.posFile pos
-
--- | Read a UTF8 file, but don't crash on encoding errors.
-readFileLenient :: FilePath -> IO Text
-readFileLenient = fmap (Encoding.decodeUtf8With Encoding.Error.lenientDecode)
-    . ByteString.readFile
 
 -- | Process one file's worth of tags.
 process :: FilePath -> Bool -> Text -> ([Pos TagVal], [String])
