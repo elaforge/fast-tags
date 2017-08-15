@@ -1,5 +1,6 @@
 -- | Generic utilities.
 module FastTags.Util where
+import qualified Data.ByteString as ByteString
 import qualified Data.Char as Char
 import qualified Data.Function as Function
 import qualified Data.List as List
@@ -7,7 +8,13 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Text (Text)
+import qualified Data.Text.Encoding as Encoding
+import qualified Data.Text.Encoding.Error as Encoding.Error
 
+-- | Read a UTF8 file, but don't crash on encoding errors.
+readFileLenient :: FilePath -> IO Text
+readFileLenient = fmap (Encoding.decodeUtf8With Encoding.Error.lenientDecode)
+    . ByteString.readFile
 
 -- | Drop until the element before the matching one.  Return [] if the function
 -- never matches.
