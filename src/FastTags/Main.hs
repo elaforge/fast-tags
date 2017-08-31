@@ -75,7 +75,7 @@ help = concat
     , "by newlines on stdin.\n\n"
     , "A tag will suppress any other tags with the same name within 2\n"
     , "lines.  This should prevent multiple tag matches for things like\n"
-    , "`data X = X`.  Currently the 2 is not configurable."
+    , "`data X = X`.  Currently the 2 line limit is not configurable."
     ]
 
 -- | Suppress tags with the same name within this number of lines.
