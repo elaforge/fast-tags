@@ -3,10 +3,10 @@
 
 setopt extended_glob
 
-fn=$1
+fns=$@
 if [[ ! -r tags ]]; then
-    echo Generating tags from scratch...
-    exec fast-tags **/*.hs
+    Generating tags from scratch...
+    exec fast-tags **/*.hs $fns
 else
-    exec fast-tags $fn
+    exec fast-tags $fns
 fi

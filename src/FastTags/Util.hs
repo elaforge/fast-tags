@@ -73,3 +73,6 @@ isSymbolCharacterCategory cat = Set.member cat symbolCategories
         , Char.ModifierSymbol
         , Char.OtherSymbol
         ]
+
+unique :: Ord a => [a] -> [a]
+unique = Set.toList . Set.fromList
