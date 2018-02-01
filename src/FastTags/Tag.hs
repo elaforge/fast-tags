@@ -18,7 +18,7 @@ module FastTags.Tag (
     , UnstrippedTokens(..)
     -- * process
     , processFile
-    , qualify
+    , qualify, fullyQualify
     , process
     -- * util
     , isHsFile
@@ -33,7 +33,6 @@ module FastTags.Tag (
 where
 import Control.Arrow ((***))
 import Control.DeepSeq (NFData, rnf)
-import qualified Data.ByteString as ByteString
 import qualified Data.Char as Char
 import Data.Functor ((<$>))
 import qualified Data.IntSet as IntSet
@@ -135,8 +134,16 @@ qualify :: Pos TagVal -> Pos TagVal
 qualify (Token.Pos pos (TagVal name typ)) =
     Token.Pos pos $ TagVal (T.pack module_ <> "." <> name) typ
     where
-    module_ = FilePath.dropExtension $ FilePath.takeFileName $
-        Token.posFile pos
+    module_ = FilePath.takeFileName $
+        FilePath.dropExtension $ Token.posFile pos
+
+fullyQualify :: Pos TagVal -> Pos TagVal
+fullyQualify (Token.Pos pos (TagVal name typ)) =
+    Token.Pos pos $ TagVal (T.pack module_ <> "." <> name) typ
+    where
+    module_ = map replace $ FilePath.dropExtension $ Token.posFile pos
+    replace '/' = '.'
+    replace c = c
 
 -- | Process one file's worth of tags.
 process :: FilePath -> Bool -> Text -> ([Pos TagVal], [String])
@@ -281,8 +288,8 @@ blockTags unstripped = case stripNewlines unstripped of
             Nothing -> toplevelFunctionTags stripped
             Just x  -> [x]
         where
-        (tag, _, _) =
-            recordVanillaOrInfixName isTypeName Pattern prevPos "pattern * =" toks
+        (tag, _, _) = recordVanillaOrInfixName isTypeName Pattern prevPos
+            "pattern * =" toks
     Pos _ KWForeign : decl -> foreignTags decl
     -- newtype instance * = ...
     Pos _ KWNewtype : Pos _ KWInstance : (dropDataContext -> Pos pos _: rest) ->

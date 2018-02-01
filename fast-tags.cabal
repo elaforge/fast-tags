@@ -33,6 +33,8 @@ data-files: README
 extra-source-files:
     changelog.md
     src/*.hs
+    vimrc
+    qualified_tag.py
 
 homepage: https://github.com/elaforge/fast-tags
 source-repository head

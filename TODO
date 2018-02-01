@@ -2,6 +2,10 @@ LEGEND
   - todo; + in progress; * done; / obsolete, do not want, or can't repro
   ? open question; . note; bug: marks bugs.
 
+* Implement --fully_qualified
+  . This is like --qualified except that it uses full qualification, for use
+    with qualified_tag.py.
+
 - Is \ continuation in strings is parsed correctly?
 
 * I'll need to sort them again.  Why not just pay no mind to sorting except to

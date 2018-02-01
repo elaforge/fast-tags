@@ -10,6 +10,4 @@ augroup END
 " a dot.  Unfortunately, that affects a lot of other commands, such as
 " w, and \< \> regexes used by * and #.  For me, this is confusing because
 " it's inconsistent with vim keys everywhere else.
-" This binding temporarily modifies iskeyword just for the ^] command.
-nnoremap <silent> <c-]> :setl iskeyword=@,_,.,48-57,39<cr><c-]>
-    \:setl iskeyword=@,48-57,_,192-255<cr>
+" See qualified_tag.py for a way around that.

@@ -1,7 +1,8 @@
-{-# LANGUAGE CPP                 #-}
-{-# LANGUAGE NamedFieldPuns      #-}
-{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE MultiWayIf #-}
 
 {- | Tagify haskell source.
 
@@ -66,6 +67,11 @@ options =
         [ "Each tag gets a version qualified with its module name, like M.f,"
         , " and an unqualified version."
         ]
+    , GetOpt.Option [] ["fully_qualified"] (GetOpt.NoArg FullyQualified) $
+        concat
+        [ "Like --qualified, but the tag is fully qualified, A.B.C.f."
+        , " Use with qualified_tag.py."
+        ]
     ]
 
 help :: String
@@ -83,7 +89,7 @@ maxSeparation :: Int
 maxSeparation = 2
 
 data Flag = Output FilePath | Help | Verbose | ETags | Recurse | NoMerge
-    | ZeroSep | Version | NoModuleTags | Qualified
+    | ZeroSep | Version | NoModuleTags | Qualified | FullyQualified
     deriving (Eq, Show)
 
 main :: IO ()
@@ -125,9 +131,10 @@ main = do
             (newTags, warnings) <- Tag.processFile fn trackPrefixes
             newTags <- return $ if NoModuleTags `elem` flags
                 then filter ((/=Tag.Module) . typeOf) newTags else newTags
-            newTags <- return $ if Qualified `elem` flags
-                then newTags ++ map Tag.qualify newTags
-                else newTags
+            newTags <- return $ (newTags ++) $ if
+                | FullyQualified `elem` flags -> map Tag.fullyQualify newTags
+                | Qualified `elem` flags -> map Tag.qualify newTags
+                | otherwise -> []
             -- Try to do work before taking the lock.
             Exception.evaluate $ DeepSeq.rnf warnings
             MVar.withMVar stderr $ \hdl ->
