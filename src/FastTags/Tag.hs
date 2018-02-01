@@ -18,7 +18,7 @@ module FastTags.Tag (
     , UnstrippedTokens(..)
     -- * process
     , processFile
-    , qualify, fullyQualify
+    , qualify
     , process
     -- * util
     , isHsFile
@@ -130,20 +130,17 @@ processFile fn trackPrefixes =
 
 -- | Each tag is split into a one qualified with its module name and one
 -- without but marked Static.
-qualify :: Pos TagVal -> Pos TagVal
-qualify (Token.Pos pos (TagVal name typ)) =
-    Token.Pos pos $ TagVal (T.pack module_ <> "." <> name) typ
+qualify :: Bool -> Pos TagVal -> Pos TagVal
+qualify fullyQualify (Token.Pos pos (TagVal name typ)) =
+    Token.Pos pos (TagVal qualified typ)
     where
-    module_ = FilePath.takeFileName $
-        FilePath.dropExtension $ Token.posFile pos
-
-fullyQualify :: Pos TagVal -> Pos TagVal
-fullyQualify (Token.Pos pos (TagVal name typ)) =
-    Token.Pos pos $ TagVal (T.pack module_ <> "." <> name) typ
-    where
-    module_ = map replace $ FilePath.dropExtension $ Token.posFile pos
-    replace '/' = '.'
-    replace c = c
+    qualified = case typ of
+        Module -> module_
+        _ -> module_ <> "." <> name
+    module_
+        | fullyQualify = T.replace "/" "." $ T.pack file
+        | otherwise = T.pack $ FilePath.takeFileName file
+    file = FilePath.dropExtension $ Token.posFile pos
 
 -- | Process one file's worth of tags.
 process :: FilePath -> Bool -> Text -> ([Pos TagVal], [String])

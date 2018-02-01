@@ -132,8 +132,8 @@ main = do
             newTags <- return $ if NoModuleTags `elem` flags
                 then filter ((/=Tag.Module) . typeOf) newTags else newTags
             newTags <- return $ (newTags ++) $ if
-                | FullyQualified `elem` flags -> map Tag.fullyQualify newTags
-                | Qualified `elem` flags -> map Tag.qualify newTags
+                | FullyQualified `elem` flags -> map (Tag.qualify True) newTags
+                | Qualified `elem` flags -> map (Tag.qualify False) newTags
                 | otherwise -> []
             -- Try to do work before taking the lock.
             Exception.evaluate $ DeepSeq.rnf warnings
