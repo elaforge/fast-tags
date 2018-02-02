@@ -10,12 +10,23 @@
 #
 # I install it into ~/.vim/py and enable like this:
 #
+# In global .vimrc:
+#
 # if has('python')
 #     py import sys, os, vim
 #     py sys.path.insert(0, os.environ['HOME'] + '/.vim/py')
-#     py import qualified_tag
-#     nmap <silent> <c-]> :py qualified_tag.tag_word(vim)<cr>
 # endif
+#
+# In your haskell specific vimrc:
+#
+# if has('python')
+#     py import qualified_tag
+#     nnoremap <buffer> <silent> <c-]> :py qualified_tag.tag_word(vim)<cr>
+# endif
+#
+# If you use 'filetype', you can do:
+#
+# autocmd FileType haskell nnoremap ...
 
 import sys, re
 

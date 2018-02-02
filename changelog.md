@@ -1,3 +1,10 @@
+1.4
+
+* Add qualified_tag.py, which is more clever about following qualified symbols,
+without modifying iskeyword.  I also added --fully_qualified to support it.
+Now renamed imports such as `import A.B.C as D` should chase `D.x` to
+`A.B.C.x`.
+
 1.3
 
 * A tag will suppress any other tags with the same name within 2 lines.
