@@ -3,7 +3,8 @@
 * Add qualified_tag.py, which is more clever about following qualified symbols,
 without modifying iskeyword.  I also added --fully_qualified to support it.
 Now renamed imports such as `import A.B.C as D` should chase `D.x` to
-`A.B.C.x`.
+`A.B.C.x`.  Thanks to JonnyRa in https://github.com/elaforge/fast-tags/issues/33
+for the inspiration.
 
 1.3
 

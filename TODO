@@ -2,6 +2,37 @@ LEGEND
   - todo; + in progress; * done; / obsolete, do not want, or can't repro
   ? open question; . note; bug: marks bugs.
 
+- How could I support re-exports?
+  . I guess if I see 'module Xyz' in the export list, I should go get the tags
+    from Xyz.
+  . To be accurate, I'd want only the imported tags.
+  . And of course we can also export just by writing the symbol name.
+  . So the fully accurate version would be look at the export list.  Any
+    symbols imported from someplace else have to be chased to that module.
+  . This is actually two things:
+    1 - one is to only make tags for exported symbols.  I'd want to emit those
+      as qualified tags, and the rest as static tags.  However, I don't know
+      that this really helps, because it's not like having too many qualified
+      tags hurts anything, since by nature they won't conflict.  You're just
+      unlikely to follow them.
+      . The problem with this is that it can get messed up by my
+        #ifdef TESTING export all habit.  Let's not do 1 then.
+    2 - The other thing is to be able to chase imported symbols.  Possibly
+      recurse multiple times.
+  . If I do 2, I still have to do full parsing of the export and import
+    blocks:
+      exports = parseExports module :: [Either Symbol ModuleName]
+      imports = parseImports module :: Map ModuleName (Either [Symbol] All)
+      imports = [either id (exportsOf module) imports | (module, imports) <- imports]
+      exportsOf = parse module
+
+      resolve (Right module) = chase module (Map.lookup module imports)
+      resolve (Left sym) = chase module [sym]
+      in
+      resolve exports
+    . So this seems doable, but nontrivial.
+  . First I should see what the haskell ide guys have done.
+
 * Implement --fully_qualified
   . This is like --qualified except that it uses full qualification, for use
     with qualified_tag.py.

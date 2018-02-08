@@ -67,7 +67,7 @@ options =
         [ "Each tag gets a version qualified with its module name, like M.f,"
         , " and an unqualified version."
         ]
-    , GetOpt.Option [] ["fully_qualified"] (GetOpt.NoArg FullyQualified) $
+    , GetOpt.Option [] ["fully-qualified"] (GetOpt.NoArg FullyQualified) $
         concat
         [ "Like --qualified, but the tag is fully qualified, A.B.C.f."
         , " Use with qualified_tag.py."

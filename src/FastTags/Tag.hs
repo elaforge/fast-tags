@@ -129,7 +129,11 @@ processFile fn trackPrefixes =
 -- * qualify
 
 -- | Each tag is split into a one qualified with its module name and one
--- without but marked Static.
+-- without.
+--
+-- TODO I could mark it static, to put in a file: mark, which would make vim
+-- prioritize it for same-file tags, but I think it already does that, so maybe
+-- this isn't necessary?
 qualify :: Bool -> Pos TagVal -> Pos TagVal
 qualify fullyQualify (Token.Pos pos (TagVal name typ)) =
     Token.Pos pos (TagVal qualified typ)
