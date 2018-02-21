@@ -670,13 +670,12 @@ stripOptContext origToks = go origToks
 -- | Drop all tokens for which @pred@ returns True, also drop () or []
 -- parenthesized expressions.
 dropWithStrippingBalanced :: (TokenVal -> Bool) -> [Token] -> [Token]
-dropWithStrippingBalanced p input@(Pos _ LParen : _) =
-    dropWithStrippingBalanced p $ stripBalancedParens input
-dropWithStrippingBalanced p input@(Pos _ LBracket : _) =
-    dropWithStrippingBalanced p $ stripBalancedBrackets input
-dropWithStrippingBalanced p (Pos _ tok : xs)
-    | p tok  = dropWithStrippingBalanced p xs
-dropWithStrippingBalanced _ xs = xs
+dropWithStrippingBalanced p = go
+    where
+    go input@(Pos _ LParen : _)   = go $ stripBalancedParens input
+    go input@(Pos _ LBracket : _) = go $ stripBalancedBrackets input
+    go (Pos _ tok : xs) | p tok   = go xs
+    go xs = xs
 
 stripBalancedParens :: [Token] -> [Token]
 stripBalancedParens = stripBalanced LParen RParen
