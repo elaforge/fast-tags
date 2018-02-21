@@ -466,7 +466,7 @@ toplevelFunctionTags toks = case tags of
     where
     -- first try to detect tags from type signature, if it fails then
     -- do the actual work of detecting from body
-    (tags, _) = functionTags False toks
+    (tags, _) = functionTags ExpectFunctions toks
     toRepeatableTag :: Tag -> Tag
     toRepeatableTag (Tag t) = RepeatableTag t
     toRepeatableTag t       = t
@@ -486,7 +486,7 @@ functionTagsNoSig toks = go toks
     go (Pos _ Pipe : _)             = functionOrOp toks
     go toks@(Pos _ LBrace : _)      = go $ stripBalancedBraces toks
     go (Pos _ Backtick : Pos pos' (T name') : _)
-        | functionName False name'  = [mkRepeatableTag pos' name' Function]
+        | functionName ExpectFunctions name' = [mkRepeatableTag pos' name' Function]
     go (Pos pos (T name) : _)
         | name /= "_" && T.all haskellOpChar name =
             [mkRepeatableTag pos name Operator]
@@ -496,7 +496,7 @@ functionTagsNoSig toks = go toks
     functionOrOp :: [Token] -> [Tag]
     functionOrOp toks = case stripOpeningParens toks of
          Pos pos (T name) : _
-             | functionName False name -> [mkRepeatableTag pos name Function]
+             | functionName ExpectFunctions name -> [mkRepeatableTag pos name Function]
          Pos pos tok : _ -> case tokToOpName tok of
              Just name -> [mkRepeatableTag pos name Operator]
              Nothing   -> []
@@ -516,12 +516,13 @@ tokToName _               = Nothing
 
 -- | Get tags from a function type declaration: token , token , token ::
 -- Return the tokens left over.
-functionTags :: Bool -- ^ expect constructors, not functions
+functionTags :: ExpectedFuncName -- ^ expect constructors or functions
     -> [Token] -> ([Tag], [Token])
 functionTags constructors = go []
     where
-    opTag   = if constructors then Constructor else Operator
-    funcTag = if constructors then Constructor else Function
+    (opTag, funcTag) = case constructors of
+        ExpectConstructors -> (Constructor, Constructor)
+        ExpectFunctions    -> (Operator, Function)
     go :: [Tag] -> [Token] -> ([Tag], [Token])
     go tags (Pos _ LParen : opTok : Pos _ RParen : Pos _ DoubleColon : rest) =
         (reverse $ mkOpTag tags opTag opTok, rest)
@@ -540,16 +541,18 @@ functionTags constructors = go []
         Just name -> mkTag pos name opTag : tags
         Nothing   -> tags
 
-functionName :: Bool -> Text -> Bool
-functionName constructors = isFunction
+data ExpectedFuncName = ExpectFunctions | ExpectConstructors
+
+functionName :: ExpectedFuncName -> Text -> Bool
+functionName expect = isFunction
     where
     isFunction text = case T.uncons text of
         Just (c, cs) ->
             firstChar c && startIdentChar c && T.all (identChar True) cs
         Nothing      -> False
-    firstChar = if constructors
-                then Char.isUpper
-                else \c -> Char.isLower c || c == '_'
+    firstChar = case expect of
+        ExpectFunctions    -> \c -> Char.isLower c || c == '_'
+        ExpectConstructors -> Char.isUpper
 
 -- | * = X *
 newtypeTags :: SrcPos -> [Token] -> [Tag]
@@ -589,7 +592,7 @@ dataConstructorTags prevPos unstripped
           . stripNewlines
     collectRest :: [Token] -> [Tag]
     collectRest tokens
-        | (tags@(_:_), rest) <- functionTags False tokens =
+        | (tags@(_:_), rest) <- functionTags ExpectFunctions tokens =
             tags ++ collectRest (dropUntilNextField rest)
     collectRest (Pos pipePos Pipe : rest)
         | Just (Pos pos (T name), rest'') <- extractInfixConstructor rest' =
@@ -701,12 +704,12 @@ gadtTags unstripped = case rest of
     Pos _ LBrace : rest' -> constructorTag ++ collectFields rest'
     _                    -> constructorTag
     where
-    (constructorTag, rest) = functionTags True $ stripNewlines unstripped
+    (constructorTag, rest) = functionTags ExpectConstructors $ stripNewlines unstripped
     collectFields :: [Token] -> [Tag]
     collectFields (Pos _ Comma : rest) = collectFields rest
     collectFields (Pos _ RBrace : _)   = []
     collectFields tokens
-        | (tags@(_:_), rest) <- functionTags False tokens =
+        | (tags@(_:_), rest) <- functionTags ExpectFunctions tokens =
             tags ++ collectFields (dropUntilNextField rest)
         | otherwise = []
     dropUntilNextField :: [Token] -> [Token]
@@ -733,7 +736,7 @@ classBodyTags :: UnstrippedTokens -> [Tag]
 classBodyTags unstripped = case stripNewlines unstripped of
     Pos _ KWType : Pos pos (T name) : _ -> [mkTag pos name Family]
     Pos _ KWData : Pos pos (T name) : _ -> [mkTag pos name Family]
-    tokens                              -> fst $ functionTags False tokens
+    tokens                              -> fst $ functionTags ExpectFunctions tokens
 
 -- | Skip to the where and split the indented block below it.
 whereBlock :: UnstrippedTokens -> [UnstrippedTokens]
