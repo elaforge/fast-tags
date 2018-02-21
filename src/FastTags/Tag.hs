@@ -249,7 +249,8 @@ identChar considerDot c = Char.isAlphaNum c || c == '\'' || c == '_'
     || c == '#' || considerDot && c == '.'
 
 haskellOpChar :: Char -> Bool
-haskellOpChar c =
+haskellOpChar '_' = False
+haskellOpChar c   =
     IntSet.member (Char.ord c) opChars
         || Util.isSymbolCharacterCategory (Char.generalCategory c)
     where
@@ -488,7 +489,7 @@ functionTagsNoSig allToks = go allToks
     go (Pos _ Backtick : Pos pos' (T name') : _)
         | functionName ExpectFunctions name' = [mkRepeatableTag pos' name' Function]
     go (Pos pos (T name) : _)
-        | name /= "_" && T.all haskellOpChar name =
+        | T.all haskellOpChar name =
             [mkRepeatableTag pos name Operator]
     go (_ : ts)                     = go ts
     stripOpeningParens :: [Token] -> [Token]
@@ -508,6 +509,7 @@ tokToOpName tok = case tokToName tok of
     _ -> Nothing
 
 tokToName :: TokenVal -> Maybe Text
+tokToName (T "_")         = Nothing
 tokToName (T name)        = Just name
 tokToName ExclamationMark = Just "!"
 tokToName Tilde           = Just "~"
@@ -548,6 +550,8 @@ functionName :: ExpectedFuncName -> Text -> Bool
 functionName expect = isFunction
     where
     isFunction text = case T.uncons text of
+        Just ('_', cs)
+            | T.null cs -> False
         Just (c, cs) ->
             firstChar c && startIdentChar c && T.all (identChar True) cs
         Nothing      -> False
