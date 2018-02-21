@@ -141,7 +141,7 @@ unstrippedTokensOf (UnstrippedTokens tokens) = tokens
 
 -- | Drop @n@ non-newline tokens.
 dropTokens :: Int -> UnstrippedTokens -> UnstrippedTokens
-dropTokens n = mapTokens (f n)
+dropTokens k = mapTokens (f k)
     where
     f :: Int -> [Token] -> [Token]
     f 0 xs                       = xs
@@ -472,7 +472,7 @@ toplevelFunctionTags toks = case tags of
     toRepeatableTag t       = t
 
 functionTagsNoSig :: [Token] -> [Tag]
-functionTagsNoSig toks = go toks
+functionTagsNoSig allToks = go allToks
     where
     go :: [Token] -> [Tag]
     go []                           = []
@@ -482,8 +482,8 @@ functionTagsNoSig toks = go toks
     go (Pos _ ExclamationMark : ts) = go ts
     go (Pos _ Tilde : ts)           = go ts
     go (Pos _ At : ts)              = go ts
-    go (Pos _ Equals : _)           = functionOrOp toks
-    go (Pos _ Pipe : _)             = functionOrOp toks
+    go (Pos _ Equals : _)           = functionOrOp allToks
+    go (Pos _ Pipe : _)             = functionOrOp allToks
     go toks@(Pos _ LBrace : _)      = go $ stripBalancedBraces toks
     go (Pos _ Backtick : Pos pos' (T name') : _)
         | functionName ExpectFunctions name' = [mkRepeatableTag pos' name' Function]
@@ -537,8 +537,9 @@ functionTags constructors = go []
     go tags tokens = (tags, tokens)
 
     mkOpTag :: [Tag] -> Type -> Token -> [Tag]
-    mkOpTag tags opTag (Pos pos tok) = case tokToOpName tok of
-        Just name -> mkTag pos name opTag : tags
+    mkOpTag tags opTag' (Pos pos tok) =
+      case tokToOpName tok of
+        Just name -> mkTag pos name opTag' : tags
         Nothing   -> tags
 
 data ExpectedFuncName = ExpectFunctions | ExpectConstructors
@@ -669,12 +670,12 @@ stripOptContext origToks = go origToks
 -- | Drop all tokens for which @pred@ returns True, also drop () or []
 -- parenthesized expressions.
 dropWithStrippingBalanced :: (TokenVal -> Bool) -> [Token] -> [Token]
-dropWithStrippingBalanced pred input@(Pos _ LParen : _) =
-    dropWithStrippingBalanced pred $ stripBalancedParens input
-dropWithStrippingBalanced pred input@(Pos _ LBracket : _) =
-    dropWithStrippingBalanced pred $ stripBalancedBrackets input
-dropWithStrippingBalanced pred (Pos _ tok : xs)
-    | pred tok  = dropWithStrippingBalanced pred xs
+dropWithStrippingBalanced p input@(Pos _ LParen : _) =
+    dropWithStrippingBalanced p $ stripBalancedParens input
+dropWithStrippingBalanced p input@(Pos _ LBracket : _) =
+    dropWithStrippingBalanced p $ stripBalancedBrackets input
+dropWithStrippingBalanced p (Pos _ tok : xs)
+    | p tok  = dropWithStrippingBalanced p xs
 dropWithStrippingBalanced _ xs = xs
 
 stripBalancedParens :: [Token] -> [Token]
@@ -691,11 +692,11 @@ stripBalanced open close (Pos _ tok : xs)
     | tok == open = go 1 xs
     where
     go :: Int -> [Token] -> [Token]
-    go 0 xs = xs
-    go !n (Pos _ tok' : xs)
-        | tok' == open  = go (n + 1) xs
-        | tok' == close = go (n - 1) xs
-    go n (_: xs) = go n xs
+    go 0 ys = ys
+    go !n (Pos _ tok' : ys)
+        | tok' == open  = go (n + 1) ys
+        | tok' == close = go (n - 1) ys
+    go n (_: ys) = go n ys
     go _ []      = []
 stripBalanced _ _ xs = xs
 
