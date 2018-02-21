@@ -660,6 +660,13 @@ testFunctions = testGroup "functions"
     , "(--+) :: X -> Y" ==> ["--+"]
     , "(=>>) :: X -> Y" ==> ["=>>"]
 
+    , "assertDataFormatError :: DecompressError -> IO String\n\
+      \assertDataFormatError (DataFormatError detail) = return detail\n\
+      \assertDataFormatError _                        = assertFailure \"expected DataError\"\n\
+      \                                              >> return \"\"\n"
+      ==>
+      ["assertDataFormatError"]
+
     , "_g :: X -> Y"    ==> ["_g"]
     , toplevelFunctionsWithoutSignatures
     ]
