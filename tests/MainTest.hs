@@ -667,6 +667,8 @@ testFunctions = testGroup "functions"
       ==>
       ["assertDataFormatError"]
 
+    , "(r `mkQ` br) a = _" ==> ["mkQ"]
+
     , "_g :: X -> Y"    ==> ["_g"]
     , toplevelFunctionsWithoutSignatures
     ]

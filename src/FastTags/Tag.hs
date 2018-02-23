@@ -477,6 +477,8 @@ functionTagsNoSig allToks = go allToks
     where
     go :: [Token] -> [Tag]
     go []                           = []
+    go (Pos _ LParen : Pos _ T{} : Pos _ Backtick : Pos pos' (T name') : Pos _ Backtick : Pos _ T{} : Pos _ RParen : _)
+        | functionName ExpectFunctions name' = [mkRepeatableTag pos' name' Function]
     go toks@(Pos _ LParen : _)      = go $ stripBalancedParens toks
     -- This function does not analyze type signatures.
     go (Pos _ DoubleColon : _)      = []
