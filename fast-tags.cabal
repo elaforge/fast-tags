@@ -14,6 +14,13 @@ description:
     keep the tags file up to date.  This only works for files changed by the
     editor of course, so you may want to bind 'rm tags' to a 'pull' posthook.
     .
+    With the --fully_qualified tag and a fancy vim function, it can
+    disambiguate tags based on their qualification, even if it's locally
+    renamed.  So M.x will find  A.B.x if you import A.B as M.
+    .
+    To see the extra vim configuration, you probably have to get the source via
+    cabal unpack or git clone.
+    .
     Limitations:
     .
     - Not using a real haskell parser means there is likely to be dark
