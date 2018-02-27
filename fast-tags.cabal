@@ -14,7 +14,7 @@ description:
     keep the tags file up to date.  This only works for files changed by the
     editor of course, so you may want to bind 'rm tags' to a 'pull' posthook.
     .
-    With the --fully_qualified tag and a fancy vim function, it can
+    With the --fully_qualified flag and a fancy vim function, it can
     disambiguate tags based on their qualification, even if it's locally
     renamed.  So M.x will find  A.B.x if you import A.B as M.
     .
