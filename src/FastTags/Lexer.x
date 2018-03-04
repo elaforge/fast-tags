@@ -84,7 +84,7 @@ $hexdigit   = [0-9a-fA-F]
 
 <0> {
 
-$nl $space*             { \_ len -> pure $ Newline $ len - 1 }
+[\\]? $nl $space*       { \_ len -> pure $ Newline $ len - 1 }
 [\-][\-]+ ~[$symbol $nl] .* ;
 [\-][\-]+ / $nl         ;
 
