@@ -1,7 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module MainTest (main) where
-
 import Control.Arrow (first)
 import qualified Data.List as List
 import Data.Text (Text)

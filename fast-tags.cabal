@@ -53,6 +53,11 @@ flag fast
         Spend more time optimizing a program (may yield up to 25% speedup)
     default: False
 
+flag profile
+    description: add -auto-all
+    default: False
+    manual: True
+
 library
     build-depends:
         base >= 3 && < 5, mtl >=2.1, containers, cpphs >1.18, filepath,
@@ -76,11 +81,12 @@ library
         FastTags.Util
     hs-source-dirs: src
     ghc-options: -Wall -fno-warn-name-shadowing
-    ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all
     if flag(fast)
         ghc-options:
             -funfolding-creation-threshold=10000
             -funfolding-use-threshold=2500
+    if flag(profile)
+        ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all
 
 executable fast-tags
     main-is: src/FastTags/Main.hs
@@ -93,20 +99,26 @@ executable fast-tags
         bytestring,
         deepseq,
         fast-tags
-    ghc-options: -main-is FastTags.Main -Wall -fno-warn-name-shadowing -threaded
-    ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all -threaded
+    -- cabal emits a warning about -main-is, but there doesn't seem to
+    -- any alternative.  Unnaming FastTags.Main means I lose
+    -- -Wunused-top-binds, changing the name to Main means I lose ghci,
+    -- and adding a dummy Main means I have to export it from the
+    -- library.
+    ghc-options:
+        -main-is FastTags.Main -Wall -fno-warn-name-shadowing -threaded
     if flag(fast)
         ghc-options:
             -funfolding-creation-threshold=10000
             -funfolding-use-threshold=2500
+    if flag(profile)
+        ghc-prof-options:
+            -auto-all -Wall -fno-warn-name-shadowing -threaded
 
 test-suite test-fast-tags
     type: exitcode-stdio-1.0
     main-is: MainTest.hs
     hs-source-dirs: tests
     ghc-options: -Wall -fno-warn-name-shadowing -fno-warn-type-defaults
-        -main-is MainTest
-    ghc-prof-options: -main-is MainTest
     build-depends:
         base >= 3 && < 5, containers, filepath, directory,
         -- text 0.11.1.12 has a bug.

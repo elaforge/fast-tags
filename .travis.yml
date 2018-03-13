@@ -59,7 +59,7 @@ install:
   - echo "$(${HC} --version) [$(${HC} --print-project-git-commit-id 2> /dev/null || echo '?')]"
   - BENCH=${BENCH---enable-benchmarks}
   - TEST=${TEST---enable-tests}
-  - HADDOCK=${HADDOCK-true}
+  - HADDOCK=${HADDOCK-false}
   - INSTALLED=${INSTALLED-true}
   - GHCHEAD=${GHCHEAD-false}
   - travis_retry cabal update -v
@@ -97,8 +97,9 @@ script:
   - cabal new-build -w ${HC} ${TEST} ${BENCH} all
   - if [ "x$TEST" = "x--enable-tests" ]; then cabal new-test -w ${HC} ${TEST} ${BENCH} all; fi
 
+  # Disabled, see comment in .cabal.
   # cabal check
-  - (cd fast-tags-* && cabal check)
+  # - (cd fast-tags-* && cabal check)
 
   # haddock
   - rm -rf ./dist-newstyle
