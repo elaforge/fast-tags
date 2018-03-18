@@ -52,6 +52,8 @@ def expand_word(line, col):
     while end < len(line) and is_keyword(line[end]):
         end += 1
     word = line[start:end]
+    # Strip punctuation in case it's in a sentence in a comment.
+    word = word.rstrip('.,?!')
     if word and (word[0] == word[-1] == "'" or word[0] == word[-1] == '"'):
         # Make tags on haddock references like 'A.B' work.
         return word[1:-1]
