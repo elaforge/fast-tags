@@ -1,3 +1,7 @@
+1.4.1
+
+* Ghc 8.4.1 compatibility.
+
 1.4
 
 * Add qualified_tag.py, which is more clever about following qualified symbols,

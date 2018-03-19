@@ -1,10 +1,11 @@
-{-# LANGUAGE BangPatterns               #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE PatternGuards              #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE ViewPatterns               #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE CPP #-}
 
 {-# OPTIONS_GHC -funbox-strict-fields #-}
 
@@ -101,7 +102,11 @@ partitionTags = go [] [] []
 -- newlines might be anywhere.  A newtype makes sure that the tokens only get
 -- stripped once and that I don't do any pattern matching on unstripped tokens.
 newtype UnstrippedTokens = UnstrippedTokens [Token]
+#if MIN_VERSION_base(4,11,0)
+    deriving (Show, Semigroup, Monoid)
+#else
     deriving (Show, Monoid)
+#endif
 
 mapTokens :: ([Token] -> [Token]) -> UnstrippedTokens -> UnstrippedTokens
 mapTokens f (UnstrippedTokens tokens) = UnstrippedTokens (f tokens)
