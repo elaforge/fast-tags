@@ -78,8 +78,8 @@ help :: String
 help = unlines
     [ "usage: fast-tags [options] [filenames]"
     , ""
-    , "If no filenames are given, fast-tags expects a list of files separated"
-    , "by newlines on stdin."
+    , "If a single '-' is given for filenames, fast-tags expects a list of"
+    , "files separated by newlines on stdin."
     , ""
     , "A tag will suppress any other tags with the same name within 2"
     , "lines.  This should prevent multiple tag matches for things like"
@@ -126,7 +126,7 @@ main = do
 
     inputs <- Util.unique <$> getInputs flags inputs
     when (null inputs) $
-        usage "no input files on either command line or stdin\n"
+        Exit.exitSuccess
     stderr <- MVar.newMVar IO.stderr
     newTags <- flip Async.mapConcurrently (zip [0..] inputs) $
         \(i :: Int, fn) -> do
@@ -173,7 +173,7 @@ typeOf tagVal = case Token.valOf tagVal of
 -- directories, get *.hs inside, and continue to recurse if Recurse is set.
 getInputs :: [Flag] -> [FilePath] -> IO [FilePath]
 getInputs flags inputs
-    | null inputs = Util.split sep <$> getContents
+    | inputs == ["-"] = Util.split sep <$> getContents
     | otherwise = fmap concat $ forM inputs $ \input -> do
         -- If an input is a directory then we find the haskell files inside it,
         -- optionally recursing further if the -R switch is specified.
