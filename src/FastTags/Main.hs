@@ -75,12 +75,14 @@ options =
     ]
 
 help :: String
-help = concat
-    [ "usage: fast-tags [options] [filenames]\n"
-    , "If no filenames are given, fast-tags expects a list of files separated\n"
-    , "by newlines on stdin.\n\n"
-    , "A tag will suppress any other tags with the same name within 2\n"
-    , "lines.  This should prevent multiple tag matches for things like\n"
+help = unlines
+    [ "usage: fast-tags [options] [filenames]"
+    , ""
+    , "If no filenames are given, fast-tags expects a list of files separated"
+    , "by newlines on stdin."
+    , ""
+    , "A tag will suppress any other tags with the same name within 2"
+    , "lines.  This should prevent multiple tag matches for things like"
     , "`data X = X`.  Currently the 2 line limit is not configurable."
     ]
 
@@ -159,7 +161,9 @@ main = do
       mapM_ (write hdl) allTags
 
     where
-    usage msg = putStr (GetOpt.usageInfo msg options) >> Exit.exitFailure
+    usage msg = do
+        putStr $ GetOpt.usageInfo (msg <> "\n" <> help) options
+        Exit.exitFailure
 
 typeOf :: Token.Pos Tag.TagVal -> Tag.Type
 typeOf tagVal = case Token.valOf tagVal of
