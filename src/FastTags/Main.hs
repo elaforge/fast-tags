@@ -45,24 +45,18 @@ import qualified Paths_fast_tags
 
 options :: [GetOpt.OptDescr Flag]
 options =
-    [ GetOpt.Option ['h'] ["help"] (GetOpt.NoArg Help)
-        "print help message"
-    , GetOpt.Option ['o'] [] (GetOpt.ReqArg Output "file")
-        "output file, defaults to 'tags'"
-    , GetOpt.Option ['e'] [] (GetOpt.NoArg ETags)
+    [ GetOpt.Option ['e'] [] (GetOpt.NoArg ETags)
         "generate tags in Emacs format"
-    , GetOpt.Option ['v'] [] (GetOpt.NoArg Verbose)
-        "print files as they are tagged, useful to track down slow files"
-    , GetOpt.Option ['R'] [] (GetOpt.NoArg Recurse)
-        "read all files under any specified directories recursively"
-    , GetOpt.Option ['0'] [] (GetOpt.NoArg ZeroSep)
-        "expect list of file names on stdin to be 0-separated."
+    , GetOpt.Option ['h'] ["help"] (GetOpt.NoArg Help)
+        "print help message"
+    , GetOpt.Option ['L'] ["follow-symlinks"] (GetOpt.NoArg FollowSymlinks)
+        "follow symlinks when -R is given"
     , GetOpt.Option [] ["nomerge"] (GetOpt.NoArg NoMerge)
         "replace an existing tags file instead of merging into it"
-    , GetOpt.Option [] ["version"] (GetOpt.NoArg Version)
-        "print current version"
     , GetOpt.Option [] ["no-module-tags"] (GetOpt.NoArg NoModuleTags)
         "do not generate tags for modules"
+    , GetOpt.Option ['o'] [] (GetOpt.ReqArg Output "file")
+        "output file, defaults to 'tags'"
     , GetOpt.Option [] ["qualified"] (GetOpt.NoArg Qualified) $ concat
         [ "Each tag gets a version qualified with its module name, like M.f,"
         , " and an unqualified version."
@@ -72,6 +66,14 @@ options =
         [ "Like --qualified, but the tag is fully qualified, A.B.C.f."
         , " Use with qualified_tag.py."
         ]
+    , GetOpt.Option ['R'] [] (GetOpt.NoArg Recurse)
+        "read all files under any specified directories recursively"
+    , GetOpt.Option ['v'] [] (GetOpt.NoArg Verbose)
+        "print files as they are tagged, useful to track down slow files"
+    , GetOpt.Option [] ["version"] (GetOpt.NoArg Version)
+        "print current version"
+    , GetOpt.Option ['0'] [] (GetOpt.NoArg ZeroSep)
+        "expect list of file names on stdin to be 0-separated."
     ]
 
 help :: String
@@ -90,8 +92,9 @@ help = unlines
 maxSeparation :: Int
 maxSeparation = 2
 
-data Flag = Output FilePath | Help | Verbose | ETags | Recurse | NoMerge
-    | ZeroSep | Version | NoModuleTags | Qualified | FullyQualified
+data Flag = ETags | FollowSymlinks | FullyQualified | Help | NoMerge
+    | NoModuleTags | Output FilePath | Qualified | Recurse | Verbose
+    | Version | ZeroSep
     deriving (Eq, Show)
 
 main :: IO ()
@@ -99,11 +102,9 @@ main = do
     args <- Environment.getArgs
     (flags, inputs) <- case GetOpt.getOpt GetOpt.Permute options args of
         (flags, inputs, []) -> return (flags, inputs)
-        (_, _, errs) ->
-            let errMsg = "flag errors:\n" ++ List.intercalate ", " errs
-            in usage $ errMsg ++ "\n" ++ help
+        (_, _, errs) -> usage $ "flag errors:\n" ++ List.intercalate ", " errs
 
-    when (Help `elem` flags) $ usage help
+    when (Help `elem` flags) $ usage ""
     when (Version `elem` flags) $ do
         putStrLn $ "fast-tags, version "
             ++ Version.showVersion Paths_fast_tags.version
@@ -176,20 +177,23 @@ getInputs flags inputs
     | Recurse `elem` flags = fmap concat $ forM inputs $ \input -> do
         isDirectory <- Directory.doesDirectoryExist input
         if isDirectory
-            then filter Tag.isHsFile <$> getRecursiveDirContents input
+            then filter Tag.isHsFile <$>
+                getRecursiveDirContents followSymlinks input
             else return [input]
     | otherwise = return inputs
     where
     sep = if ZeroSep `elem` flags then '\0' else '\n'
+    followSymlinks = FollowSymlinks `elem` flags
 
 -- | Recurse directories collecting all files
-getRecursiveDirContents :: FilePath -> IO [FilePath]
-getRecursiveDirContents topdir = do
+getRecursiveDirContents :: Bool -> FilePath -> IO [FilePath]
+getRecursiveDirContents followSymlinks topdir = do
     paths <- listDir topdir
     fmap concat $ forM paths $ \path -> do
         isDirectory <- Directory.doesDirectoryExist path
-        if isDirectory
-            then getRecursiveDirContents path
+        isSymlink <- Directory.pathIsSymbolicLink path
+        if isDirectory && (followSymlinks || not isSymlink)
+            then getRecursiveDirContents followSymlinks path
             else return [path]
 
 -- | 'Directory.getDirectoryContents', but don't return dot files, and prepend
