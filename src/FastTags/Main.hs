@@ -169,22 +169,17 @@ typeOf :: Token.Pos Tag.TagVal -> Tag.Type
 typeOf tagVal = case Token.valOf tagVal of
     Tag.TagVal _ typ -> typ
 
--- | Expand file inputs. If there are no inputs, read them from stdin.  For
--- directories, get *.hs inside, and continue to recurse if Recurse is set.
+-- | Expand file inputs from cmdline.
 getInputs :: [Flag] -> [FilePath] -> IO [FilePath]
 getInputs flags inputs
     | inputs == ["-"] = Util.split sep <$> getContents
-    | otherwise = fmap concat $ forM inputs $ \input -> do
-        -- If an input is a directory then we find the haskell files inside it,
-        -- optionally recursing further if the -R switch is specified.
+    | Recurse `elem` flags = fmap concat $ forM inputs $ \input -> do
         isDirectory <- Directory.doesDirectoryExist input
         if isDirectory
-            then filter Tag.isHsFile <$> contents input
+            then filter Tag.isHsFile <$> getRecursiveDirContents input
             else return [input]
+    | otherwise = return inputs
     where
-    contents
-        | Recurse `elem` flags = getRecursiveDirContents
-        | otherwise = getProperDirContents
     sep = if ZeroSep `elem` flags then '\0' else '\n'
 
 -- | Get all absolute filepaths contained in the supplied topdir,
