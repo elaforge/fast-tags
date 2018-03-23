@@ -182,21 +182,18 @@ getInputs flags inputs
     where
     sep = if ZeroSep `elem` flags then '\0' else '\n'
 
--- | Get all absolute filepaths contained in the supplied topdir,
--- except "." and ".."
-getProperDirContents :: FilePath -> IO [FilePath]
-getProperDirContents topdir = do
-    names <- Directory.getDirectoryContents topdir
-    let properNames = filter (`notElem` [".", ".."]) names
-    return $ map ((</>) topdir) properNames
-
 -- | Recurse directories collecting all files
 getRecursiveDirContents :: FilePath -> IO [FilePath]
 getRecursiveDirContents topdir = do
-    paths <- getProperDirContents topdir
-    paths' <- forM paths $ \path -> do
+    paths <- listDir topdir
+    fmap concat $ forM paths $ \path -> do
         isDirectory <- Directory.doesDirectoryExist path
         if isDirectory
             then getRecursiveDirContents path
             else return [path]
-    return (concat paths')
+
+-- | 'Directory.getDirectoryContents', but don't return dot files, and prepend
+-- directory.
+listDir :: FilePath -> IO [FilePath]
+listDir dir = map (dir</>) . filter (not . ("." `List.isPrefixOf`)) <$>
+    Directory.getDirectoryContents dir
