@@ -163,7 +163,7 @@ main = do
 
     where
     usage msg = do
-        putStr $ GetOpt.usageInfo (msg <> "\n" <> help) options
+        putStr $ GetOpt.usageInfo (msg ++ "\n" ++ help) options
         Exit.exitFailure
 
 typeOf :: Token.Pos Tag.TagVal -> Tag.Type
