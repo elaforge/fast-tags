@@ -28,6 +28,12 @@ before_cache:
 
 matrix:
   include:
+    - compiler: "ghc-7.8.4"
+    # env: TEST=--disable-tests BENCH=--disable-benchmarks
+      addons: {apt: {packages: [ghc-ppa-tools,cabal-install-head,ghc-7.8.4,alex], sources: [hvr-ghc]}}
+    - compiler: "ghc-7.10.3"
+    # env: TEST=--disable-tests BENCH=--disable-benchmarks
+      addons: {apt: {packages: [ghc-ppa-tools,cabal-install-head,ghc-7.10.3,alex], sources: [hvr-ghc]}}
     - compiler: "ghc-8.0.2"
     # env: TEST=--disable-tests BENCH=--disable-benchmarks
       addons: {apt: {packages: [ghc-ppa-tools,cabal-install-head,ghc-8.0.2,alex], sources: [hvr-ghc]}}
@@ -54,7 +60,7 @@ install:
   - BENCH=${BENCH---enable-benchmarks}
   - TEST=${TEST---enable-tests}
   - HADDOCK=${HADDOCK-false}
-  - INSTALLED=${INSTALLED-true}
+  - INSTALLED=${INSTALLED-false}
   - GHCHEAD=${GHCHEAD-false}
   - travis_retry cabal update -v
   - "sed -i.bak 's/^jobs:/-- jobs:/' ${HOME}/.cabal/config"
