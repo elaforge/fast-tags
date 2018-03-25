@@ -4,7 +4,7 @@
 
 # Supported GHC versions #
 
-Tested with GHC `8.0.2`, `8.2.2`, `8.4.1`.
+Tested with GHC `7.8.4`, `7.10.3`, `8.0.2`, `8.2.2`, `8.4.1`.
 
 # Installation #
 
