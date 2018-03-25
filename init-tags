@@ -5,7 +5,7 @@ setopt extended_glob
 
 fns=$@
 if [[ ! -r tags ]]; then
-    Generating tags from scratch...
+    echo Generating tags from scratch...
     exec fast-tags **/*.hs $fns
 else
     exec fast-tags $fns

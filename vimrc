@@ -1,4 +1,7 @@
 " Add these to your vimrc to automatically keep the tags file up to date.
+" You'll also need to copy init-tags or some project-specific version to
+" some place where vim can run it.
+"
 " Unfortunately silent means the errors look a little ugly, I suppose I could
 " capture those and print them out with echohl WarningMsg.
 augroup tags
