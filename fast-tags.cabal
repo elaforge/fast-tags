@@ -37,7 +37,7 @@ maintainer: Evan Laforge <qdunkan@gmail.com>
 stability: stable
 tested-with:
     GHC ==7.8.4, GHC ==7.10.3, GHC == 8.0.2, GHC == 8.2.2, GHC == 8.4.1
-data-files: README
+data-files: README.md
 extra-source-files:
     changelog.md
     src/*.hs
