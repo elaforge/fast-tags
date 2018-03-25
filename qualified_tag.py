@@ -53,7 +53,7 @@ def expand_word(line, col):
         end += 1
     word = line[start:end]
     # Strip punctuation in case it's in a sentence in a comment.
-    word = word.lstrip('.').rstrip('.')
+    word = word.strip('.')
     if word and (word[0] == word[-1] == "'" or word[0] == word[-1] == '"'):
         # Make tags on haddock references like 'A.B' work.
         return word[1:-1]
@@ -83,19 +83,21 @@ def get_qualified_imports(lines):
 
 def get_imports(lines):
     imports = []
+    in_imports = False
     for line in lines:
-        if finished_imports(line):
-            break
-        imports.append(line)
+        if line.startswith('import'):
+            in_imports = True
+        if in_imports:
+            if finished_imports(line):
+                break
+            imports.append(line)
     return '\n'.join(imports)
 
 def finished_imports(line):
     # Hacky heuristic to see if I'm past the import block.
     # If it starts with non-space but not 'import', then it's probably
-    # not an import or import continuation.  Look for :: just for good
-    # measure, since I don't think that can show up in an import line.
-    return (line and not line.startswith('import')
-        and not line[0].isspace() and '::' in line)
+    # not an import or import continuation.
+    return line and not line.startswith('import') and not line[0].isspace()
 
 def test():
     fn, tag = sys.argv[1:]
