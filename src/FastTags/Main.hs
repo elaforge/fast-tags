@@ -31,6 +31,7 @@ import qualified System.Console.GetOpt as GetOpt
 import qualified System.Directory as Directory
 import qualified System.Environment as Environment
 import qualified System.Exit as Exit
+import qualified System.FilePath as FilePath
 import System.FilePath ((</>))
 import qualified System.IO as IO
 
@@ -125,7 +126,7 @@ main = do
                 else return []
         else return [] -- we do not support tags merging for emacs for now
 
-    inputs <- Util.unique <$> getInputs flags inputs
+    inputs <- map FilePath.normalise . Util.unique <$> getInputs flags inputs
     when (null inputs) $
         Exit.exitSuccess
     stderr <- MVar.newMVar IO.stderr
