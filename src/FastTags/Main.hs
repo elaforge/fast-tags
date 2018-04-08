@@ -155,7 +155,7 @@ main = do
         Exit.exitSuccess
     stderr <- MVar.newMVar IO.stderr
     newTags <- flip Async.mapConcurrently (zip [0..] inputs) $
-        \(i :: Int, fn) -> do
+        \(i :: Int, fn) -> Exception.handle (catchError stderr fn) $ do
             (newTags, warnings) <- Tag.processFile fn trackPrefixes
             newTags <- return $ if NoModuleTags `elem` flags
                 then filter ((/=Tag.Module) . typeOf) newTags else newTags
@@ -192,6 +192,12 @@ main = do
     usage msg = do
         putStr $ GetOpt.usageInfo (msg ++ "\n" ++ help) options
         Exit.exitFailure
+
+catchError :: MVar.MVar IO.Handle -> FilePath -> Exception.SomeException -> IO [a]
+catchError stderr fn e = do
+    MVar.withMVar stderr $ \hdl -> IO.hPutStrLn hdl $
+        "Error while analyzing " ++ fn ++ ":\n" ++ show e
+    return []
 
 typeOf :: Token.Pos Tag.TagVal -> Tag.Type
 typeOf tagVal = case Token.valOf tagVal of
