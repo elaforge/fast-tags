@@ -11,6 +11,8 @@
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
+{-# LANGUAGE BangPatterns #-}
+
 module FastTags.Lexer (tokenize) where
 
 import Control.Applicative
@@ -24,6 +26,7 @@ import Control.Monad.State.Strict
 import qualified Data.IntSet as IS
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Unsafe as Text.Unsafe
 
 import FastTags.LexerTypes
 import FastTags.Token
@@ -86,17 +89,29 @@ $hexdigit   = [0-9a-fA-F]
 
 <0> {
 
-[\\]? $nl $space*       { \_ len -> pure $ Newline $ len - 1 }
+[\\]? $nl $space* "{-"  { \input len -> startIndentationCounting (countInputSpace input len) }
+[\\]? $nl $space*       { \input len -> pure $ Newline $! (len - 1) - (if Text.Unsafe.unsafeHead (aiInput input) == '\\' then 1 else 0) }
 [\-][\-]+ ~[$symbol $nl] .* ;
 [\-][\-]+ / $nl         ;
 
 }
 
 -- Comments
-<0, comment> "{-"       { \_ _ -> startComment }
+<0, comment>
+  "{-"                  { \_ _ -> startComment }
 <comment> "-}"          { \_ _ -> endComment 0 }
 <comment> (. | $nl)     ;
 <0> "-}"                { \_ _ -> errorAtLine "Unmatched -}" }
+
+<indentComment>
+  "{-"                  { \_ _ -> startIndentComment }
+<indentComment> "-}"    { \_ _ -> endComment indentCount }
+<indentComment> (. | $nl) ;
+
+<indentCount> {
+$space* "{-"            { \input len -> addIndentationSize (countInputSpace input len) *> startIndentComment }
+$space*                 { \input len -> endIndentationCounting len }
+}
 
 -- Strings
 <0> [\"]                { \_ _ -> startString }
@@ -222,6 +237,24 @@ alexScanTokenVal = do
                 go input' code
             AlexToken input' tokLen action ->
                 alexSetInput input' >> action input tokLen
+
+startIndentationCounting :: Int -> AlexM TokenVal
+startIndentationCounting !n = do
+    modify (\s -> s { asIndentationSize = n, asCommentDepth = 1 })
+    alexSetStartCode indentComment
+    alexScanTokenVal
+
+endIndentationCounting :: Int -> AlexM TokenVal
+endIndentationCounting !n = do
+    addIndentationSize n
+    alexSetStartCode 0
+    Newline <$> gets asIndentationSize
+
+startIndentComment :: AlexM TokenVal
+startIndentComment = do
+    void $ modifyCommentDepth (+1)
+    alexSetStartCode indentComment
+    alexScanTokenVal
 
 startComment :: AlexM TokenVal
 startComment = do

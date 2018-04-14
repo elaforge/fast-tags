@@ -27,9 +27,23 @@ import Control.Monad.EitherK
 import FastTags.Token
 import qualified FastTags.Util as Util
 
+{-# INLINE advanceLine #-}
 advanceLine :: Char -> Line -> Line
 advanceLine '\n' = increaseLine
 advanceLine _    = id
+
+countInputSpace :: AlexInput -> Int -> Int
+countInputSpace input len =
+    countSpace $ Text.take len $ aiInput input
+    where
+    countSpace :: Text -> Int
+    countSpace = Text.foldl' inc 0
+        where
+        inc acc ' '    = acc + 1
+        inc acc '\t'   = acc + 8
+        inc acc '\x01' = acc + 1
+        inc acc _      = acc
+
 
 data AlexInput = AlexInput {
     aiInput           :: Text
@@ -93,6 +107,7 @@ data AlexState = AlexState {
     , asCode                      :: {-# UNPACK #-} !Int
     , asCommentDepth              :: {-# UNPACK #-} !Int
     , asQuasiquoterDepth          :: {-# UNPACK #-} !Int
+    , asIndentationSize           :: {-# UNPACK #-} !Int
     , asContextStack              :: [Context]
     , asPositionsOfQuasiQuoteEnds :: Maybe IntSet
     } deriving (Show, Eq, Ord)
@@ -103,6 +118,7 @@ mkAlexState input = AlexState
     , asCode                      = 0
     , asCommentDepth              = 0
     , asQuasiquoterDepth          = 0
+    , asIndentationSize           = 0
     , asContextStack              = []
     , asPositionsOfQuasiQuoteEnds = Nothing
     }
@@ -135,6 +151,10 @@ modifyQuasiquoterDepth f = do
 
 retrieveToken :: AlexInput -> Int -> Text
 retrieveToken (AlexInput {aiInput}) len = Text.take len aiInput
+
+addIndentationSize :: (MonadState AlexState m) => Int -> m ()
+addIndentationSize x =
+    modify (\s -> s { asIndentationSize = x + asIndentationSize s })
 
 data QQEndsState = QQEndsState
     { qqessPos      :: {-# UNPACK #-} !Int
