@@ -49,11 +49,6 @@ source-repository head
     type: git
     location: git://github.com/elaforge/fast-tags.git
 
-flag fast
-    description:
-        Spend more time optimizing a program (may yield up to 25% speedup)
-    default: False
-
 flag profile
     description: add -auto-all
     default: False
@@ -82,10 +77,6 @@ library
         FastTags.Util
     hs-source-dirs: src
     ghc-options: -Wall -fno-warn-name-shadowing
-    if flag(fast)
-        ghc-options:
-            -funfolding-creation-threshold=10000
-            -funfolding-use-threshold=2500
     if flag(profile)
         ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all
 
@@ -107,10 +98,6 @@ executable fast-tags
     -- library.
     ghc-options:
         -main-is FastTags.Main -Wall -fno-warn-name-shadowing -threaded
-    if flag(fast)
-        ghc-options:
-            -funfolding-creation-threshold=10000
-            -funfolding-use-threshold=2500
     if flag(profile)
         ghc-prof-options:
             -auto-all -Wall -fno-warn-name-shadowing -threaded
