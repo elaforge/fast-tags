@@ -146,11 +146,23 @@ testTokenize = testGroup "tokenize"
             [ SpliceStart, T "foo", QuasiquoterStart, QuasiquoterEnd, RParen
             , Newline 0
             ]
+        , "$(foo ⟦ baz ⟧)"                    ==>
+            [ SpliceStart, T "foo", QuasiquoterStart, QuasiquoterEnd, RParen
+            , Newline 0
+            ]
         , "$(foo [bar| baz |])"                 ==>
             [ SpliceStart, T "foo", QuasiquoterStart, QuasiquoterEnd, RParen
             , Newline 0
             ]
+        , "$(foo [bar| baz ⟧)"                 ==>
+            [ SpliceStart, T "foo", QuasiquoterStart, QuasiquoterEnd, RParen
+            , Newline 0
+            ]
         , "$(foo [bar| bar!\nbaz!\n $(baz) |])" ==>
+             [ SpliceStart, T "foo", QuasiquoterStart, SpliceStart, T "baz"
+             , RParen, QuasiquoterEnd, RParen, Newline 0
+             ]
+        , "$(foo [bar| bar!\nbaz!\n $(baz) ⟧)" ==>
              [ SpliceStart, T "foo", QuasiquoterStart, SpliceStart, T "baz"
              , RParen, QuasiquoterEnd, RParen, Newline 0
              ]
