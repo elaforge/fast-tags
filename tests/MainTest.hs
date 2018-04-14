@@ -117,6 +117,20 @@ testTokenize = testGroup "tokenize"
       \  \\x\" bar" ==>
         [ T "foo", Equals, String, T "bar", Newline 0]
 
+    , "{-   ___   -}import Data.Char;main=putStr$do{c<-\"/1 AA A A;9+ )11929 )1191A 2C9A \";e\n\
+      \ {- {- | -} -}  {- {- || -} -}{- {- || -} -}{- {- || -} -} {--}.(`divMod`8).(+(-32)).ord$c};f(0,0)=\"\n\";f(m,n)=m?\"  \"++n?\"_/\"\n\
+      \{- {- | -} -}n?x=do{[1..n];x}                                    --- obfuscated\n\
+      \{-\\_/ on Fairbairn, with apologies to Chris Brown. Above is / Haskell 98 -}"
+      ==>
+      [ KWImport, T "Data.Char", Semicolon
+      , T "main", Equals , T "putStr", T "$", KWDo, LBrace, T "c", T "<-", String, Semicolon, T "e", Newline 4
+      , Dot, LParen, Backtick, T "divMod", Backtick, T "8", RParen, Dot
+      , LParen, T "+", LParen, T "-", T "32", RParen, RParen, Dot, T "ord", T "$", T "c", RBrace, Semicolon
+      , T "f", LParen, T "0", Comma, T "0", RParen, Equals, String, Semicolon
+      , T "f", LParen, T "m", Comma, T "n", RParen, Equals, T "m", T "?", String, T "++", T "n", T "?", String, Newline 0
+      , T "n", T "?", T "x", Equals, KWDo, LBrace, LBracket, T "1", T "..", T "n", RBracket, Semicolon, T "x", RBrace, Newline 0, Newline 0
+      ]
+
     , "one_hash, two_hash :: text_type\n\
       \hash_prec :: Int -> Int\n\
       \one_hash  = from_char '#'\n\
@@ -188,7 +202,7 @@ testStripComments = testGroup "stripComments"
     , "hello -- {- there -}\nfred"                               ==>
         ["nl 0", "hello", "nl 0", "fred", "nl 0"]
     , "{-# LANG #-} hello {- there {- nested -} comment -} fred" ==>
-        ["nl 0", "hello", "fred", "nl 0"]
+        ["nl 1", "hello", "fred", "nl 0"]
     , "hello {-\nthere\n------}\n fred"                          ==>
         ["nl 0", "hello",  "nl 1", "fred", "nl 0"]
     , "hello {-  \nthere\n  ------}  \n fred"                    ==>
@@ -910,9 +924,15 @@ testFunctions = testGroup "functions"
       ==>
       ["."]
 
-    , "{- ___ -}import Data.Char;main=putStr$do{c<-\"/1 AA A A;9+ )11929 )1191A 2C9A \";e\n\
+    , "{- 123___ -}import Data.Char;main=putStr$do{c<-\"/1 AA A A;9+ )11929 )1191A 2C9A \";e\n\
       \{-  |  -}    .(`divMod`8).(+(-32)).ord$c};f(0,0)=\"\n\";f(m,n)=m?\"  \"++n?\"_/\"\n\
       \{-  |  -}n?x=do{[1..n];x}                                    --- obfuscated\n\
+      \{-\\_/ on Fairbairn, with apologies to Chris Brown. Above is / Haskell 98 -}"
+      ==>
+      ["?", "f", "main"]
+    , "{-   456___   -}import Data.Char;main=putStr$do{c<-\"/1 AA A A;9+ )11929 )1191A 2C9A \";e\n\
+      \ {- {- | -} -}  {- {- || -} -}{- {- || -} -}{- {- || -} -} {--}.(`divMod`8).(+(-32)).ord$c};f(0,0)=\"\n\";f(m,n)=m?\"  \"++n?\"_/\"\n\
+      \{- {- | -} -}n?x=do{[1..n];x}                                    --- obfuscated\n\
       \{-\\_/ on Fairbairn, with apologies to Chris Brown. Above is / Haskell 98 -}"
       ==>
       ["?", "f", "main"]

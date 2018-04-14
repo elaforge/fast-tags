@@ -322,17 +322,22 @@ breakBlock = go []
             _            -> n
 
 stripSemicolonsNotInBraces :: [Token] -> [Token]
-stripSemicolonsNotInBraces = go False 0 0
+stripSemicolonsNotInBraces =
+    go False 0 0
   where
-    go  :: Bool -- Whether inside where block or after equals sign
+    go  :: Bool -- Whether inside let or where block or case expression
         -> Int -- Indent of last newline
         -> Int -- Parenthesis nesting depth
         -> [Token]
         -> [Token]
     go !_     !_ !_ []                                                       = []
+    go !b     !k !n (tok@(Pos _ KWWhere)     : tok'@(Pos _ LBrace) : ts)     = tok : tok' : skipBalancedParens b k (inc n) ts
     go !_     !k !n (tok@(Pos _ KWWhere)     : ts)                           = tok : go True k n ts
+    go !b     !k !n (tok@(Pos _ KWLet)       : tok'@(Pos _ LBrace) : ts)     = tok : tok' : skipBalancedParens b k (inc n) ts
     go !_     !k !n (tok@(Pos _ KWLet)       : ts)                           = tok : go True k n ts
+    go !b     !k !n (tok@(Pos _ KWDo)        : tok'@(Pos _ LBrace) : ts)     = tok : tok' : skipBalancedParens b k (inc n) ts
     go !_     !k !n (tok@(Pos _ KWDo)        : ts)                           = tok : go True k n ts
+    go !b     !k !n (tok@(Pos _ KWOf)        : tok'@(Pos _ LBrace) : ts)     = tok : tok' : skipBalancedParens b k (inc n) ts
     go !_     !k !n (tok@(Pos _ KWOf)        : ts)                           = tok : go True k n ts
     go !_     !k !n (tok@(Pos _ KWIn)        : ts)                           = tok : go False k n ts
     go !_     !_ !n (tok@(Pos _ (Newline k)) : ts)                           = tok : go False k n ts
