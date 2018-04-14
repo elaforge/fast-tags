@@ -562,6 +562,8 @@ testData = testGroup "data"
         ["Add", "X"]
     , "newtype (Eq a, Ord a) => X a = Add a"                            ==>
         ["Add", "X"]
+    , "newtype () => X a = Add a"                                     ==>
+        ["Add", "X"]
 
     , "newtype (u :*: v) z = X"                                         ==>
         [":*:", "X"]
@@ -575,6 +577,13 @@ testData = testGroup "data"
     , "data ((u :: (* -> *) -> *) :*: v) z = X"                         ==>
         [":*:", "X"]
     , "type ((u :: (* -> *) -> *) :*: v) z = (u, v, z)"                 ==>
+        [":*:"]
+
+    , "newtype () => ((u :: (* -> *) -> *) :*: v) z = X"        ==>
+        [":*:", "X"]
+    , "data () => ((u :: (* -> *) -> *) :*: v) z = X"           ==>
+        [":*:", "X"]
+    , "type () => ((u :: (* -> *) -> *) :*: v) z = (u, v, z)"   ==>
         [":*:"]
 
     , "newtype (Eq (v z)) => ((u :: (* -> *) -> *) :*: v) z = X"        ==>
