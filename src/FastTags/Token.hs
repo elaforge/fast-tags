@@ -83,6 +83,7 @@ data TokenVal =
     | RBracket
     | RParen
     | Tilde
+    | Semicolon
     | T !Text
     -- | Special token, not part of Haskell spec. Stores indentation.
     | Newline !Int
