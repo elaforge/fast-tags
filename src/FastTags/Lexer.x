@@ -327,14 +327,16 @@ pushLParen _ _ = do
     return LParen
 
 popRParen :: AlexAction AlexM
-popRParen _ _ = (tryRestoringContext *> return RParen) <|> return RParen
-
-tryRestoringContext :: AlexM ()
-tryRestoringContext = do
-    ctx <- popContext
-    alexSetStartCode $ case ctx of
-        CtxHaskell     -> 0
-        CtxQuasiquoter -> qq
+popRParen _ _ = do
+    cs <- gets asContextStack
+    case cs of
+        [] -> return ()
+        c : cs' -> do
+            modify $ \s -> s { asContextStack = cs' }
+            alexSetStartCode $ case c of
+                CtxHaskell     -> 0
+                CtxQuasiquoter -> qq
+    return RParen
 
 errorAtLine :: (MonadError String m, MonadState AlexState m) => String -> m a
 errorAtLine msg = do

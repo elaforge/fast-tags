@@ -123,18 +123,11 @@ mkAlexState input = AlexState
     , asPositionsOfQuasiQuoteEnds = Nothing
     }
 
+{-# INLINE pushContext #-}
 pushContext :: (MonadState AlexState m) => Context -> m ()
 pushContext ctx = modify (\s -> s { asContextStack = ctx : asContextStack s })
 
-popContext :: (MonadState AlexState m, MonadError String m) => m Context
-popContext = do
-    cs <- gets asContextStack
-    case cs of
-        []      -> throwError "Popping empty context stack"
-        c : cs' -> do
-            modify $ \s -> s { asContextStack = cs' }
-            return c
-
+{-# INLINE modifyCommentDepth #-}
 modifyCommentDepth :: (MonadState AlexState m) => (Int -> Int) -> m Int
 modifyCommentDepth f = do
     depth <- gets asCommentDepth
@@ -142,6 +135,7 @@ modifyCommentDepth f = do
     modify $ \s -> s { asCommentDepth = depth' }
     return depth'
 
+{-# INLINE modifyQuasiquoterDepth #-}
 modifyQuasiquoterDepth :: (MonadState AlexState m) => (Int -> Int) -> m Int
 modifyQuasiquoterDepth f = do
     depth <- gets asQuasiquoterDepth
@@ -152,6 +146,7 @@ modifyQuasiquoterDepth f = do
 retrieveToken :: AlexInput -> Int -> Text
 retrieveToken (AlexInput {aiInput}) len = Text.take len aiInput
 
+{-# INLINE addIndentationSize #-}
 addIndentationSize :: (MonadState AlexState m) => Int -> m ()
 addIndentationSize x =
     modify (\s -> s { asIndentationSize = x + asIndentationSize s })
@@ -185,9 +180,11 @@ runAlexM trackPrefixes input action =
     where
     s = mkAlexState $ mkAlexInput input trackPrefixes
 
+{-# INLINE alexSetInput #-}
 alexSetInput :: (MonadState AlexState m) => AlexInput -> m ()
 alexSetInput input = modify $ \s -> s { asInput = input }
 
+{-# INLINE alexSetStartCode #-}
 alexSetStartCode :: (MonadState AlexState m) => Int -> m ()
 alexSetStartCode code = modify $ \s -> s { asCode = code }
 
