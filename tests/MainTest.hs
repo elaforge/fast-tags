@@ -16,7 +16,6 @@ import FastTags.Tag hiding (process)
 import FastTags.Token
 import qualified FastTags.Vim as Vim
 
-
 main :: IO ()
 main = Tasty.defaultMain tests
 
@@ -26,6 +25,7 @@ tests = testGroup "tests"
     , testTokenizeWithNewlines
     , testStripComments
     , testBreakBlocks
+    , testWhereBlock
     , testVim
     , testProcess
     , testStripCpp
@@ -109,13 +109,26 @@ testTokenize = testGroup "tokenize"
       \  \\bar\" baz"     ==> [T "foo", String, T "baz", Newline 0]
     , "(\\err -> case err of Foo -> True; _ -> False)" ==>
         [ LParen, T "\\", T "err", Arrow, KWCase, T "err", KWOf, T "Foo"
-        , Arrow, T "True", T "_", Arrow, T "False", RParen, Newline 0
+        , Arrow, T "True", Semicolon, T "_", Arrow, T "False", RParen, Newline 0
         ]
     , "foo = \"foo\\n\\\n\
       \  \\\" bar" ==> [T "foo", Equals, String, T "bar", Newline 0]
     , "foo = \"foo\\n\\\n\
       \  \\x\" bar" ==>
         [ T "foo", Equals, String, T "bar", Newline 0]
+
+    , "one_hash, two_hash :: text_type\n\
+      \hash_prec :: Int -> Int\n\
+      \one_hash  = from_char '#'\n\
+      \two_hash  = from_string \"##\"\n\
+      \hash_prec = const 0"
+      ==>
+      [ T "one_hash", Comma, T "two_hash", DoubleColon, T "text_type", Newline 0
+      , T "hash_prec", DoubleColon, T "Int", Arrow, T "Int", Newline 0
+      , T "one_hash", Equals, T "from_char", Character, Newline 0
+      , T "two_hash",  Equals, T "from_string", String, Newline 0
+      , T "hash_prec", Equals, T "const", T "0", Newline 0
+      ]
     , tokenizeSplices
     ]
     where
@@ -183,21 +196,116 @@ testStripComments = testGroup "stripComments"
 
 testBreakBlocks :: TestTree
 testBreakBlocks = testGroup "breakBlocks"
-    [ "1\n2\n"           ==> [["1"], ["2"]]
-    , "1\n 1\n2\n"       ==> [["1", "1"], ["2"]]
-    , "1\n 1\n 1\n2\n"   ==> [["1", "1", "1"], ["2"]]
+    [ "1\n\
+      \2\n"
+      ==> [["1"], ["2"]]
+    , "1\n\
+      \ 1\n\
+      \2\n"
+      ==> [["1", "1"], ["2"]]
+    , "1\n\
+      \ 1\n\
+      \ 1\n\
+      \2\n"
+      ==> [["1", "1", "1"], ["2"]]
     -- intervening blank lines are ignored
-    , "1\n 1\n\n 1\n2\n" ==> [["1", "1", "1"], ["2"]]
-    , "1\n\n\n 1\n2\n"   ==> [["1", "1"], ["2"]]
+    , "1\n\
+      \ 1\n\
+      \\n\
+      \ 1\n\
+      \2\n"
+      ==> [["1", "1", "1"], ["2"]]
+    , "1\n\
+      \\n\
+      \\n\
+      \ 1\n\
+      \2\n"
+      ==> [["1", "1"], ["2"]]
 
-    , "1\n 11\n 11\n"    ==> [["1", "11", "11"]]
-    , " 11\n 11\n"       ==> [["11"], ["11"]]
+    , "1\n\
+      \ 11\n\
+      \ 11\n"
+      ==> [["1", "11", "11"]]
+    , " 11\n\
+      \ 11\n"
+      ==> [["11"], ["11"]]
+
+    , "one_hash, two_hash :: text_type\n\
+      \hash_prec :: Int -> Int\n\
+      \one_hash  = from_char '#'\n\
+      \two_hash  = from_string \"##\"\n\
+      \hash_prec = const 0"
+      ==>
+      [ ["one_hash", "Comma", "two_hash", "DoubleColon", "text_type"]
+      , ["hash_prec", "DoubleColon", "Int", "Arrow", "Int"]
+      , ["one_hash", "Equals", "from_char", "Character"]
+      , ["two_hash",  "Equals", "from_string", "String"]
+      , ["hash_prec", "Equals", "const", "0"]
+      ]
+    , "one_hash, two_hash :: text_type; \
+      \hash_prec :: Int -> Int; \
+      \one_hash  = from_char '#'; \
+      \two_hash  = from_string \"##\"; \
+      \hash_prec = const 0"
+      ==>
+      [ ["one_hash", "Comma", "two_hash", "DoubleColon", "text_type"]
+      , ["hash_prec", "DoubleColon", "Int", "Arrow", "Int"]
+      , ["one_hash", "Equals", "from_char", "Character"]
+      , ["two_hash",  "Equals", "from_string", "String"]
+      , ["hash_prec", "Equals", "const", "0"]
+      ]
+    , "{\n\
+      \  data F f :: * ; -- foo\n\
+      \                  -- bar\n\
+      \                  -- baz\n\
+      \  mkF  :: f -> F f ; getF :: F f -> f ;\n\
+      \} ;"
+      ==>
+      [ ["LBrace", "KWData", "F", "f", "DoubleColon", "*", "Semicolon"
+        , "mkF", "DoubleColon", "f", "Arrow", "F", "f", "Semicolon"
+        , "getF", "DoubleColon", "F", "f", "Arrow", "f", "Semicolon"
+        , "RBrace"
+        ]
+      ]
     ]
     where
     (==>) = test f
     f = map (extractTokens . UnstrippedTokens . Tag.stripNewlines)
       . Tag.breakBlocks
       . tokenize
+
+testWhereBlock :: TestTree
+testWhereBlock = testGroup "whereBlock"
+    [ "class A f where\n\
+      \  data F f :: * -- foo\n\
+      \                -- bar\n\
+      \                -- baz\n\
+      \  mkF  :: f -> F f\n\
+      \  getF :: F f -> f"
+      ==>
+      [ ["KWData", "F", "f", "DoubleColon", "*"]
+      , ["mkF", "DoubleColon", "f", "Arrow", "F", "f"]
+      , ["getF", "DoubleColon", "F", "f", "Arrow", "f"]
+      ]
+    , "class A f where {\n\
+      \  data F f :: * ; -- foo\n\
+      \                  -- bar\n\
+      \                  -- baz\n\
+      \  mkF  :: f -> F f ;\n\
+      \  getF :: F f -> f ;\n\
+      \} ;"
+      ==>
+      [ ["KWData", "F", "f", "DoubleColon", "*"]
+      , ["mkF", "DoubleColon", "f", "Arrow", "F", "f"]
+      , ["getF", "DoubleColon", "F", "f", "Arrow", "f"]
+      ]
+    ]
+    where
+    (==>) = test f
+    f = map (extractTokens . UnstrippedTokens . Tag.stripNewlines)
+      . Tag.whereBlock
+      . tokenize
+
 
 testVim :: TestTree
 testVim = testGroup "Vim" [parseTag, dropAdjacent]
@@ -329,7 +437,9 @@ testData = testGroup "data"
     -- Records.
     , "data Foo a = Bar { field :: Field }" ==> ["Bar", "Foo", "field"]
     , "data R = R { a::X, b::Y }"           ==> ["R", "R", "a", "b"]
+    , "data R = R { a, b::X }"              ==> ["R", "R", "a", "b"]
     , "data R = R { a∷X, b∷Y }"             ==> ["R", "R", "a", "b"]
+    , "data R = R { a, b∷X }"               ==> ["R", "R", "a", "b"]
     , "data R = R {\n\ta::X\n\t, b::Y\n\t}" ==> ["R", "R", "a", "b"]
     , "data R = R {\n\ta,b::X\n\t}"         ==> ["R", "R", "a", "b"]
     -- Record operators
@@ -660,6 +770,23 @@ testFunctions = testGroup "functions"
     , "(--+) :: X -> Y" ==> ["--+"]
     , "(=>>) :: X -> Y" ==> ["=>>"]
 
+    -- Multi-line with semicolons at the end
+    , "one_hash, two_hash :: text_type;\n\
+      \hash_prec :: Int -> Int;\n\
+      \one_hash  = from_char '#';\n\
+      \two_hash  = from_string \"##\";\n\
+      \hash_prec = const 0"
+      ==>
+      ["hash_prec", "one_hash", "two_hash"]
+    -- Single-line separated by semicolons - e.g. result of a macro expansion
+    , "one_hash, two_hash :: text_type; \
+      \hash_prec :: Int -> Int; \
+      \one_hash  = from_char '#'; \
+      \two_hash  = from_string \"##\"; \
+      \hash_prec = const 0"
+      ==>
+      ["hash_prec", "one_hash", "two_hash"]
+
     , "assertDataFormatError :: DecompressError -> IO String\n\
       \assertDataFormatError (DataFormatError detail) = return detail\n\
       \assertDataFormatError _                        = assertFailure \"expected DataError\"\n\
@@ -667,9 +794,118 @@ testFunctions = testGroup "functions"
       ==>
       ["assertDataFormatError"]
 
+    , "instance PartialComparison Double where\n\
+      \    type PartialCompareEffortIndicator Double = ()\n\
+      \    pCompareEff _ a b = Just $ toPartialOrdering $ Prelude.compare a b\n\
+      \--        case (isNaN a, isNaN b) of\n\
+      \--           (False, False) -> Just $ toPartialOrdering $ Prelude.compare a b  \n\
+      \--           (True, True) -> Just EQ\n\
+      \--           _ -> Just NC \n\
+      \    pCompareDefaultEffort _ = ()\n\
+      \\n\
+      \pComparePreludeCompare _ a b =\n\
+      \    Just $ toPartialOrdering $ Prelude.compare a b\n\
+      \\n\
+      \propPartialComparisonReflexiveEQ :: \n\
+      \    (PartialComparison t) =>\n\
+      \    t -> \n\
+      \    (PartialCompareEffortIndicator t) -> \n\
+      \    (UniformlyOrderedSingleton t) -> \n\
+      \    Bool\n\
+      \propPartialComparisonReflexiveEQ _ effort (UniformlyOrderedSingleton e) = \n\
+      \    case pCompareEff effort e e of Just EQ -> True; Nothing -> True; _ -> False"
+      ==>
+      ["pComparePreludeCompare", "propPartialComparisonReflexiveEQ"]
+
+    , "hexQuad :: Z.Parser Int\n\
+      \hexQuad = do\n\
+      \  s <- Z.take 4\n\
+      \  let hex n | w >= C_0 && w <= C_9 = w - C_0\n\
+      \            | w >= C_a && w <= C_f = w - 87\n\
+      \            | w >= C_A && w <= C_F = w - 55\n\
+      \            | otherwise          = 255\n\
+      \        where w = fromIntegral $ B.unsafeIndex s n\n\
+      \      a = hex 0; b = hex 1; c = hex 2; d = hex 3\n\
+      \  if (a .|. b .|. c .|. d) /= 255\n\
+      \    then return $! d .|. (c `shiftL` 4) .|. (b `shiftL` 8) .|. (a `shiftL` 12)\n\
+      \    else fail \"invalid hex escape\"\n"
+      ==>
+      ["hexQuad"]
+
+    -- Semicolon within instance does not produce toplevel tags
+    , "instance Path  T.Text      where readPath = Just; pathRep _ = typeRep (Proxy :: Proxy Text)"
+      ==>
+      []
+
+    , "prop_bounds2 o1 w1 o2 w2 = let n1 = fromW8 w1 ; n2 = fromW8 w2 ; bs = ((o1, o2), (o1 + n1, o2 + n2)) in bs == bounds (listArray bs (take ((n1 + 1) * (n2 + 1)) (cycle [False, True, True])))"
+      ==>
+      ["prop_bounds2"]
+
+    , "string :: String -> ReadP r String\n\
+      \-- ^ Parses and returns the specified string.\n\
+      \string this = do s <- look; scan this s\n\
+      \ where\n\
+      \  scan []     _               = do return this\n\
+      \  scan (x:xs) (y:ys) | x == y = do get >> scan xs ys\n\
+      \  scan _      _               = do pfail"
+      ==>
+      ["string"]
+
+    , "-- | Get every node of a tree, put it into a list.\n\
+      \climb :: Tree a -> [a]\n\
+      \climb x = case x of (Empty) -> [];(Branch a Empty b) -> a : climb b;\n\
+      \                    (Branch a b Empty) -> a : climb b;\n\
+      \                    (Branch a b d) -> a : climb b ++ climb d"
+      ==>
+      ["climb"]
+
+    , "addend hid a (NotM (App uid okh elr as)) = NotM $ App uid okh elr (f as)\n\
+      \ where f (NotM ALNil) = NotM $ ALCons hid a (NotM $ ALNil)\n\
+      \       f (NotM (ALCons hid a as)) = NotM $ ALCons hid a (f as)\n\
+      \       f _ = __IMPOSSIBLE__\n\
+      \addend _ _ _ = __IMPOSSIBLE__\n\
+      \copyarg _ = False"
+      ==>
+      ["addend", "copyarg"]
+
+    , "realWorldTc :: TyCon; \\\n\
+      \realWorldTc = mkTyCon3 \"ghc-prim\" \"GHC.Types\" \"RealWorld\"; \\\n\
+      \instance Typeable RealWorld where { typeOf _ = mkTyConApp realWorldTc [] }"
+      ==>
+      ["realWorldTc"]
+
     , "(r `mkQ` br) a = _" ==> ["mkQ"]
 
-    , "_g :: X -> Y"    ==> ["_g"]
+    , "_?_ = return unsafePerformIO" ==> ["?"]
+
+    , "(+) :: DebMap -> String -> DebianVersion\n\
+      \m + k = maybe (error (\"No version number for \" ++ show k ++ \" in \" ++ show (Map.map (maybe Nothing (Just . prettyDebianVersion)) m))) id (Map.findWithDefault Nothing k m)"
+      ==>
+      ["+"]
+
+    , "(!) :: DebMap -> String -> DebianVersion\n\
+      \_ ! k = maybe (error (\"No version number for \" ++ show k ++ \" in \" ++ show (Map.map (maybe Nothing (Just . prettyDebianVersion)) m))) id (Map.findWithDefault Nothing k m)"
+      ==>
+      ["!"]
+
+    , "(.) :: DebMap -> String -> DebianVersion\n\
+      \m . k = maybe (error (\"No version number for \" ++ show k ++ \" in \" ++ show (Map.map (maybe Nothing (Just . prettyDebianVersion)) m))) id (Map.findWithDefault Nothing k m)"
+      ==>
+      ["."]
+
+    , "(.) :: DebMap -> String -> DebianVersion\n\
+      \m . k x = maybe (error (\"No version number for \" ++ show k ++ \" in \" ++ show (Map.map (maybe Nothing (Just . prettyDebianVersion)) m))) id (Map.findWithDefault Nothing k m)"
+      ==>
+      ["."]
+
+    , "{- ___ -}import Data.Char;main=putStr$do{c<-\"/1 AA A A;9+ )11929 )1191A 2C9A \";e\n\
+      \{-  |  -}    .(`divMod`8).(+(-32)).ord$c};f(0,0)=\"\n\";f(m,n)=m?\"  \"++n?\"_/\"\n\
+      \{-  |  -}n?x=do{[1..n];x}                                    --- obfuscated\n\
+      \{-\\_/ on Fairbairn, with apologies to Chris Brown. Above is / Haskell 98 -}"
+      ==>
+      ["?", "f", "main"]
+
+    , "_g :: X -> Y" ==> ["_g"]
     , toplevelFunctionsWithoutSignatures
     ]
     where
@@ -871,6 +1107,14 @@ testClass = testGroup "class"
     , "class a ~~ b => (a :: k) ! (b :: k) | a -> b, b -> a"
       ==>
       ["!"]
+    , "class A f where {\n\
+      \  data F f :: * ; -- foo\n\
+      \                  -- bar\n\
+      \                  -- baz\n\
+      \  mkF  :: f -> F f ; getF :: F f -> f ;\n\
+      \} ;"
+      ==>
+      ["A", "F", "getF", "mkF"]
     ]
     where
     (==>) = testTagNames filename

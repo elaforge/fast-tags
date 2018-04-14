@@ -20,8 +20,10 @@ import Control.Monad.Except
 #else
 import Control.Monad.Error
 #endif
-import Control.Monad.State
+import Control.Monad.State.Strict
+import qualified Data.IntSet as IS
 import Data.Text (Text)
+import qualified Data.Text as Text
 
 import FastTags.LexerTypes
 import FastTags.Token
@@ -116,7 +118,7 @@ $hexdigit   = [0-9a-fA-F]
 
 -- Template Haskell quasiquoters
 
-<0> "[" $ident* "|"     { \_ _ -> startQuasiquoter }
+<0> "[" $ident* "|"     { \input len -> startQuasiquoter input len }
 <qq> "$("               { \_ _ -> startSplice CtxQuasiquoter }
 <qq> "|]"               { \_ _ -> endQuasiquoter 0 }
 <qq> (. | $nl)          ;
@@ -169,8 +171,7 @@ $hexdigit   = [0-9a-fA-F]
 "]"                     { kw RBracket }
 ")"                     { popRParen }
 "~"                     { kw Tilde }
--- semicolons are not used
-";"                     ;
+";"                     { kw Semicolon }
 
 @qualificationPrefix ( $ident+ | $symbol+ )
                         { \input len -> return $ T $ retrieveToken input len }
@@ -186,38 +187,40 @@ kw tok = \_ _ -> pure tok
 
 tokenize :: FilePath -> Bool -> Text -> Either String [Token]
 tokenize filename trackPrefixes input =
-    runAlexM filename trackPrefixes input scanTokens
+    runAlexM trackPrefixes input $ scanTokens filename
 
-scanTokens :: AlexM [Token]
-scanTokens = do
-    tok <- alexMonadScan
-    case valOf tok of
-        EOF -> return []
-        _   -> (tok :) <$> scanTokens
-
-alexMonadScan :: AlexM Token
-alexMonadScan = do
-    tokVal <- alexScanTokenVal
-    -- Use input after reading token to get proper prefix that includes
-    -- token we currently read.
-    AlexState {asInput, asFilename} <- get
-    return $ Pos (mkSrcPos asFilename asInput) tokVal
+scanTokens :: FilePath -> AlexM [Token]
+scanTokens filename = go []
+    where
+    go acc = do
+        nextTok <- alexScanTokenVal
+        case nextTok of
+            EOF -> return $ reverse acc
+            _   -> do
+                -- Use input after reading token to get proper prefix that includes
+                -- token we currently read.
+                input <- gets asInput
+                let tok = Pos (mkSrcPos filename input) nextTok
+                go (tok : acc)
 
 alexScanTokenVal :: AlexM TokenVal
 alexScanTokenVal = do
     AlexState {asInput, asCode} <- get
-    case alexScan asInput asCode of
-        AlexEOF                        ->
-            return EOF
-        AlexError (AlexInput {aiLine, aiInput}) -> do
-            AlexState {asCode} <- get
-            throwError $ "lexical error while in state " ++ show asCode
-                ++ " at line " ++
-                show (unLine aiLine) ++ ": " ++ take 40 (show aiInput)
-        AlexSkip input _ ->
-            alexSetInput input >> alexScanTokenVal
-        AlexToken input tokLen action ->
-            alexSetInput input >> action asInput tokLen
+    go asInput asCode
+    where
+    go input code =
+        case alexScan input code of
+            AlexEOF ->
+                return EOF
+            AlexError (AlexInput {aiLine, aiInput}) -> do
+                code <- gets asCode
+                throwError $ "lexical error while in state " ++ show code
+                    ++ " at line " ++
+                    show (unLine aiLine) ++ ": " ++ take 40 (show aiInput)
+            AlexSkip input' _ ->
+                go input' code
+            AlexToken input' tokLen action ->
+                alexSetInput input' >> action input tokLen
 
 startComment :: AlexM TokenVal
 startComment = do
@@ -242,8 +245,26 @@ endString nextStartCode = do
     alexSetStartCode nextStartCode
     return String
 
-startQuasiquoter :: AlexM TokenVal
-startQuasiquoter = do
+startQuasiquoter :: AlexInput -> Int -> AlexM TokenVal
+startQuasiquoter (AlexInput {aiInput, aiAbsPos}) n
+    | n == 2 = startUnconditionalQuasiQuoter
+startQuasiquoter (AlexInput {aiInput, aiAbsPos}) _ = do
+    ends   <- gets asPositionsOfQuasiQuoteEnds
+    qqEnds <- case ends of
+        Nothing    -> do
+            let ends' = calculateQuasiQuoteEnds aiAbsPos aiInput
+            modify $ \s -> s { asPositionsOfQuasiQuoteEnds = Just ends' }
+            pure ends'
+        Just ends' -> pure ends'
+    case IS.lookupGT aiAbsPos qqEnds of
+        -- No chance of quasi-quote closing till the end of current file.
+        -- Assume that file ought to be well-formed and treat currently
+        -- matched input
+        Nothing -> return LBracket
+        Just _  -> startUnconditionalQuasiQuoter
+
+startUnconditionalQuasiQuoter :: AlexM TokenVal
+startUnconditionalQuasiQuoter = do
     alexSetStartCode qq
     return QuasiquoterStart
 

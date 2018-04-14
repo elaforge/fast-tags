@@ -30,6 +30,7 @@ module FastTags.Tag (
     , stripCpp
     , stripNewlines
     , breakBlocks
+    , whereBlock
     )
 where
 import Control.Arrow ((***))
@@ -266,7 +267,7 @@ isTypeVarStart x = case Util.headt x of
 breakBlocks :: UnstrippedTokens -> [UnstrippedTokens]
 breakBlocks =
     map UnstrippedTokens . filter (not . null)
-        . go . filterBlank . unstrippedTokensOf
+        . go . stripSemicolonsNotInBraces . filterBlank . unstrippedTokensOf
     where
     go :: [Token] -> [[Token]]
     go []     = []
@@ -283,33 +284,106 @@ breakBlocks =
 -- that newline decreases. Or, alternatively, if "{" is encountered then count
 -- it as a block until closing "}" is found taking nesting into account.
 breakBlock :: [Token] -> ([Token], [Token])
-breakBlock (t@(Pos _ tok) : ts) = case tok of
-    Newline indent -> collectIndented indent ts
-    LBrace         -> collectBracedBlock breakBlock ts 1
-    _              -> remember t $ breakBlock ts
+breakBlock = go []
     where
-    collectIndented :: Int -> [Token] -> ([Token], [Token])
-    collectIndented indent tsFull@(t@(Pos _ tok) : ts) = case tok of
-        Newline n | n <= indent -> ([], tsFull)
-        LBrace ->
-            remember t $ collectBracedBlock (collectIndented indent) ts 1
-        _           -> remember t $ collectIndented indent ts
-    collectIndented _ [] = ([], [])
+    go :: [Token] -> [Token] -> ([Token], [Token])
+    go acc [] = (reverse acc, [])
+    go acc (t@(Pos _ tok) : ts) = case tok of
+        Newline indent -> collectIndented acc indent ts
+        LBrace         -> collectBracedBlock (t : acc) go ts 1
+        _              -> go (t : acc) ts
 
-    collectBracedBlock :: ([Token] -> ([Token], [Token])) -> [Token] -> Int
-        -> ([Token], [Token])
-    collectBracedBlock _    []                      _ = ([], [])
-    collectBracedBlock cont ts                      0 = cont ts
-    collectBracedBlock cont (t@(Pos _ LBrace) : ts) n =
-      remember t $ collectBracedBlock cont ts $! n + 1
-    collectBracedBlock cont (t@(Pos _ RBrace) : ts) n =
-      remember t $ collectBracedBlock cont ts $! n - 1
-    collectBracedBlock cont (t:ts)                  n =
-      remember t $ collectBracedBlock cont ts n
+    collectIndented :: [Token] -> Int -> [Token] -> ([Token], [Token])
+    collectIndented acc indent = goIndented acc
+        where
+        goIndented acc' = \case
+            tsFull@(t : ts) -> case t of
+                Pos _ (Newline n) | n <= indent -> (reverse acc', tsFull)
+                Pos _ LBrace ->
+                    collectBracedBlock (t : acc') goIndented ts 1
+                _            ->
+                    goIndented (t : acc') ts
+            [] -> (reverse acc', [])
 
-    remember :: Token -> ([Token], [Token]) -> ([Token], [Token])
-    remember t (xs, ys) = (t : xs, ys)
-breakBlock [] = ([], [])
+    collectBracedBlock
+        :: Show b
+        => [Token]
+        -> ([Token] -> [Token] -> ([Token], [b]))
+        -> [Token]
+        -> Int
+        -> ([Token], [b])
+    collectBracedBlock acc cont = goBraced acc
+        where
+        goBraced acc' []       _ = (reverse acc', [])
+        goBraced acc' ts       0 = cont acc' ts
+        goBraced acc' (t : ts) n = goBraced (t : acc') ts $! case t of
+            Pos _ LBrace -> n + 1
+            Pos _ RBrace -> n - 1
+            _            -> n
+
+stripSemicolonsNotInBraces :: [Token] -> [Token]
+stripSemicolonsNotInBraces = go False 0 0
+  where
+    go  :: Bool -- Whether inside where block or after equals sign
+        -> Int -- Indent of last newline
+        -> Int -- Parenthesis nesting depth
+        -> [Token]
+        -> [Token]
+    go !_     !_ !_ []                                                       = []
+    go !_     !k !n (tok@(Pos _ KWWhere)     : ts)                           = tok : go True k n ts
+    go !_     !k !n (tok@(Pos _ KWLet)       : ts)                           = tok : go True k n ts
+    go !_     !k !n (tok@(Pos _ KWDo)        : ts)                           = tok : go True k n ts
+    go !_     !k !n (tok@(Pos _ KWOf)        : ts)                           = tok : go True k n ts
+    go !_     !k !n (tok@(Pos _ KWIn)        : ts)                           = tok : go False k n ts
+    go !_     !_ !n (tok@(Pos _ (Newline k)) : ts)                           = tok : go False k n ts
+    go !_     !_  0 (     Pos _ Semicolon    : tok@(Pos _ (Newline k)) : ts) = tok : go False k 0 ts
+    go  False !k  0 (     Pos p Semicolon    : ts)                           = Pos p (Newline k) : go False k 0 ts
+    go !b     !k !n (tok@(Pos _ LParen)      : ts)                           = tok : skipBalancedParens b k (inc n) ts
+    go !b     !k !n (tok@(Pos _ LBracket)    : ts)                           = tok : skipBalancedParens b k (inc n) ts
+    go !b     !k !n (tok@(Pos _ LBrace)      : ts)                           = tok : skipBalancedParens b k (inc n) ts
+    go !b     !k !n (tok@(Pos _ RParen)      : ts)                           = tok : go b k (dec n) ts
+    go !b     !k !n (tok@(Pos _ RBracket)    : ts)                           = tok : go b k (dec n) ts
+    go !b     !k !n (tok@(Pos _ RBrace)      : ts)                           = tok : go b k (dec n) ts
+    go !b     !k !n (tok : ts)                                               = tok : go b k n       ts
+
+    skipBalancedParens
+        :: Bool -- Whether inside where block or after equals sign
+        -> Int -- Indent of last newline
+        -> Int -- Parenthesis nesting depth
+        -> [Token]
+        -> [Token]
+    skipBalancedParens b k = skip
+        where
+        skip :: Int -> [Token] -> [Token]
+        skip _  []                          = []
+        skip 0  ts                          = go b k 0 ts
+        skip !n (tok@(Pos _ LParen)   : ts) = tok : skip (inc n) ts
+        skip !n (tok@(Pos _ LBracket) : ts) = tok : skip (inc n) ts
+        skip !n (tok@(Pos _ LBrace)   : ts) = tok : skip (inc n) ts
+        skip !n (tok@(Pos _ RParen)   : ts) = tok : skip (dec n) ts
+        skip !n (tok@(Pos _ RBracket) : ts) = tok : skip (dec n) ts
+        skip !n (tok@(Pos _ RBrace)   : ts) = tok : skip (dec n) ts
+        skip !n (tok : ts)                  = tok : skip n ts
+
+    inc :: Int -> Int
+    inc n = n + 1
+    dec :: Int -> Int
+    dec n = max 0 (n - 1)
+
+explodeToplevelBracedBlocks :: [Token] -> [[Token]]
+explodeToplevelBracedBlocks toks =
+    case toks of
+      Pos _ LBrace : toks' -> filter (not . null) $ go [] 1 toks'
+      _                    -> [toks]
+    where
+    go :: [Token] -> Int -> [Token] -> [[Token]]
+    go acc _    []                          = [reverse acc]
+    go acc 0    ts                          = [reverse acc, ts]
+    go acc !n   (tok@(Pos _ LBrace)   : ts) = go (tok : acc) (n + 1) ts
+    go acc  1   (     Pos _ RBrace    : ts) = reverse acc : go [] 0 ts
+    go acc !n   (tok@(Pos _ RBrace)   : ts) = go (tok : acc) (n - 1) ts
+    go acc  n@1 (     Pos _ Semicolon : ts) = reverse acc : go [] n ts
+    go acc !n   (tok                  : ts) = go (tok : acc) n ts
 
 -- * extract tags
 
@@ -463,7 +537,7 @@ toplevelFunctionTags toks = case tags of
     -- from the type signature because there will definitely be tags from the
     -- body and they should be sorted out if type signature is present.
     [] -> functionTagsNoSig toks
-    _  -> map toRepeatableTag tags
+    ts -> map toRepeatableTag ts
     where
     -- first try to detect tags from type signature, if it fails then
     -- do the actual work of detecting from body
@@ -473,13 +547,20 @@ toplevelFunctionTags toks = case tags of
     toRepeatableTag t       = t
 
 functionTagsNoSig :: [Token] -> [Tag]
-functionTagsNoSig allToks = go allToks
+functionTagsNoSig allToks = go' allToks
     where
+    go' :: [Token] -> [Tag]
+    go' (Pos _ T{} : Pos pos (T opName) : _)
+        | T.all haskellOpChar opName = [mkRepeatableTag pos opName Operator]
+    go' ts = go ts
+
     go :: [Token] -> [Tag]
     go []                           = []
     go (Pos _ LParen : Pos _ T{} : Pos _ Backtick : Pos pos' (T name') : Pos _ Backtick : Pos _ T{} : Pos _ RParen : _)
         | functionName ExpectFunctions name' = [mkRepeatableTag pos' name' Function]
     go toks@(Pos _ LParen : _)      = go $ stripBalancedParens toks
+    go toks@(Pos _ LBrace : _)      = go $ stripBalancedBraces toks
+    go toks@(Pos _ LBracket : _)    = go $ stripBalancedBrackets toks
     -- This function does not analyze type signatures.
     go (Pos _ DoubleColon : _)      = []
     go (Pos _ ExclamationMark : ts) = go ts
@@ -487,12 +568,12 @@ functionTagsNoSig allToks = go allToks
     go (Pos _ At : ts)              = go ts
     go (Pos _ Equals : _)           = functionOrOp allToks
     go (Pos _ Pipe : _)             = functionOrOp allToks
-    go toks@(Pos _ LBrace : _)      = go $ stripBalancedBraces toks
     go (Pos _ Backtick : Pos pos' (T name') : _)
         | functionName ExpectFunctions name' = [mkRepeatableTag pos' name' Function]
     go (Pos pos (T name) : _)
         | T.all haskellOpChar name =
             [mkRepeatableTag pos name Operator]
+    go (Pos pos Dot : _)            = [mkRepeatableTag pos "." Operator]
     go (_ : ts)                     = go ts
     stripOpeningParens :: [Token] -> [Token]
     stripOpeningParens = dropWhile ((== LParen) . valOf)
@@ -701,7 +782,7 @@ stripBalanced open close (Pos _ tok : xs)
     go !n (Pos _ tok' : ys)
         | tok' == open  = go (n + 1) ys
         | tok' == close = go (n - 1) ys
-    go n (_: ys) = go n ys
+    go !n (_: ys) = go n ys
     go _ []      = []
 stripBalanced _ _ xs = xs
 
@@ -746,7 +827,11 @@ classBodyTags unstripped = case stripNewlines unstripped of
 
 -- | Skip to the where and split the indented block below it.
 whereBlock :: UnstrippedTokens -> [UnstrippedTokens]
-whereBlock = breakBlocks . mapTokens (dropUntil KWWhere)
+whereBlock =
+    concatMap (breakBlocks . UnstrippedTokens) .
+    explodeToplevelBracedBlocks .
+    dropUntil KWWhere .
+    unstrippedTokensOf
 
 instanceTags :: SrcPos -> UnstrippedTokens -> [Tag]
 instanceTags prevPos unstripped =
