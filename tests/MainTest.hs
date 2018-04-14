@@ -146,6 +146,9 @@ testTokenize = testGroup "tokenize"
     , "showComplexFloat x 0.0 = showFFloat Nothing x \"\""
       ==>
       [T "showComplexFloat", T "x", Number, Equals, T "showFFloat", T "Nothing", T "x", String, Newline 0]
+    , "deriveJSON defaultOptions ''CI.CI"
+      ==>
+      [T "deriveJSON", T "defaultOptions", T "''CI.CI", Newline 0]
     , tokenizeSplices
     ]
     where
@@ -171,7 +174,15 @@ testTokenize = testGroup "tokenize"
             [ SpliceStart, T "foo", QuasiquoterStart, QuasiquoterEnd, RParen
             , Newline 0
             ]
-        , "$(foo [bar| baz ⟧)"                 ==>
+        , "$(foo [Foo.bar| baz ⟧)"                 ==>
+            [ SpliceStart, T "foo", QuasiquoterStart, QuasiquoterEnd, RParen
+            , Newline 0
+            ]
+        , "$(foo [$bar| baz |])"                 ==>
+            [ SpliceStart, T "foo", QuasiquoterStart, QuasiquoterEnd, RParen
+            , Newline 0
+            ]
+        , "$(foo [$Foo.bar| baz ⟧)"                 ==>
             [ SpliceStart, T "foo", QuasiquoterStart, QuasiquoterEnd, RParen
             , Newline 0
             ]
@@ -179,7 +190,15 @@ testTokenize = testGroup "tokenize"
              [ SpliceStart, T "foo", QuasiquoterStart, SpliceStart, T "baz"
              , RParen, QuasiquoterEnd, RParen, Newline 0
              ]
-        , "$(foo [bar| bar!\nbaz!\n $(baz) ⟧)" ==>
+        , "$(foo [Foo.bar| bar!\nbaz!\n $(baz) ⟧)" ==>
+             [ SpliceStart, T "foo", QuasiquoterStart, SpliceStart, T "baz"
+             , RParen, QuasiquoterEnd, RParen, Newline 0
+             ]
+        , "$(foo [$bar| bar!\nbaz!\n $(baz) |])" ==>
+             [ SpliceStart, T "foo", QuasiquoterStart, SpliceStart, T "baz"
+             , RParen, QuasiquoterEnd, RParen, Newline 0
+             ]
+        , "$(foo [$Foo.bar| bar!\nbaz!\n $(baz) ⟧)" ==>
              [ SpliceStart, T "foo", QuasiquoterStart, SpliceStart, T "baz"
              , RParen, QuasiquoterEnd, RParen, Newline 0
              ]
@@ -965,6 +984,7 @@ testFunctions = testGroup "functions"
         testGroup "toplevel functions without signatures"
         [ "$(return . map sumDeclaration $ [0..15])" ==> []
         , "$( fmap (reverse . concat) . traverse prismsForSingleType $ [1..15] )" ==> []
+        , "T.makeInstances [2..6]\nx" ==> []
         , "infix 5 |+|"  ==> []
         , "infixl 5 |+|" ==> []
         , "infixr 5 |+|" ==> []

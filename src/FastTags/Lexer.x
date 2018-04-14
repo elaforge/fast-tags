@@ -137,7 +137,8 @@ $space*                 { \input len -> endIndentationCounting len }
 
 -- Template Haskell quasiquoters
 
-<0> "[" $ident* "|"     { \input len -> startQuasiquoter input len }
+<0> "[" [\$\(]* @qualificationPrefix $ident* [\)]*  "|"
+                        { \input len -> startQuasiquoter input len }
 <0> "⟦"                 { \_ _ -> startUnconditionalQuasiQuoter }
 <qq> "$("               { \_ _ -> startSplice CtxQuasiquoter }
 <qq> ("|]" | "⟧")       { \_ _ -> endQuasiquoter 0 }
@@ -197,7 +198,9 @@ $space*                 { \input len -> endIndentationCounting len }
 -- it's quicker to just ignore them.
 @number                 { kw Number }
 
-@qualificationPrefix ( $ident+ | $symbol+ )
+[\']* @qualificationPrefix ($ident | $large)+
+                        { \input len -> return $ T $ retrieveToken input len }
+@qualificationPrefix $symbol+
                         { \input len -> return $ T $ retrieveToken input len }
 
 }
