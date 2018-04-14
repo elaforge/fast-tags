@@ -963,7 +963,9 @@ testFunctions = testGroup "functions"
     (==>) = testTagNames filename
     toplevelFunctionsWithoutSignatures =
         testGroup "toplevel functions without signatures"
-        [ "infix 5 |+|"  ==> []
+        [ "$(return . map sumDeclaration $ [0..15])" ==> []
+        , "$( fmap (reverse . concat) . traverse prismsForSingleType $ [1..15] )" ==> []
+        , "infix 5 |+|"  ==> []
         , "infixl 5 |+|" ==> []
         , "infixr 5 |+|" ==> []
         , "f = g"        ==> ["f"]

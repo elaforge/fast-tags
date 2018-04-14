@@ -397,6 +397,7 @@ explodeToplevelBracedBlocks toks =
 blockTags :: UnstrippedTokens -> [Tag]
 blockTags unstripped = case stripNewlines unstripped of
     [] -> []
+    Pos _ SpliceStart : _ -> []
     Pos _ KWModule : Pos pos (T name) : _ ->
         [mkTag pos (snd (T.breakOnEnd "." name)) Module]
     stripped@(Pos _       (T "pattern") : Pos _ DoubleColon : _) ->
