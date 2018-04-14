@@ -1001,6 +1001,7 @@ testFunctions = testGroup "functions"
           ["foo"]
         -- Functions named "pattern"
         , "pattern :: Int -> String -> [Int]"           ==> ["pattern"]
+        , "pattern x () = x + x"                        ==> ["pattern"]
         , "pattern, foo :: Int -> String -> [Int]"      ==> ["foo", "pattern"]
         , "foo, pattern :: Int -> String -> [Int]"      ==> ["foo", "pattern"]
         , "foo, pattern, bar :: Int -> String -> [Int]" ==> ["bar", "foo", "pattern"]

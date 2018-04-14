@@ -488,6 +488,7 @@ recordVanillaOrInfixName
 recordVanillaOrInfixName isVanillaName tokenType prevPos context tokens =
     case dropDataContext tokens of
         Pos _ LParen   : Pos _ RParen : _ -> (Nothing, prevPos, tokens)
+        Pos _ RParen   : _                -> (Nothing, prevPos, tokens)
         Pos _ LBracket : _                -> (Nothing, prevPos, tokens)
         Pos _ Equals   : _                -> (Nothing, prevPos, tokens)
         Pos _ Comma    : _                -> (Nothing, prevPos, tokens)
