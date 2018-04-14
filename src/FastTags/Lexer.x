@@ -119,8 +119,9 @@ $hexdigit   = [0-9a-fA-F]
 -- Template Haskell quasiquoters
 
 <0> "[" $ident* "|"     { \input len -> startQuasiquoter input len }
+<0> "⟦"                 { \_ _ -> startUnconditionalQuasiQuoter }
 <qq> "$("               { \_ _ -> startSplice CtxQuasiquoter }
-<qq> "|]"               { \_ _ -> endQuasiquoter 0 }
+<qq> ("|]" | "⟧")       { \_ _ -> endQuasiquoter 0 }
 <qq> (. | $nl)          ;
 
 <0> "$("                { \_ _ -> startSplice CtxHaskell }

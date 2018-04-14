@@ -152,6 +152,7 @@ calculateQuasiQuoteEnds startPos =
         , qqessMap      =
               case (qqessPrevChar, c) of
                   ('|', ']') -> IS.insert qqessPos qqessMap
+                  (_,   '⟧') -> IS.insert qqessPos qqessMap
                   _          -> qqessMap
         , qqessPrevChar = c
         }
