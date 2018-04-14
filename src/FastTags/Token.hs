@@ -91,6 +91,8 @@ data TokenVal =
     | String
     -- | Actual character not tracked since it's irrelevant.
     | Character
+    -- | Actual value not tracked since it's irrelevant.
+    | Number
     | QuasiquoterStart
     | QuasiquoterEnd
     | SpliceStart -- \$(

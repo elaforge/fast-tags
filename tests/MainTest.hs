@@ -124,11 +124,11 @@ testTokenize = testGroup "tokenize"
       ==>
       [ KWImport, T "Data.Char", Semicolon
       , T "main", Equals , T "putStr", T "$", KWDo, LBrace, T "c", T "<-", String, Semicolon, T "e", Newline 4
-      , Dot, LParen, Backtick, T "divMod", Backtick, T "8", RParen, Dot
-      , LParen, T "+", LParen, T "-", T "32", RParen, RParen, Dot, T "ord", T "$", T "c", RBrace, Semicolon
-      , T "f", LParen, T "0", Comma, T "0", RParen, Equals, String, Semicolon
+      , Dot, LParen, Backtick, T "divMod", Backtick, Number, RParen, Dot
+      , LParen, T "+", LParen, Number, RParen, RParen, Dot, T "ord", T "$", T "c", RBrace, Semicolon
+      , T "f", LParen, Number, Comma, Number, RParen, Equals, String, Semicolon
       , T "f", LParen, T "m", Comma, T "n", RParen, Equals, T "m", T "?", String, T "++", T "n", T "?", String, Newline 0
-      , T "n", T "?", T "x", Equals, KWDo, LBrace, LBracket, T "1", T "..", T "n", RBracket, Semicolon, T "x", RBrace, Newline 0, Newline 0
+      , T "n", T "?", T "x", Equals, KWDo, LBrace, LBracket, Number, T "..", T "n", RBracket, Semicolon, T "x", RBrace, Newline 0, Newline 0
       ]
 
     , "one_hash, two_hash :: text_type\n\
@@ -141,8 +141,11 @@ testTokenize = testGroup "tokenize"
       , T "hash_prec", DoubleColon, T "Int", Arrow, T "Int", Newline 0
       , T "one_hash", Equals, T "from_char", Character, Newline 0
       , T "two_hash",  Equals, T "from_string", String, Newline 0
-      , T "hash_prec", Equals, T "const", T "0", Newline 0
+      , T "hash_prec", Equals, T "const", Number, Newline 0
       ]
+    , "showComplexFloat x 0.0 = showFFloat Nothing x \"\""
+      ==>
+      [T "showComplexFloat", T "x", Number, Equals, T "showFFloat", T "Nothing", T "x", String, Newline 0]
     , tokenizeSplices
     ]
     where
@@ -184,8 +187,8 @@ testTokenize = testGroup "tokenize"
 
 testTokenizeWithNewlines :: TestTree
 testTokenizeWithNewlines = testGroup "tokenize with newlines"
-    [ "1\n2\n"     ==> [Newline 0, T "1", Newline 0, T "2", Newline 0]
-    , " 11\n 11\n" ==> [Newline 1, T "11", Newline 1, T "11", Newline 0]
+    [ "x\ny\n"     ==> [Newline 0, T "x", Newline 0, T "y", Newline 0]
+    , " xx\n yy\n" ==> [Newline 1, T "xx", Newline 1, T "yy", Newline 0]
     ]
     where
     (==>) = test f
@@ -222,39 +225,39 @@ testStripComments = testGroup "stripComments"
 
 testBreakBlocks :: TestTree
 testBreakBlocks = testGroup "breakBlocks"
-    [ "1\n\
-      \2\n"
-      ==> [["1"], ["2"]]
-    , "1\n\
-      \ 1\n\
-      \2\n"
-      ==> [["1", "1"], ["2"]]
-    , "1\n\
-      \ 1\n\
-      \ 1\n\
-      \2\n"
-      ==> [["1", "1", "1"], ["2"]]
+    [ "x\n\
+      \y\n"
+      ==> [["x"], ["y"]]
+    , "x\n\
+      \ y\n\
+      \z\n"
+      ==> [["x", "y"], ["z"]]
+    , "x\n\
+      \ y\n\
+      \ z\n\
+      \w\n"
+      ==> [["x", "y", "z"], ["w"]]
     -- intervening blank lines are ignored
-    , "1\n\
-      \ 1\n\
+    , "x\n\
+      \ y\n\
       \\n\
-      \ 1\n\
-      \2\n"
-      ==> [["1", "1", "1"], ["2"]]
-    , "1\n\
+      \ z\n\
+      \w\n"
+      ==> [["x", "y", "z"], ["w"]]
+    , "x\n\
       \\n\
       \\n\
-      \ 1\n\
-      \2\n"
-      ==> [["1", "1"], ["2"]]
+      \ y\n\
+      \z\n"
+      ==> [["x", "y"], ["z"]]
 
-    , "1\n\
-      \ 11\n\
-      \ 11\n"
-      ==> [["1", "11", "11"]]
-    , " 11\n\
-      \ 11\n"
-      ==> [["11"], ["11"]]
+    , "x\n\
+      \ yy\n\
+      \ zz\n"
+      ==> [["x", "yy", "zz"]]
+    , " xx\n\
+      \ yy\n"
+      ==> [["xx"], ["yy"]]
 
     , "one_hash, two_hash :: text_type\n\
       \hash_prec :: Int -> Int\n\
@@ -266,7 +269,7 @@ testBreakBlocks = testGroup "breakBlocks"
       , ["hash_prec", "DoubleColon", "Int", "Arrow", "Int"]
       , ["one_hash", "Equals", "from_char", "Character"]
       , ["two_hash",  "Equals", "from_string", "String"]
-      , ["hash_prec", "Equals", "const", "0"]
+      , ["hash_prec", "Equals", "const", "Number"]
       ]
     , "one_hash, two_hash :: text_type; \
       \hash_prec :: Int -> Int; \
@@ -278,7 +281,7 @@ testBreakBlocks = testGroup "breakBlocks"
       , ["hash_prec", "DoubleColon", "Int", "Arrow", "Int"]
       , ["one_hash", "Equals", "from_char", "Character"]
       , ["two_hash",  "Equals", "from_string", "String"]
-      , ["hash_prec", "Equals", "const", "0"]
+      , ["hash_prec", "Equals", "const", "Number"]
       ]
     , "{\n\
       \  data F f :: * ; -- foo\n\
@@ -936,6 +939,13 @@ testFunctions = testGroup "functions"
       \{-\\_/ on Fairbairn, with apologies to Chris Brown. Above is / Haskell 98 -}"
       ==>
       ["?", "f", "main"]
+
+    , "showComplexFloat :: Double -> Double -> String\n\
+      \showComplexFloat x 0.0 = showFFloat Nothing x \"\"\n\
+      \showComplexFloat 0.0 y = showFFloat Nothing y \"i\"\n\
+      \showComplexFloat x y = (showFFloat Nothing x \"\") ++ (if y > 0 then \"+\" else \"\") ++ (showFFloat Nothing y \"i\")"
+      ==>
+      ["showComplexFloat"]
 
     , "_g :: X -> Y" ==> ["_g"]
     , toplevelFunctionsWithoutSignatures

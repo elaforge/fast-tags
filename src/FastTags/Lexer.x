@@ -81,6 +81,10 @@ $octdigit   = [0-7]
 $hexdigit   = [0-9a-fA-F]
 @charescape = [\\] ( $charesc | $asclarge+ | "o" $octdigit+ | "x" $hexdigit+ )
 
+@float_number =  ( [\+\-]? ( $digit+ ( "." $digit+ )? | $digit* "." $digit+ ) ( [eE] [\+\-]? $digit* )? )
+
+@number = ( [\+\-]? $digit+ | 0 ([oO] $octdigit+ | [xX] $hexdigit ) | @float_number )
+
 :-
 
 -- Can skip whitespace everywhere since it does not affect meaning in any
@@ -188,6 +192,10 @@ $space*                 { \input len -> endIndentationCounting len }
 ")"                     { popRParen }
 "~"                     { kw Tilde }
 ";"                     { kw Semicolon }
+
+-- Not interested in numbers, but it takes time to extract their text so
+-- it's quicker to just ignore them.
+@number                 { kw Number }
 
 @qualificationPrefix ( $ident+ | $symbol+ )
                         { \input len -> return $ T $ retrieveToken input len }
