@@ -149,6 +149,9 @@ testTokenize = testGroup "tokenize"
     , "deriveJSON defaultOptions ''CI.CI"
       ==>
       [T "deriveJSON", T "defaultOptions", T "''CI.CI", Newline 0]
+    , "--:+: :+: :+:"
+      ==>
+      [T "--:+:", T ":+:", T ":+:", Newline 0]
     , tokenizeSplices
     ]
     where
