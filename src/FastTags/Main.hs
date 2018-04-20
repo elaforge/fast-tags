@@ -67,6 +67,11 @@ options =
         [ "Like --qualified, but the tag is fully qualified, A.B.C.f."
         , " Use with qualified_tag.py."
         ]
+    , GetOpt.Option [] ["src-prefix"] (GetOpt.ReqArg SrcPrefix "path") $ concat
+        [ "Strip this from the front of module names. This is useful if the"
+        , " source is somewhere below the directory you run the editor in."
+        , " This only has an effect for --fully-qualified."
+        ]
     , GetOpt.Option ['R'] [] (GetOpt.NoArg Recurse)
         "read all files under any specified directories recursively"
     , GetOpt.Option ['v'] [] (GetOpt.NoArg Verbose)
@@ -93,9 +98,19 @@ help = unlines
 maxSeparation :: Int
 maxSeparation = 2
 
-data Flag = ETags | FollowSymlinks | FullyQualified | Help | NoMerge
-    | NoModuleTags | Output FilePath | Qualified | Recurse | Verbose
-    | Version | ZeroSep
+data Flag = ETags
+    | FollowSymlinks
+    | FullyQualified
+    | Help
+    | NoMerge
+    | NoModuleTags
+    | Output !FilePath
+    | Qualified
+    | Recurse
+    | SrcPrefix !FilePath
+    | Verbose
+    | Version
+    | ZeroSep
     deriving (Eq, Show)
 
 main :: IO ()
@@ -116,6 +131,7 @@ main = do
         vim           = not emacs
         trackPrefixes = emacs
         output        = last $ defaultOutput : [fn | Output fn <- flags]
+        srcPrefix     = Text.pack $ last $ "" : [fn | SrcPrefix fn <- flags]
         defaultOutput = if vim then "tags" else "TAGS"
 
     oldTags <- if vim && NoMerge `notElem` flags
@@ -136,8 +152,10 @@ main = do
             newTags <- return $ if NoModuleTags `elem` flags
                 then filter ((/=Tag.Module) . typeOf) newTags else newTags
             newTags <- return $ (newTags ++) $ if
-                | FullyQualified `elem` flags -> map (Tag.qualify True) newTags
-                | Qualified `elem` flags -> map (Tag.qualify False) newTags
+                | FullyQualified `elem` flags ->
+                    map (Tag.qualify True srcPrefix) newTags
+                | Qualified `elem` flags ->
+                    map (Tag.qualify False srcPrefix) newTags
                 | otherwise -> []
             -- Try to do work before taking the lock.
             Exception.evaluate $ DeepSeq.rnf warnings

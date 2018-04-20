@@ -1,11 +1,11 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE CPP #-}
 
 {-# OPTIONS_GHC -funbox-strict-fields #-}
 
@@ -139,17 +139,21 @@ processFile fn trackPrefixes =
 -- TODO I could mark it static, to put in a file: mark, which would make vim
 -- prioritize it for same-file tags, but I think it already does that, so maybe
 -- this isn't necessary?
-qualify :: Bool -> Pos TagVal -> Pos TagVal
-qualify fullyQualify (Token.Pos pos (TagVal name typ)) =
+qualify :: Bool -> Text -> Pos TagVal -> Pos TagVal
+qualify fullyQualify srcPrefix (Token.Pos pos (TagVal name typ)) =
     Token.Pos pos (TagVal qualified typ)
     where
     qualified = case typ of
         Module -> module_
         _ -> module_ <> "." <> name
     module_
-        | fullyQualify = T.replace "/" "." $ T.pack file
+        | fullyQualify = T.replace "/" "." $ T.dropWhile (=='/') $
+            dropPrefix srcPrefix $ T.pack file
         | otherwise = T.pack $ FilePath.takeFileName file
     file = FilePath.dropExtension $ Token.posFile pos
+
+dropPrefix :: Text -> Text -> Text
+dropPrefix prefix txt = maybe txt id $ T.stripPrefix prefix txt
 
 -- | Process one file's worth of tags.
 process :: FilePath -> Bool -> Text -> ([Pos TagVal], [String])

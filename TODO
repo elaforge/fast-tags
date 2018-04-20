@@ -2,7 +2,55 @@ LEGEND
   - todo; + in progress; * done; / obsolete, do not want, or can't repro
   ? open question; . note; bug: marks bugs.
 
-- How could I support re-exports?
+- I'm getting _ as a tag when it's a parameter.
+  . Probably being mistaken for an operator.
+
+multiple roots:
+  . One way is to maintain a tags for each package, merge to the local tags,
+    and then merge all tags to the global one.
+    . The reason to use multiple tags files is that I can avoid recreating the
+      ones for packages that don't change often, e.g. hackage modules.
+  . This needs a slightly fancier init-tags script, and a "merge tags" mode.
+  . This is assuming people start vim in the repo root, which is probably not
+    what they do.
+  * But I also need tags to recognize a non-module prefix, e.g.
+    src/A/B.hs --> A.B.c src/A/B.hs
+    . In fact, this is just for --qualified and --fully_qualified, unqualified
+      doesn't care.
+    . So maybe I can just drop non-capitalized directories?  Better to have an
+      explicit flag, because people might use capitalized directories for
+      whatever reason.
+  . If I merge tags from different roots, I have to add a common prefix,
+    because presumably the editor is running in a common ancestor.
+
+large scale tags:
+  . I think I'll have to stop using text files.  The problem is I want to
+    merge unchanged and changed tags, but with a text tags file I have to
+    rewrite the entire file every time.
+  . I could use multiple tags files in vim, but I assume as that list grows,
+    search time becomes linear.
+  . But this means I have to basically reimplement tags entirely... which is
+    maybe not a problem, because I could do it much simpler.  Say keep
+    a sqlite db.  All I have to do is delete by filename, add new entries,
+    and search by symbol name.
+  . I might want some reimplementation of the "static" local tags thing, where
+    I favor tags in the local file.  However, if I can do "accurate unqualified"
+    then I might not need it much.
+
+accurate unqualified:
+  . Can I get accurate symbols without fully-qualified?
+  . When searching for an unqualified symbol, first look in the local file.
+    Then look through the import block for unqualified imports with that
+    explicit import.  If not found, try the ones without explicit imports
+    until one matches.
+  . I'll need a fancier import block parser, and I probably want to do it in
+    haskell.  So fast-tags could have an orthogonal mode to parse import
+    blocks, and qualified_tag.py invokes that.
+  . Or do the extension in haskell, but I think only neovim supports that?
+  . Searching for a plain tag where I don't know where it is is still
+    valuable, because unimported tags can occur in comments and strings.
+
+How could I support re-exports?
   . I guess if I see 'module Xyz' in the export list, I should go get the tags
     from Xyz.
   . To be accurate, I'd want only the imported tags.
