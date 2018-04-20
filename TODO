@@ -2,7 +2,7 @@ LEGEND
   - todo; + in progress; * done; / obsolete, do not want, or can't repro
   ? open question; . note; bug: marks bugs.
 
-- I'm getting _ as a tag when it's a parameter.
+* I'm getting _ as a tag when it's a parameter.
   . Probably being mistaken for an operator.
 
 multiple roots:

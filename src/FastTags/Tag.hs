@@ -222,8 +222,8 @@ identChar considerDot c = Char.isAlphaNum c || c == '\'' || c == '_'
 -- unicode operators are not supported yet
 haskellOpChar :: Char -> Bool
 haskellOpChar c =
-    IntSet.member (Char.ord c) opChars ||
-    Util.isSymbolCharacterCategory (Char.generalCategory c)
+    IntSet.member (Char.ord c) opChars
+        || Util.isSymbolCharacterCategory (Char.generalCategory c)
     where
     opChars :: IntSet.IntSet
     opChars = IntSet.fromList $ map Char.ord "-!#$%&*+./<=>?@^|~:\\"
@@ -455,7 +455,8 @@ functionTagsNoSig toks = go toks
     go (Pos _ Backtick : Pos pos' (T name') : _)
         | functionName False name'  = [mkRepeatableTag pos' name' Function]
     go (Pos pos (T name) : _)
-        | T.all haskellOpChar name  = [mkRepeatableTag pos name Operator]
+        | name /= "_" && T.all haskellOpChar name =
+            [mkRepeatableTag pos name Operator]
     go (_ : ts)                     = go ts
     stripOpeningParens :: [Token] -> [Token]
     stripOpeningParens = dropWhile ((== LParen) . valOf)
@@ -470,8 +471,7 @@ functionTagsNoSig toks = go toks
 
 tokToOpName :: TokenVal -> Maybe Text
 tokToOpName tok = case tokToName tok of
-    res@(Just name)
-        | T.all haskellOpChar name -> res
+    res@(Just name) | T.all haskellOpChar name -> res
     _ -> Nothing
 
 tokToName :: TokenVal -> Maybe Text
@@ -503,8 +503,7 @@ functionTags constructors = go []
     go tags tokens = (tags, tokens)
 
     mkOpTag :: [Tag] -> Type -> Token -> [Tag]
-    mkOpTag tags opTag (Pos pos tok) =
-      case tokToOpName tok of
+    mkOpTag tags opTag (Pos pos tok) = case tokToOpName tok of
         Just name -> mkTag pos name opTag : tags
         Nothing   -> tags
 

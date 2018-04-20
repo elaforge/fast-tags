@@ -567,6 +567,9 @@ testFunctions = testGroup "functions"
     , "(+), a :: X"     ==> ["+", "a"]
     -- Don't get fooled by literals.
     , "1 :: Int"        ==> []
+    -- Don't confuse _ wildcard for an operator.
+    , "f :: Int -> Int\n\
+      \f _ = 1"         ==> ["f"]
 
     -- plain functions and operators
     , "(.::) :: X -> Y" ==> [".::"]
