@@ -565,6 +565,8 @@ testFunctions = testGroup "functions"
     [ "a,b::X"          ==> ["a", "b"]
     -- With an operator.
     , "(+), a :: X"     ==> ["+", "a"]
+    -- Unicode operator.
+    , "(•) :: X"        ==> ["•"]
     -- Don't get fooled by literals.
     , "1 :: Int"        ==> []
     -- Don't confuse _ wildcard for an operator.

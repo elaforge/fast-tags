@@ -219,7 +219,6 @@ identChar :: Bool -> Char -> Bool
 identChar considerDot c = Char.isAlphaNum c || c == '\'' || c == '_'
     || c == '#' || considerDot && c == '.'
 
--- unicode operators are not supported yet
 haskellOpChar :: Char -> Bool
 haskellOpChar c =
     IntSet.member (Char.ord c) opChars
