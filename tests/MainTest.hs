@@ -107,19 +107,25 @@ testTokenize = testGroup "tokenize"
     -- multiline string
     , "foo \"bar\\\n\
       \  \\bar\" baz"     ==> [T "foo", String, T "baz", Newline 0]
+    -- multiline string with \r
+    , "foo \"bar\\\r\n\
+      \  \\bar\" baz"     ==> [T "foo", String, T "baz", Newline 0]
+    -- multiline string with zero indentation
+    , "foo \"bar\\\r\n\
+      \\\bar\" baz"     ==> [T "foo", String, T "baz", Newline 0]
     , "(\\err -> case err of Foo -> True; _ -> False)" ==>
         [ LParen, LambdaBackslash, T "err", Arrow, KWCase, T "err", KWOf, T "Foo"
         , Arrow, T "True", Semicolon, T "_", Arrow, T "False", RParen, Newline 0
         ]
-    , "foo = \"foo\\n\\\n\
+    , "foo = \"foo\\n\\\r\n\
       \  \\\" bar" ==> [T "foo", Equals, String, T "bar", Newline 0]
     , "foo = \"foo\\n\\\n\
       \  \\x\" bar" ==>
         [ T "foo", Equals, String, T "bar", Newline 0]
 
-    , "{-   ___   -}import Data.Char;main=putStr$do{c<-\"/1 AA A A;9+ )11929 )1191A 2C9A \";e\n\
-      \ {- {- | -} -}  {- {- || -} -}{- {- || -} -}{- {- || -} -} {--}.(`divMod`8).(+(-32)).ord$c};f(0,0)=\"\n\";f(m,n)=m?\"  \"++n?\"_/\"\n\
-      \{- {- | -} -}n?x=do{[1..n];x}                                    --- obfuscated\n\
+    , "{-   ___   -}import Data.Char;main=putStr$do{c<-\"/1 AA A A;9+ )11929 )1191A 2C9A \";e\r\n\
+      \ {- {- | -} -}  {- {- || -} -}{- {- || -} -}{- {- || -} -} {--}.(`divMod`8).(+(-32)).ord$c};f(0,0)=\"\n\";f(m,n)=m?\"  \"++n?\"_/\"\r\n\
+      \{- {- | -} -}n?x=do{[1..n];x}                                    --- obfuscated\r\n\
       \{-\\_/ on Fairbairn, with apologies to Chris Brown. Above is / Haskell 98 -}"
       ==>
       [ KWImport, T "Data.Char", Semicolon

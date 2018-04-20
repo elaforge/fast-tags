@@ -119,16 +119,11 @@ $space*                 { \input len -> endIndentationCounting len }
 
 -- Strings
 <0> [\"]                { \_ _ -> startString }
-<string> [\"]           { \_ _ -> endString 0 }
-<string> [\\] $nl ( $ws+ [\\] )? ;
-<string> ( $ws+ | [^\"\\$nl] | [\\] . )+ ;
-
--- Strings
-<0> [\"]                { \_ _ -> startString }
-<string> [\\] [\"\\]    ;
-<string> [\\] $nl ($ws+ [\\])? ;
-<string> [\"]           { \_ _ -> endString 0 }
-<string> (. | $nl)      ;
+<string> ( [\\] [\r]? $nl $ws* [\\] ) ? [\"]
+                        { \_ _ -> endString 0 }
+<string> [\\] [\r]? $nl ( $ws* [\\] )? ;
+<string> ( $ws | [^ \" \\ $nl] )+ ;
+<string> ( . | $nl | [\\] . )     ;
 
 
 
