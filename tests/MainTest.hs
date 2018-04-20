@@ -108,7 +108,7 @@ testTokenize = testGroup "tokenize"
     , "foo \"bar\\\n\
       \  \\bar\" baz"     ==> [T "foo", String, T "baz", Newline 0]
     , "(\\err -> case err of Foo -> True; _ -> False)" ==>
-        [ LParen, T "\\", T "err", Arrow, KWCase, T "err", KWOf, T "Foo"
+        [ LParen, LambdaBackslash, T "err", Arrow, KWCase, T "err", KWOf, T "Foo"
         , Arrow, T "True", Semicolon, T "_", Arrow, T "False", RParen, Newline 0
         ]
     , "foo = \"foo\\n\\\n\
@@ -152,6 +152,23 @@ testTokenize = testGroup "tokenize"
     , "--:+: :+: :+:"
       ==>
       [T "--:+:", T ":+:", T ":+:", Newline 0]
+
+    , "\\x -> y" ==> [LambdaBackslash, T "x", Arrow, T "y", Newline 0]
+    , "precalcClosure0 :: Grammar -> Name -> RuleList\n\
+      \precalcClosure0 g = \n\
+      \\\n -> case lookup n info' of\n\
+      \\tNothing -> []\n\
+      \\tJust c  -> c\n\
+      \  where"
+      ==>
+      [ T "precalcClosure0", DoubleColon, T "Grammar", Arrow, T "Name", Arrow, T "RuleList", Newline 0
+      , T "precalcClosure0", T "g", Equals, Newline 0
+      , LambdaBackslash, T "n", Arrow, KWCase, T "lookup", T "n", T "info'", KWOf, Newline 1
+      , T "Nothing", Arrow, LBracket, RBracket, Newline 1
+      , T "Just", T "c", Arrow, T "c", Newline 2
+      , KWWhere, Newline 0
+      ]
+
     , tokenizeSplices
     ]
     where
@@ -1261,6 +1278,14 @@ testLiterate = testGroup "literate"
       \\tm :: a->b\n\tn :: c\n\\end{code}"
       ==>
       ["C", "m", "n"]
+    , "> precalcClosure0 :: Grammar -> Name -> RuleList\n\
+      \> precalcClosure0 g = \n\
+      \>\t\\n -> case lookup n info' of\n\
+      \>\t\tNothing -> []\n\
+      \>\t\tJust c  -> c\n\
+      \>  where"
+      ==>
+      ["precalcClosure0"]
     ]
     where
     (==>) = test f

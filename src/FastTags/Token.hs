@@ -96,6 +96,7 @@ data TokenVal =
     | QuasiquoterStart
     | QuasiquoterEnd
     | SpliceStart -- \$(
+    | LambdaBackslash -- \
     | EOF
     deriving (Show, Eq, Ord)
 

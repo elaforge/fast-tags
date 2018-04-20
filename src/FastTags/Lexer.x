@@ -194,6 +194,8 @@ $space*                 { \input len -> endIndentationCounting len }
 "~"                     { kw Tilde }
 ";"                     { kw Semicolon }
 
+[\\]                    { kw LambdaBackslash }
+
 -- Not interested in numbers, but it takes time to extract their text so
 -- it's quicker to just ignore them.
 @number                 { kw Number }
