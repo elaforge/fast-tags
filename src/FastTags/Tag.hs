@@ -249,6 +249,18 @@ identChar :: Bool -> Char -> Bool
 identChar considerDot c = Char.isAlphaNum c || c == '\'' || c == '_'
     || c == '#' || considerDot && c == '.'
 
+isHaskellOp :: Text -> Bool
+isHaskellOp str = case Util.headt str of
+    Nothing  -> False
+    Just ':' -> False
+    Just _   -> T.all haskellOpChar str
+
+isHaskellConstructorOp :: Text -> Bool
+isHaskellConstructorOp str = case T.uncons str of
+    Nothing        -> False
+    Just (':', xs) -> T.all haskellOpChar xs
+    Just _         -> False
+
 haskellOpChar :: Char -> Bool
 haskellOpChar '_' = False
 haskellOpChar c   =
@@ -469,7 +481,7 @@ blockTags unstripped = case stripNewlines unstripped of
 
 isTypeFamilyName :: Text -> Bool
 isTypeFamilyName =
-    maybe False (\c -> Char.isUpper c || haskellOpChar c) . Util.headt
+    maybe False (\c -> Char.isUpper c || c == ':') . Util.headt
 
 isTypeName  :: Text -> Bool
 isTypeName x = case Util.headt x of
@@ -557,14 +569,18 @@ functionTagsNoSig :: [Token] -> [Tag]
 functionTagsNoSig allToks = go' allToks
     where
     go' :: [Token] -> [Tag]
-    go' (Pos _ T{} : Pos pos (T opName) : _)
-        | T.all haskellOpChar opName = [mkRepeatableTag pos opName Operator]
+    go' (Pos _ T{} : Pos pos tok : _)
+        | Just opName <- tokToOpNameExcludingBangPatSyms ExpectFunctions tok
+        = [mkRepeatableTag pos opName Operator]
     go' ts = go ts
 
     go :: [Token] -> [Tag]
     go []                           = []
     go (Pos _ LParen : Pos _ T{} : Pos _ Backtick : Pos pos' (T name') : Pos _ Backtick : Pos _ T{} : Pos _ RParen : _)
         | functionName ExpectFunctions name' = [mkRepeatableTag pos' name' Function]
+    go (Pos _ LParen : Pos _ T{} : Pos pos' tok : Pos _ T{} : Pos _ RParen : _)
+        | Just name' <- tokToOpName ExpectFunctions tok
+        = [mkRepeatableTag pos' name' Operator]
     go toks@(Pos _ LParen : _)      = go $ stripBalancedParens toks
     go toks@(Pos _ LBrace : _)      = go $ stripBalancedBraces toks
     go toks@(Pos _ LBracket : _)    = go $ stripBalancedBrackets toks
@@ -577,9 +593,9 @@ functionTagsNoSig allToks = go' allToks
     go (Pos _ Pipe : _)             = functionOrOp allToks
     go (Pos _ Backtick : Pos pos' (T name') : _)
         | functionName ExpectFunctions name' = [mkRepeatableTag pos' name' Function]
-    go (Pos pos (T name) : _)
-        | T.all haskellOpChar name =
-            [mkRepeatableTag pos name Operator]
+    go (Pos pos tok : _)
+        | Just name <- tokToOpNameExcludingBangPatSyms ExpectFunctions tok
+        = [mkRepeatableTag pos name Operator]
     go (Pos pos Dot : _)            = [mkRepeatableTag pos "." Operator]
     go (_ : ts)                     = go ts
     stripOpeningParens :: [Token] -> [Token]
@@ -588,23 +604,37 @@ functionTagsNoSig allToks = go' allToks
     functionOrOp toks = case stripOpeningParens toks of
          Pos pos (T name) : _
              | functionName ExpectFunctions name -> [mkRepeatableTag pos name Function]
-         Pos pos tok : _ -> case tokToOpName tok of
+         Pos pos tok : _ -> case tokToOpName ExpectFunctions tok of
              Just name -> [mkRepeatableTag pos name Operator]
              Nothing   -> []
          [] -> []
 
-tokToOpName :: TokenVal -> Maybe Text
-tokToOpName tok = case tokToName tok of
-    res@(Just name) | T.all haskellOpChar name -> res
+tokToOpNameExcludingBangPatSyms :: ExpectedFuncName -> TokenVal -> Maybe Text
+tokToOpNameExcludingBangPatSyms expectation tok = case (expectation, tokToNameExcludingBangPatSyms tok) of
+    (ExpectFunctions, res@(Just name))
+        | isHaskellOp name -> res
+    (ExpectConstructors, res@(Just name))
+        | isHaskellConstructorOp name -> res
+    _ -> Nothing
+
+tokToNameExcludingBangPatSyms :: TokenVal -> Maybe Text
+tokToNameExcludingBangPatSyms (T "_")         = Nothing
+tokToNameExcludingBangPatSyms (T name)        = Just name
+tokToNameExcludingBangPatSyms Dot             = Just "."
+tokToNameExcludingBangPatSyms _               = Nothing
+
+tokToOpName :: ExpectedFuncName -> TokenVal -> Maybe Text
+tokToOpName expectation tok = case (expectation, tokToName tok) of
+    (ExpectFunctions, res@(Just name))
+        | isHaskellOp name -> res
+    (ExpectConstructors, res@(Just name))
+        | isHaskellConstructorOp name -> res
     _ -> Nothing
 
 tokToName :: TokenVal -> Maybe Text
-tokToName (T "_")         = Nothing
-tokToName (T name)        = Just name
 tokToName ExclamationMark = Just "!"
 tokToName Tilde           = Just "~"
-tokToName Dot             = Just "."
-tokToName _               = Nothing
+tokToName x               = tokToNameExcludingBangPatSyms x
 
 -- | Get tags from a function type declaration: token , token , token ::
 -- Return the tokens left over.
@@ -630,7 +660,7 @@ functionTags constructors = go []
 
     mkOpTag :: [Tag] -> Type -> Token -> [Tag]
     mkOpTag tags opTag' (Pos pos tok) =
-      case tokToOpName tok of
+      case tokToOpName constructors tok of
         Just name -> mkTag pos name opTag' : tags
         Nothing   -> tags
 
@@ -686,16 +716,19 @@ dataConstructorTags prevPos unstripped
     strip = stripOptBang . stripOptContext . stripOptForall . dropUntil Equals
           . stripNewlines
     collectRest :: [Token] -> [Tag]
+    collectRest (Pos _ LParen : rest) = collectRest $ dropUntilNextField rest
     collectRest tokens
         | (tags@(_:_), rest) <- functionTags ExpectFunctions tokens =
             tags ++ collectRest (dropUntilNextField rest)
     collectRest (Pos pipePos Pipe : rest)
         | Just (Pos pos (T name), rest'') <- extractInfixConstructor rest' =
             mkTag pos name Constructor : collectRest rest''
-        | Pos pos (T name) : rest'' <- rest' =
+        | Pos pos (T name) : rest'' <- rest'
+        , functionName ExpectConstructors name =
             mkTag pos name Constructor
                 : collectRest (dropUntilNextCaseOrRecordStart rest'')
-        | Pos _ LParen : Pos pos (T name) : Pos _ RParen : rest'' <- rest' =
+        | Pos _ LParen : Pos pos (T name) : Pos _ RParen : rest'' <- rest'
+        , isHaskellConstructorOp name =
             mkTag pos name Constructor
                 : collectRest (dropUntilNextCaseOrRecordStart rest'')
         | otherwise = [unexpected pipePos unstripped rest "| not followed by tokens"]
