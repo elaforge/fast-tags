@@ -742,6 +742,9 @@ testData = testGroup "data"
       \  | [(Maybe b, Map b a, a)] `Bar` [(Maybe a, Map a b, b)]"
       ==>
       ["Bar", "Foo", "Test"]
+    , "data IO a = IO (World->(a,World))"
+      ==>
+      ["IO", "IO"]
     ]
     where
     (==>) = testTagNames filename
@@ -763,21 +766,21 @@ testGADT = testGroup "gadt"
     , "data Vec ix where\n\
       \  Nil   :: Int -> Foo Int\n\
       \  (:::) :: Int -> Vec Int -> Vec Int\n\
-      \  (.+.) :: Int -> Int -> Vec Int -> Vec Int\n"
+      \  (:+.) :: Int -> Int -> Vec Int -> Vec Int\n"
       ==>
-      [".+.", ":::", "Nil", "Vec"]
+      [":+.", ":::", "Nil", "Vec"]
     , "data Vec ix where\n\
       \  Nil   :: Int -> Foo Int\n\
       \  -- foo\n\
       \  (:::) :: Int -> Vec Int -> Vec Int\n\
       \-- bar\n\
-      \  (.+.) :: Int     -> \n\
+      \  (:+.) :: Int     -> \n\
       \           -- ^ baz\n\
       \           Int     -> \n\
       \           Vec Int -> \n\
       \Vec Int\n"
       ==>
-      [".+.", ":::", "Nil", "Vec"]
+      [":+.", ":::", "Nil", "Vec"]
     , "data NatSing (n :: Nat) where\n\
       \  ZeroSing :: 'Zero\n\
       \  SuccSing :: NatSing n -> NatSing ('Succ n)\n"
@@ -848,7 +851,7 @@ testFunctions = testGroup "functions"
 
     -- plain functions and operators
     , "(.::) :: X -> Y" ==> [".::"]
-    , "(:::) :: X -> Y" ==> [":::"]
+    , "(+::) :: X -> Y" ==> ["+::"]
     , "(->:) :: X -> Y" ==> ["->:"]
     , "(--+) :: X -> Y" ==> ["--+"]
     , "(=>>) :: X -> Y" ==> ["=>>"]
@@ -1002,6 +1005,7 @@ testFunctions = testGroup "functions"
       ["showComplexFloat"]
 
     , "_g :: X -> Y" ==> ["_g"]
+    , "(f . g) x = f (g x)" ==> ["."]
     , toplevelFunctionsWithoutSignatures
     ]
     where
@@ -1023,10 +1027,10 @@ testFunctions = testGroup "functions"
         , "f x y = x"               ==> ["f"]
         , "f (x :+: y) z = x"       ==> ["f"]
         , "(x :+: y) `f` z = x"     ==> ["f"]
-        , "(x :+: y) :*: z = x"     ==> [":*:"]
-        , "((:+:) x y) :*: z = x"   ==> [":*:"]
-        , "(:*:) (x :+: y) z = x"   ==> [":*:"]
-        , "(:*:) ((:+:) x y) z = x" ==> [":*:"]
+        , "(x :+: y) *: z = x"     ==> ["*:"]
+        , "((:+:) x y) *: z = x"   ==> ["*:"]
+        , "(*:) (x :+: y) z = x"   ==> ["*:"]
+        , "(*:) ((:+:) x y) z = x" ==> ["*:"]
         , strictMatchTests
         , lazyMatchTests
         , atPatternsTests
@@ -1077,10 +1081,10 @@ testFunctions = testGroup "functions"
         -- this one is a bit controversial but it seems to be the way ghc
         -- parses it
         , "f ! x = x"                 ==> ["f"]
-        , "(:*:) !(x :+: y) z = x"    ==> [":*:"]
-        , "(:*:) !(!x :+: !y) !z = x" ==> [":*:"]
-        , "(:*:) !((:+:) x y) z = x"  ==> [":*:"]
-        , "(:*:) !((:+:) !x !y) !z = x" ==> [":*:"]
+        , "(*:) !(x :+: y) z = x"    ==> ["*:"]
+        , "(*:) !(!x :+: !y) !z = x" ==> ["*:"]
+        , "(*:) !((:+:) x y) z = x"  ==> ["*:"]
+        , "(*:) !((:+:) !x !y) !z = x" ==> ["*:"]
         , "(!) :: a -> b -> a\n\
           \(!) x y = x"
           ==>
@@ -1097,10 +1101,10 @@ testFunctions = testGroup "functions"
         -- this one is a bit controversial but it seems to be the way ghc
         -- parses it
         , "f ~ x = x"   ==> ["f"]
-        , "(:*:) ~(x :+: y) z = x" ==> [":*:"]
-        , "(:*:) ~(~x :+: ~y) ~z = x" ==> [":*:"]
-        , "(:*:) ~((:+:) x y) z = x" ==> [":*:"]
-        , "(:*:) ~((:+:) ~x ~y) ~z = x" ==> [":*:"]
+        , "(*:) ~(x :+: y) z = x" ==> ["*:"]
+        , "(*:) ~(~x :+: ~y) ~z = x" ==> ["*:"]
+        , "(*:) ~((:+:) x y) z = x" ==> ["*:"]
+        , "(*:) ~((:+:) ~x ~y) ~z = x" ==> ["*:"]
         , "(~) :: a -> b -> a\n\
           \(~) x y = x"
           ==>
@@ -1120,10 +1124,10 @@ testFunctions = testGroup "functions"
         , "f z @ (x : zs @ xs) = z: [x: zs]"      ==> ["f"]
         , "f z @ (zz @x : zs @ xs) = z: [zz: zs]" ==> ["f"]
 
-        , "(:*:) zzz@(x :+: y) z = x"             ==> [":*:"]
-        , "(:*:) zzz@(zx@x :+: zy@y) zz@z = x"    ==> [":*:"]
-        , "(:*:) zzz@((:+:) x y) z = x"           ==> [":*:"]
-        , "(:*:) zzz@((:+:) zs@x zs@y) zz@z = x"  ==> [":*:"]
+        , "(*:) zzz@(x :+: y) z = x"             ==> ["*:"]
+        , "(*:) zzz@(zx@x :+: zy@y) zz@z = x"    ==> ["*:"]
+        , "(*:) zzz@((:+:) x y) z = x"           ==> ["*:"]
+        , "(*:) zzz@((:+:) zs@x zs@y) zz@z = x"  ==> ["*:"]
 
         , "f z@(!x) ~y = x"                       ==> ["f"]
         ]
