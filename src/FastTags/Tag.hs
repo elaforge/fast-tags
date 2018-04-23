@@ -713,10 +713,10 @@ dataConstructorTags prevPos unstripped
         rest -> [unexpected prevPos unstripped rest "data * = *"]
     where
     strip :: UnstrippedTokens -> [Token]
-    strip = stripOptBang . stripOptContext . stripOptForall . dropUntil Equals
+    strip = stripOptBang . stripDatatypeContext . dropUntil Equals
           . stripNewlines
     collectRest :: [Token] -> [Tag]
-    collectRest (Pos _ LParen : rest) = collectRest $ dropUntilNextField rest
+    collectRest toks@(Pos _ LParen : _) = collectRest $ stripBalancedParens toks -- dropUntilNextField rest
     collectRest tokens
         | (tags@(_:_), rest) <- functionTags ExpectFunctions tokens =
             tags ++ collectRest (dropUntilNextField rest)
@@ -733,7 +733,7 @@ dataConstructorTags prevPos unstripped
                 : collectRest (dropUntilNextCaseOrRecordStart rest'')
         | otherwise = [unexpected pipePos unstripped rest "| not followed by tokens"]
         where
-        rest' = stripOptBang $ stripOptContext $ stripOptForall rest
+        rest' = stripOptBang $ stripDatatypeContext rest
     collectRest (_ : rest) = collectRest rest
     collectRest [] = []
 
@@ -746,7 +746,7 @@ dataConstructorTags prevPos unstripped
         where
         extract :: [Token] -> Maybe (Token, [Token])
         extract (tok@(Pos _ (T name)) : rest)
-            | ":" `T.isPrefixOf` name = Just (tok, stripTypeParam rest)
+            | isHaskellConstructorOp name = Just (tok, stripTypeParam rest)
         extract (Pos _ Backtick : tok@(Pos _ _) : Pos _ Backtick : rest) =
             Just (tok, stripTypeParam rest)
         extract _ = Nothing
@@ -765,6 +765,9 @@ dataConstructorTags prevPos unstripped
     dropUntilNextField :: [Token] -> [Token]
     dropUntilNextField = dropWithStrippingBalanced $
         not . \case { Comma -> True; RBrace -> True; Pipe -> True; _ -> False }
+
+stripDatatypeContext :: [Token] -> [Token]
+stripDatatypeContext = stripOptContext . stripOptForall
 
 stripOptForall :: [Token] -> [Token]
 stripOptForall (Pos _ (T "forall") : rest) = dropUntil Dot rest
@@ -790,6 +793,7 @@ stripOptContext origToks = go origToks
     go (Pos _ Pipe : _)        = origToks
     go (Pos _ LBrace : _)      = origToks
     go (Pos _ RBrace : _)      = origToks
+    go toks@(Pos _ LParen : _) = go $ stripBalancedParens toks
     go (Pos _ DoubleColon : _) = origToks
     go (_ : xs)                = go xs
     go []                      = origToks

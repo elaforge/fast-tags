@@ -745,6 +745,28 @@ testData = testGroup "data"
     , "data IO a = IO (World->(a,World))"
       ==>
       ["IO", "IO"]
+
+    , "data SubTransformTriple a =\n\
+      \        SubTransformTriple\n\
+      \           (forall sh. (Shape sh, Slice sh) => Transform (sh:.Int) a)\n\
+      \           (forall sh. (Shape sh, Slice sh) => Transform (sh:.Int) a)\n\
+      \           (forall sh. (Shape sh, Slice sh) => Transform (sh:.Int) a)"
+      ==>
+      ["SubTransformTriple", "SubTransformTriple"]
+
+    , "data TestCase \n\
+      \    = forall a prop . (Testable prop, Data a) \n\
+      \    => TestCase  (((String, a, a) -> Property) -> prop)\n\
+      \        deriving (Typeable)"
+      ==>
+      ["TestCase", "TestCase"]
+
+    , "-- | Binding List\n\
+      \data BindingList v a = Variable v => BindingList {source :: Source v a -- ^ the list's binding source\n\
+      \                                                , list   :: v [v a]    -- ^ the bound list\n\
+      \                                                , pos    :: v Int}     -- ^ the current position"
+      ==>
+      ["BindingList", "BindingList", "list", "pos", "source"]
     ]
     where
     (==>) = testTagNames filename
@@ -1003,6 +1025,16 @@ testFunctions = testGroup "functions"
       \showComplexFloat x y = (showFFloat Nothing x \"\") ++ (if y > 0 then \"+\" else \"\") ++ (showFFloat Nothing y \"i\")"
       ==>
       ["showComplexFloat"]
+
+    , "createAlert            :<|>\n\
+      \ getAlert              :<|>\n\
+      \ deleteAlert           :<|>\n\
+      \ setAlertStatus        :<|>\n\
+      \ tagAlert              :<|>\n\
+      \ untagAlert            :<|>\n\
+      \ updateAlertAttributes = client (Proxy :: Proxy AlertApi)"
+      ==>
+      ["createAlert"]
 
     , "_g :: X -> Y" ==> ["_g"]
     , "(f . g) x = f (g x)" ==> ["."]
