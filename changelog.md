@@ -1,3 +1,23 @@
+1.4.2
+
+* add --src-prefix flag
+
+Minor UI cleanups:
+
+* don't read filenames from stdin on no arguments, use - for that
+
+* don't automatically read contents of directories
+
+* don't automatically recurse into any directories starting with dot
+
+* don't follow symlinks by default when -R is given
+
+Make qualified tags work better:
+
+* qualified_tag.py: strip leading and trailing dots
+
+* make qualified_tag.py retry qualified tags without qualification
+
 1.4.1
 
 * Ghc 8.4.1 compatibility.
