@@ -33,7 +33,22 @@ import sys, re
 def tag_word(vim):
     word = get_word(vim)
     qual_to_module = get_qualified_imports(vim.current.buffer)
-    vim.command('tag ' + guess_tag(qual_to_module, word))
+    tag = guess_tag(qual_to_module, word)
+    # If I can't find a qualified target, try it without the qualification.
+    # It might be a re-export from another module.
+    found = has_target(vim, tag)
+    if not found and '.' in tag:
+        tag = tag.split('.')[-1]
+        found = has_target(vim, tag)
+    if found:
+        vim.command('tag ' + tag)
+    else:
+        # I'd use echoerr, but that causes a big messy python traceback.
+        vim.command('echohl ErrorMsg | echo %r | echohl None' %
+            ('tag not found: ' + tag,))
+
+def has_target(vim, tag):
+    return bool(vim.eval('taglist(%r, expand("%%"))' % ('^' + tag + '$',)))
 
 def get_word(vim):
     (row, col) = vim.current.window.cursor

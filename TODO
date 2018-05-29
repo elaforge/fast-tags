@@ -13,6 +13,9 @@ multiple roots:
   . This needs a slightly fancier init-tags script, and a "merge tags" mode.
   . This is assuming people start vim in the repo root, which is probably not
     what they do.
+  . But it seems like vim should be able to use tags in a parent directory,
+    e.g. go up until getting to tags, and then resolve as if it's in that
+    directory.
   * But I also need tags to recognize a non-module prefix, e.g.
     src/A/B.hs --> A.B.c src/A/B.hs
     . In fact, this is just for --qualified and --fully_qualified, unqualified
@@ -23,7 +26,14 @@ multiple roots:
   . If I merge tags from different roots, I have to add a common prefix,
     because presumably the editor is running in a common ancestor.
 
-large scale tags:
+medium scale:
+  . check-in keeps a global tags, local changes are an overlay on that.
+  . I think multiple tags files woud have that effect, just do incremental
+    tags on save, and don't initialize the first time.
+  . If I can keep local overlay per-branch then I can have accurate branch
+    switching too.
+
+large scale:
   . I think I'll have to stop using text files.  The problem is I want to
     merge unchanged and changed tags, but with a text tags file I have to
     rewrite the entire file every time.
@@ -50,7 +60,16 @@ accurate unqualified:
   . Searching for a plain tag where I don't know where it is is still
     valuable, because unimported tags can occur in comments and strings.
 
-How could I support re-exports?
+re-exports:
+  * The easiest approximation is to try without qualification if qualified
+    doesn't match.
+    . :echo taglist('^Textioe$', expand('%'))
+  . If I see `module X` in the export list, find an `import ... as X`, and
+    re-export its symbols.
+    . This has to be recursive, in case that module also re-exports.
+  . For any symbol in the export list, see if it's imported from someplace
+    else, and use that module as above.
+
   . I guess if I see 'module Xyz' in the export list, I should go get the tags
     from Xyz.
   . To be accurate, I'd want only the imported tags.
@@ -79,6 +98,7 @@ How could I support re-exports?
       in
       resolve exports
     . So this seems doable, but nontrivial.
+  . I also need to remember the constructors of a data, for X(..) syntax.
   . First I should see what the haskell ide guys have done.
 
 * Implement --fully_qualified

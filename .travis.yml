@@ -71,6 +71,7 @@ install:
 # any command which exits with a non-zero exit code causes the build to fail.
 script:
   # test that source-distributions can be generated
+  - cabal configure
   - cabal sdist
   - cat ./dist/fast-tags-*.tar.gz | (cd "${DISTDIR}/" && tar -xzvf -)
   - cd ${DISTDIR}/fast-tags*
