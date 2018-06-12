@@ -1,4 +1,3 @@
-
 language: generic
 
 # Explicitly request container-based infrastructure.
@@ -10,7 +9,8 @@ git:
 
 cache:
   directories:
-    - "$HOME/.cabal"
+    - $HOME/.cabal
+    - $HOME/.ghc
 
 before_cache:
   - rm -fv $HOME/.cabal/packages/hackage.haskell.org/build-reports.log
@@ -20,51 +20,65 @@ before_cache:
   - rm -fv $HOME/.cabal/packages/hackage.haskell.org/01-index.cache
   - rm -fv $HOME/.cabal/packages/hackage.haskell.org/01-index.tar
   - rm -fv $HOME/.cabal/packages/hackage.haskell.org/01-index.tar.idx
-
   - rm -rfv $HOME/.cabal/packages/head.hackage
 
 matrix:
   include:
     - compiler: "ghc-7.8.4"
       env: GHC=7.8.4 CABALVER=2.0 ALEXVER=3.1.7
-      addons: {apt: {packages: [ghc-7.8.4, cabal-install-2.0, alex-3.1.7], sources: [hvr-ghc]}}
+      addons:
+        apt:
+          packages: [ghc-7.8.4, cabal-install-2.0, alex-3.1.7]
+          sources: [hvr-ghc]
 
     - compiler: "ghc-7.10.3"
       env: GHC=7.10.3 CABALVER=2.0 ALEXVER=3.1.7
-      addons: {apt: {packages: [ghc-7.10.3, cabal-install-2.0, alex-3.1.7], sources: [hvr-ghc]}}
+      addons:
+        apt:
+          packages: [ghc-7.10.3, cabal-install-2.0, alex-3.1.7]
+          sources: [hvr-ghc]
 
     - compiler: "ghc-8.0.2"
       env: GHC=8.0.2 CABALVER=2.0 ALEXVER=3.1.7
-      addons: {apt: {packages: [ghc-8.0.2, cabal-install-2.0, alex-3.1.7], sources: [hvr-ghc]}}
+      addons:
+        apt:
+          packages: [ghc-8.0.2, cabal-install-2.0, alex-3.1.7]
+          sources: [hvr-ghc]
 
     - compiler: "ghc-8.2.2"
       env: GHC=8.2.2 CABALVER=2.0 ALEXVER=3.1.7
-      addons: {apt: {packages: [ghc-8.2.2, cabal-install-2.0, alex-3.1.7], sources: [hvr-ghc]}}
+      addons:
+        apt:
+          packages: [ghc-8.2.2, cabal-install-2.0, alex-3.1.7]
+          sources: [hvr-ghc]
 
     - compiler: "ghc-8.4.1"
       env: GHC=8.4.1 CABALVER=2.2 ALEXVER=3.1.7
-      addons: {apt: {packages: [ghc-8.4.1, cabal-install-2.2, alex-3.1.7], sources: [hvr-ghc]}}
+      addons:
+        apt:
+          packages: [ghc-8.4.1, cabal-install-2.2, alex-3.1.7]
+          sources: [hvr-ghc]
 
-    - compiler: "ghc-HEAD"
-      env: GHC=head CABALVER=head ALEXVER=3.1.7
-      addons: {apt: {packages: [ghc-head, cabal-install-head, alex-3.1.7], sources: [hvr-ghc]}}
+    # async not updated for base-4.12
+    # - compiler: "ghc-HEAD"
+    #   env: GHC=head CABALVER=head ALEXVER=3.1.7
+    #   addons:
+    #     apt:
+    #       packages: [ghc-head, cabal-install-head, alex-3.1.7]
+    #       sources: [hvr-ghc]
 
 install: true
 
 before_install:
-
-  - export PATH="/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:/opt/alex/$ALEXVER/bin:$HOME/.cabal/bin:$PATH"
+  - export PATH="/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$PATH"
+  - export PATH="/opt/alex/$ALEXVER/bin:$HOME/.cabal/bin:$PATH"
 
 install:
   - echo "$PATH"
-  - echo "$(ghc --version) [$(ghc --print-project-git-commit-id 2> /dev/null || echo '?')]"
   - ghc-pkg list
   - cabal --version
-
   - travis_retry cabal update -v
-
   - cabal install --only-dependencies --enable-tests -j2
-
   - DISTDIR=$(mktemp -d /tmp/dist-test.XXXX)
 
 # Here starts the actual work to be performed for the package under test;
@@ -81,5 +95,4 @@ script:
   - cabal test
 
   # Disabled, see comment in .cabal.
-  # cabal check
   # - (cd fast-tags-* && cabal check)
