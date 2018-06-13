@@ -24,10 +24,13 @@
 #     nnoremap <buffer> <silent> <c-]> :py qualified_tag.tag_word(vim)<cr>
 # endif
 #
+# Or python3 and py3 if you have those.
+#
 # If you use 'filetype', you can do:
 #
 # autocmd FileType haskell nnoremap ...
 
+from __future__ import print_function
 import sys, re
 
 def tag_word(vim):
@@ -48,7 +51,7 @@ def tag_word(vim):
             ('tag not found: ' + tag,))
 
 def has_target(vim, tag):
-    return bool(vim.eval('taglist(%r, expand("%%"))' % ('^' + tag + '$',)))
+    return bool(vim.eval('taglist(%r)' % ('^' + tag + '$',)))
 
 def get_word(vim):
     (row, col) = vim.current.window.cursor
@@ -118,8 +121,8 @@ def test():
     fn, tag = sys.argv[1:]
     lines = open(fn).read().split('\n')
     qual_to_module = get_qualified_imports(lines)
-    print qual_to_module
-    print guess_tag(qual_to_module, tag)
+    print(qual_to_module)
+    print(guess_tag(qual_to_module, tag))
 
 if __name__ == '__main__':
     test()
