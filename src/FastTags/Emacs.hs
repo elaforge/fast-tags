@@ -18,14 +18,19 @@ format maxSeparation = map (uncurry formatFileTags)
 
 formatFileTags :: FilePath -> [Token.Pos Tag.TagVal] -> Text
 formatFileTags file tags = Text.concat
-    [ "\x0c\x0a", Text.pack file, ","
-    , Text.pack $ show (Text.length tagsText), "\x0a", tagsText
+    [ "\x0c\n", Text.pack file, ","
+    , showt (Text.length tagsText), "\n", tagsText
     ]
     where tagsText = Text.unlines $ map formatTag tags
 
 formatTag :: Token.Pos Tag.TagVal -> Text
-formatTag (Token.Pos pos (Tag.TagVal {})) = Text.concat
-    [ Token.posPrefix pos
-    , "\x7f"
-    , Text.pack (show $ Token.unLine (Token.posLine pos))
+formatTag (Token.Pos pos tag) = Text.concat
+    [ Token.posPrefix pos, "\x7f"
+    , Tag.tvName tag, "\x01"
+    , showt (linenum-1) <> "," <> showt linenum
     ]
+    where
+    linenum = Token.unLine (Token.posLine pos)
+
+showt :: Show a => a -> Text
+showt = Text.pack . show
