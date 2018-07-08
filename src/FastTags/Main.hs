@@ -48,6 +48,12 @@ options :: [GetOpt.OptDescr Flag]
 options =
     [ GetOpt.Option ['e'] [] (GetOpt.NoArg ETags)
         "generate tags in Emacs format"
+    , GetOpt.Option [] ["exclude"] (GetOpt.ReqArg Exclude "pattern") $ concat
+        [ "Add a pattern to a list of files to exclude when -R is given."
+        , "  The pattern is matched against the basename and complete path of"
+        , " each file and directory.  This features is based on exuberant"
+        , " ctags."
+        ]
     , GetOpt.Option ['h'] ["help"] (GetOpt.NoArg Help)
         "print help message"
     , GetOpt.Option ['L'] ["follow-symlinks"] (GetOpt.NoArg FollowSymlinks)
@@ -98,7 +104,10 @@ help = unlines
 maxSeparation :: Int
 maxSeparation = 2
 
+type Pattern = String
+
 data Flag = ETags
+    | Exclude !Pattern
     | FollowSymlinks
     | FullyQualified
     | Help
@@ -197,7 +206,8 @@ getInputs flags inputs
         isDirectory <- Directory.doesDirectoryExist input
         if isDirectory
             then filter Tag.isHsFile <$>
-                getRecursiveDirContents followSymlinks input
+                getRecursiveDirContents followSymlinks
+                    [pattern | Exclude pattern <- flags] input
             else return [input]
     | otherwise = return inputs
     where
@@ -205,18 +215,29 @@ getInputs flags inputs
     followSymlinks = FollowSymlinks `elem` flags
 
 -- | Recurse directories collecting all files
-getRecursiveDirContents :: Bool -> FilePath -> IO [FilePath]
-getRecursiveDirContents followSymlinks topdir = do
-    paths <- listDir topdir
-    fmap concat $ forM paths $ \path -> do
-        isDirectory <- Directory.doesDirectoryExist path
-        isSymlink <- Directory.pathIsSymbolicLink path
-        if isDirectory && (followSymlinks || not isSymlink)
-            then getRecursiveDirContents followSymlinks path
-            else return [path]
+getRecursiveDirContents :: Bool -> [Pattern] -> FilePath -> IO [FilePath]
+getRecursiveDirContents followSymlinks excludes = go
+    where
+    go topdir = do
+        paths <- listDir topdir
+        fmap concat $ forM (filter wanted paths) $ \path -> do
+            isDirectory <- Directory.doesDirectoryExist path
+            isSymlink <- Directory.pathIsSymbolicLink path
+            if isDirectory && (followSymlinks || not isSymlink)
+                then go path
+                else return [path]
+    wanted fname = not $ any (`patternMatches` fname) excludes
+
+patternMatches :: Pattern -> FilePath -> Bool
+patternMatches pattern fname =
+    pattern == fname || pattern == FilePath.takeBaseName fname
 
 -- | 'Directory.getDirectoryContents', but don't return dot files, and prepend
 -- directory.
 listDir :: FilePath -> IO [FilePath]
-listDir dir = map (dir</>) . filter (not . ("." `List.isPrefixOf`)) <$>
-    Directory.getDirectoryContents dir
+listDir dir =
+    map (clean . (dir</>)) . filter (not . ("." `List.isPrefixOf`)) <$>
+        Directory.getDirectoryContents dir
+    where
+    clean ('.' : '/' : path) = path
+    clean path = path
