@@ -2,7 +2,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Functions specific to vim tags.
-module FastTags.Vim (merge, dropAdjacentInFile) where
+module FastTags.Vim (
+    merge, dropAdjacentInFile
+    -- for tests
+    , Parsed(..), parseTag, dropAdjacent, keyOnJust, showTag
+) where
 #if !MIN_VERSION_base(4, 8, 0)
 import Control.Applicative
 import Data.Monoid
