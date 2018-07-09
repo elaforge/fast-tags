@@ -1,14 +1,12 @@
-{-# LANGUAGE CPP               #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Functions specific to vim tags.
-module FastTags.Vim {- (merge, dropAdjacentInFile) -} where
-
-#if !MIN_VERSION_base(4,8,0)
+module FastTags.Vim (merge, dropAdjacentInFile) where
+#if !MIN_VERSION_base(4, 8, 0)
 import Control.Applicative
 import Data.Monoid
 #endif
-
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Text (Text)
@@ -38,19 +36,18 @@ keyOnJust f xs = [(k, x) | (Just k, x) <- Util.keyOn f xs]
 -- lines, drop all but the first.
 dropAdjacent :: Int -> [(Parsed, a)] -> [(Parsed, a)]
 dropAdjacent maxSeparation =
-    concatMap (Util.sortOn fst . stripName) . Util.groupOn (name . fst)
+    concatMap (Util.sortOn fst . dropInName). Util.groupOn (name . fst)
     where
     -- Group by filename, sort by line number, drop lines too close.
-    stripName tag@[_] = tag
-    stripName tags = concatMap stripFile . Util.groupOn (filename . fst)
+    dropInName tag@[_] = tag
+    dropInName tags = concatMap dropInFile . Util.groupOn (filename . fst)
         . Util.sortOn (filename . fst) $ tags
-    stripFile = dropAdjacentInFile (line . fst) maxSeparation
+    dropInFile = dropAdjacentInFile (line . fst) maxSeparation
 
 -- | Split this out so I can share it with emacs.
 dropAdjacentInFile :: (a -> Int) -> Int -> [a] -> [a]
-dropAdjacentInFile lineOf maxSeparation = stripFile
+dropAdjacentInFile lineOf maxSeparation = stripLine . Util.sortOn lineOf
     where
-    stripFile = stripLine . Util.sortOn lineOf
     stripLine [] = []
     stripLine (tag : tags) =
         tag : stripLine (dropWhile (tooClose tag) tags)

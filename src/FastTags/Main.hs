@@ -12,8 +12,7 @@
     the tags up to date.
 -}
 module FastTags.Main (main) where
-
-#if !MIN_VERSION_base(4,8,0)
+#if !MIN_VERSION_base(4, 8, 0)
 import Control.Applicative
 #endif
 import qualified Control.Concurrent.Async as Async
