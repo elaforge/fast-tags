@@ -29,8 +29,9 @@ multiple roots:
     . So maybe I can just drop non-capitalized directories?  Better to have an
       explicit flag, because people might use capitalized directories for
       whatever reason.
-  . If I merge tags from different roots, I have to add a common prefix,
-    because presumably the editor is running in a common ancestor.
+  - merge tags from separate places
+    . If I merge tags from different roots, I have to add a common prefix,
+      because presumably the editor is running in a common ancestor.
 
 medium scale:
   . check-in keeps a global tags, local changes are an overlay on that.
@@ -38,6 +39,15 @@ medium scale:
     tags on save, and don't initialize the first time.
   . If I can keep local overlay per-branch then I can have accurate branch
     switching too.
+  . I could make tags as a build product, then just import based on head, but
+    I worry that the nix overhead would be greater than rebuilding from
+    scratch.  If it is, I could have it copy to NFS by commit hash.
+  . But I don't want fallback tags to be in NFS.  I want to copy over the data
+    on sync, so as if it were in the repo, but not actually checked in.  The
+    problem with actually checking in is noise in every commit, and spurious
+    conflicts.
+  . This is a general problem of wanting a generated file in the repo, which
+    comes up again and again.
 
 large scale:
   . I think I'll have to stop using text files.  The problem is I want to
