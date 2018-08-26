@@ -767,6 +767,30 @@ testData = testGroup "data"
       \                                                , pos    :: v Int}     -- ^ the current position"
       ==>
       ["BindingList", "BindingList", "list", "pos", "source"]
+
+    , "data Tester a = Tester\n\
+      \    {(===) :: [String] -> a -> IO ()\n\
+      \    ,fails :: [String] -> IO ()\n\
+      \    ,isHelp :: [String] -> [String] -> IO ()\n\
+      \    ,isHelpNot :: [String] -> [String] -> IO ()\n\
+      \    ,isVersion :: [String] -> String -> IO ()\n\
+      \    ,isVerbosity :: [String] -> Verbosity -> IO ()\n\
+      \    ,completion :: [String] -> (Int,Int) -> [Complete] -> IO ()\n\
+      \    }"
+      ==>
+      ["===", "Tester", "Tester", "completion", "fails", "isHelp", "isHelpNot", "isVerbosity", "isVersion"]
+
+    , "data Tester a = Tester\n\
+      \    {(===) :: [String] -> a -> IO ()\n\
+      \    ,fails :: [String] -> IO ()\n\
+      \    ,isHelp, isHelpNot :: [String] -> [String] -> IO ()\n\
+      \    ,isVersion :: [String] -> String -> IO ()\n\
+      \    ,isVerbosity :: [String] -> Verbosity -> IO ()\n\
+      \    ,completion :: [String] -> (Int,Int) -> [Complete] -> IO ()\n\
+      \    }"
+      ==>
+      ["===", "Tester", "Tester", "completion", "fails", "isHelp", "isHelpNot", "isVerbosity", "isVersion"]
+
     ]
     where
     (==>) = testTagNames filename

@@ -716,10 +716,10 @@ dataConstructorTags prevPos unstripped
     strip = stripOptBang . stripDatatypeContext . dropUntil Equals
           . stripNewlines
     collectRest :: [Token] -> [Tag]
-    collectRest toks@(Pos _ LParen : _) = collectRest $ stripBalancedParens toks -- dropUntilNextField rest
     collectRest tokens
         | (tags@(_:_), rest) <- functionTags ExpectFunctions tokens =
             tags ++ collectRest (dropUntilNextField rest)
+    collectRest toks@(Pos _ LParen : _) = collectRest $ stripBalancedParens toks -- dropUntilNextField rest
     collectRest (Pos pipePos Pipe : rest)
         | Just (Pos pos (T name), rest'') <- extractInfixConstructor rest' =
             mkTag pos name Constructor : collectRest rest''
