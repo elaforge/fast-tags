@@ -511,7 +511,9 @@ recordVanillaOrInfixName
     -> (Maybe Tag, SrcPos, [Token]) -- ^ Possibly detected tag and rest of the tokens
 recordVanillaOrInfixName isVanillaName tokenType prevPos context tokens =
     case dropDataContext tokens of
-        Pos _ LParen   : Pos _ RParen : _ -> (Nothing, prevPos, tokens)
+        toks | Type <- tokenType
+             , Just (pos, name, rest) <- extractSpecialTypeName toks ->
+            (Just $ mkTag pos name tokenType, pos, rest)
         Pos _ RParen   : _                -> (Nothing, prevPos, tokens)
         Pos _ LBracket : _                -> (Nothing, prevPos, tokens)
         Pos _ Equals   : _                -> (Nothing, prevPos, tokens)
@@ -528,6 +530,27 @@ recordVanillaOrInfixName isVanillaName tokenType prevPos context tokens =
         [] -> (Just $ unexp prevPos [], prevPos, [])
     where
     unexp pos rest = unexpected pos (UnstrippedTokens tokens) rest context
+
+extractSpecialTypeName :: [Token] -> Maybe (SrcPos, Text, [Token])
+extractSpecialTypeName (Pos pos LBracket : Pos _ RBracket : rest) = Just (pos, "[]", rest)
+extractSpecialTypeName (Pos pos LParen   : (tupleCommas -> (commas, Pos _ RParen : rest))) =
+    Just (pos, "(" <> T.replicate commas "," <> ")", rest)
+extractSpecialTypeName (tupleCommas -> (commas, Pos pos RParen : rest)) =
+    Just (pos, "(" <> T.replicate commas "," <> ")", rest)
+extractSpecialTypeName _ = Nothing
+
+tupleCommas :: [Token] -> (Int, [Token])
+tupleCommas = go 0 True
+    where
+    go :: Int -> Bool -> [Token] -> (Int, [Token])
+    go !n False (Pos _ Comma : rest) = go (n + 1) True rest
+    go !n False rest                 = (n, rest)
+    go !n True  (Pos _ Comma : rest) =
+        go (n + 1) True rest
+    go !n True  rest'@(Pos _ (T name) : rest)
+        | isTypeVarStart name = go n False rest
+        | otherwise           = (n, rest')
+    go !n _     rest = (n, rest)
 
 -- same as dropWhile with counting
 dropInfixTypeStart :: [Token] -> [Token]
@@ -721,6 +744,8 @@ dataConstructorTags prevPos unstripped
         [] -> [] -- empty data declaration
         rest | Just (Pos pos (T name), rest') <- extractInfixConstructor rest ->
             mkTag pos name Constructor : collectRest rest'
+        rest | Just (pos, name, rest') <- extractSpecialTypeName rest ->
+            mkTag pos name Constructor : collectRest rest'
         Pos pos (T name) : rest ->
             mkTag pos name Constructor : collectRest rest
         Pos _ LParen : Pos pos (T name) : Pos _ RParen : rest ->
@@ -737,6 +762,8 @@ dataConstructorTags prevPos unstripped
     collectRest toks@(Pos _ LParen : _) = collectRest $ stripBalancedParens toks -- dropUntilNextField rest
     collectRest (Pos pipePos Pipe : rest)
         | Just (Pos pos (T name), rest'') <- extractInfixConstructor rest' =
+            mkTag pos name Constructor : collectRest rest''
+        | Just (pos, name, rest'') <- extractSpecialTypeName rest' =
             mkTag pos name Constructor : collectRest rest''
         | Pos pos (T name) : rest'' <- rest'
         , functionName ExpectConstructors name =
