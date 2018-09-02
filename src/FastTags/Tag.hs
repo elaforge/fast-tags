@@ -435,14 +435,14 @@ blockTags unstripped = case stripNewlines unstripped of
     Pos _ KWForeign : decl -> foreignTags decl
     -- newtype instance * = ...
     Pos prevPos KWNewtype : Pos _ KWInstance : toks ->
-        map (addParent familyNameTag) $ newtypeTags pos rest
+        map (addParent familyNameTag) $ newtypeTags pos $ dropTokens 2 unstripped
         where
-        (familyNameTag, pos, rest) = extractFamilyName prevPos "newtype instance * =" toks
+        (familyNameTag, pos) = extractFamilyName prevPos "newtype instance * =" toks
     -- newtype X * = X *
     Pos prevPos KWNewtype : toks ->
-        maybeToList tag ++ map (addParent tag) (newtypeTags pos rest)
+        maybeToList tag ++ map (addParent tag) (newtypeTags pos (dropTokens 1 unstripped))
         where
-        (tag, pos, rest) =
+        (tag, pos, _) =
             recordVanillaOrInfixName isTypeName Type prevPos "newtype * =" toks
     -- type family X ...
     Pos prevPos KWType : Pos _ KWFamily : toks -> maybeToList tag
@@ -468,7 +468,7 @@ blockTags unstripped = case stripNewlines unstripped of
     Pos prevPos KWData : Pos _ KWInstance : toks ->
         map (addParent familyNameTag) $ dataConstructorTags pos (dropTokens 2 unstripped)
         where
-        (familyNameTag, pos, _) = extractFamilyName prevPos "data instance * =" toks
+        (familyNameTag, pos) = extractFamilyName prevPos "data instance * =" toks
     -- data X * = X { X :: *, X :: * }
     -- data X * where ...
     Pos prevPos KWData : toks ->
@@ -691,8 +691,12 @@ functionName expect = isFunction
         ExpectConstructors -> Char.isUpper
 
 -- | * = X *
-newtypeTags :: SrcPos -> [Token] -> [Tag]
-newtypeTags prevPos tokens = case dropUntil Equals tokens of
+newtypeTags :: SrcPos -> UnstrippedTokens -> [Tag]
+newtypeTags _ unstripped
+    | any (\case { Pos _ KWWhere -> True; _ -> False })
+            (unstrippedTokensOf unstripped) =
+        concatMap gadtTags (whereBlock unstripped)
+newtypeTags prevPos unstripped = case dropUntil Equals $ stripNewlines unstripped of
     Pos pos (T name) : rest ->
         let constructor = mkTag pos name Constructor
         in  case rest of
@@ -700,7 +704,7 @@ newtypeTags prevPos tokens = case dropUntil Equals tokens of
                 [constructor, mkTag funcPos funcName Function]
             _ ->
                 [constructor]
-    rest -> [unexpected prevPos (UnstrippedTokens tokens) rest "newtype * ="]
+    rest -> [unexpected prevPos unstripped rest "newtype * ="]
 
 -- | [] (empty data declaration)
 -- * = X { X :: *, X :: * }
@@ -893,11 +897,11 @@ instanceTags prevPos unstripped =
     -- instances can offer nothing but some fresh data constructors since
     -- the actual datatype is really declared in the class declaration
     concatMap (\toks ->
-                   let (parent, pos, rest) = extractFamilyName prevPos "newtype instance * =" toks
-                   in map (addParent parent) $ newtypeTags pos rest)
-        (map (stripNewlines . dropTokens 1) (filter isNewtypeDecl block))
+                   let (parent, pos) = extractFamilyName prevPos "newtype instance * =" (stripNewlines toks)
+                   in map (addParent parent) $ newtypeTags pos toks)
+        (map (dropTokens 1) (filter isNewtypeDecl block))
     ++ concatMap (\toks ->
-                   let (parent, pos, _) = extractFamilyName prevPos "data instance * =" (stripNewlines toks)
+                   let (parent, pos) = extractFamilyName prevPos "data instance * =" (stripNewlines toks)
                    in map (addParent parent) $ dataConstructorTags pos toks)
         (map (dropTokens 1) (filter isDataDecl block))
     where
@@ -911,10 +915,10 @@ instanceTags prevPos unstripped =
     isDataDecl (UnstrippedTokens (Pos _ KWData : _)) = True
     isDataDecl _ = False
 
-extractFamilyName :: SrcPos -> String -> [Token] -> (Maybe Tag, SrcPos, [Token])
-extractFamilyName prevPos context toks = (tag, pos, toks')
+extractFamilyName :: SrcPos -> String -> [Token] -> (Maybe Tag, SrcPos)
+extractFamilyName prevPos context toks = (tag, pos)
     where
-    (tag, pos, toks') = recordVanillaOrInfixName isTypeFamilyName Family prevPos context toks
+    (tag, pos, _) = recordVanillaOrInfixName isTypeFamilyName Family prevPos context toks
 
 -- * util
 
