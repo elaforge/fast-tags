@@ -793,6 +793,18 @@ testData = testGroup "data"
       ==>
       ["===", "Tester", "Tester", "completion", "fails", "isHelp", "isHelpNot", "isVerbosity", "isVersion"]
 
+    , "-- | View of the right end of a sequence.\n\
+      \data ViewR s a\n\
+      \    = EmptyR\n\
+      \    | s a :> a"
+      ==>
+      [":>", "EmptyR", "ViewR"]
+    , "-- | View of the right end of a sequence.\n\
+      \data ViewR s a\n\
+      \    = s a :> a\n\
+      \    | EmptyR"
+      ==>
+      [":>", "EmptyR", "ViewR"]
     ]
     where
     (==>) = testTagNames filename
