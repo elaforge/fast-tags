@@ -771,7 +771,11 @@ dataConstructorTags prevPos unstripped
             stripBalancedParens input
         stripTypeParam input@(Pos _ LBracket : _) =
             stripBalancedBrackets input
-        stripTypeParam ts = drop 1 ts
+        stripTypeParam ts = dropWhile isTypeParam $ drop 1 ts
+
+        isTypeParam :: Token -> Bool
+        isTypeParam (Pos _ (T name)) = isTypeVarStart name
+        isTypeParam _                = False
 
     dropUntilNextCaseOrRecordStart :: [Token] -> [Token]
     dropUntilNextCaseOrRecordStart = dropWithStrippingBalanced $
