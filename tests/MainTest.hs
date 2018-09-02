@@ -844,6 +844,16 @@ testGADT = testGroup "gadt"
       \  C :: { foo :: Int, bar :: Int -> Int } -> Rec a\n\
       \  D :: { baz :: (Int -> Int) -> Int, bar :: (((Int) -> (Int))) } -> Rec a"
       ==> ["C", "D", "Rec", "bar", "bar", "baz", "foo"]
+    , "newtype TyConProxy a b where\n\
+      \    TyConProxy :: () -> TyConProxy a b\n\
+      \  deriving ( Arbitrary\n\
+      \           , Show\n\
+      \           , Generic\n\
+      \#if defined(__LANGUAGE_DERIVE_GENERIC1__)\n\
+      \           , Generic1\n\
+      \#endif\n\
+      \           )"
+      ==> ["TyConProxy", "TyConProxy"]
     ]
     where
     (==>) = testTagNames filename
