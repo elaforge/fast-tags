@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP               #-}
 {-# LANGUAGE ConstraintKinds   #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE NamedFieldPuns    #-}
@@ -8,11 +7,6 @@ module FastTags.LexerTypes where
 
 import Codec.Binary.UTF8.String (encodeChar)
 import Control.Applicative
-#if MIN_VERSION_mtl(2,2,0)
-import Control.Monad.Except
-#else
-import Control.Monad.Error
-#endif
 import Control.Monad.State.Strict
 import Data.Char
 import Data.IntSet (IntSet)
