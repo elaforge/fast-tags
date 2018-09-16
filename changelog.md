@@ -1,3 +1,15 @@
+1.5.0
+
+* many small accuracy fixes from @sergv, see
+<https://github.com/elaforge/fast-tags/pull/40>
+
+* fix a bug with emacs tags where I suppressed all adjacent tags,
+not just ones with the same name
+
+* change emacs output to a hopefully more compatible form
+
+* add --exclude flag
+
 1.4.2
 
 * add --src-prefix flag
