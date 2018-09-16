@@ -16,7 +16,7 @@ import Control.Monad.Error
 import Control.Monad.State.Strict
 import Data.Char
 import Data.IntSet (IntSet)
-import qualified Data.IntSet as IS
+import qualified Data.IntSet as IntSet
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -159,15 +159,15 @@ data QQEndsState = QQEndsState
 
 calculateQuasiQuoteEnds :: Int -> Text -> IntSet
 calculateQuasiQuoteEnds startPos =
-    qqessMap . Text.foldl' combine (QQEndsState startPos mempty '\n')
+    qqessMap . Text.foldl' combine (QQEndsState startPos IntSet.empty '\n')
     where
     combine :: QQEndsState -> Char -> QQEndsState
     combine QQEndsState{qqessPos, qqessMap, qqessPrevChar} c = QQEndsState
         { qqessPos      = qqessPos + 1
         , qqessMap      =
               case (qqessPrevChar, c) of
-                  ('|', ']') -> IS.insert qqessPos qqessMap
-                  (_,   '⟧') -> IS.insert qqessPos qqessMap
+                  ('|', ']') -> IntSet.insert qqessPos qqessMap
+                  (_,   '⟧') -> IntSet.insert qqessPos qqessMap
                   _          -> qqessMap
         , qqessPrevChar = c
         }
