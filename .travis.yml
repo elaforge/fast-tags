@@ -91,7 +91,9 @@ script:
   - cd ${DISTDIR}/fast-tags*
   # this builds all libraries and executables (without tests/benchmarks)
   - cabal configure --enable-tests --disable-benchmarks
-  - cabal build
+    --disable-library-profiling
+  # compiling Tag.hs can take >10m on travis sometimes
+  - travis_wait 30 cabal build
   - cabal test
 
   # Disabled, see comment in .cabal.
