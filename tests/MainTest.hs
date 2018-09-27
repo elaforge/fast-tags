@@ -394,7 +394,8 @@ parseTag = testGroup "parseTag"
     where
     (==>) = test f
     f (fn, line, text, typ) =
-        Vim.parseTag $ Vim.showTag (Pos (SrcPos fn line "") (TagVal text typ Nothing))
+        Vim.parseTag $ Vim.showTag $
+        Pos (SrcPos fn (Line line) (Offset 0) "" "") (TagVal text typ Nothing)
 
 dropAdjacent :: TestTree
 dropAdjacent = testGroup "dropAdjacent"
@@ -416,11 +417,12 @@ dropAdjacent = testGroup "dropAdjacent"
     f = map extract . map fst . Vim.dropAdjacent 2
         . Vim.keyOnJust Vim.parseTag . map (Vim.showTag . makeTag)
     extract t = (Vim.filename t, Vim.line t, Vim.name t)
-    makeTag (fn, line, text) = Pos (SrcPos fn line "") (TagVal text Function Nothing)
+    makeTag (fn, line, text) =
+      Pos (SrcPos fn (Line line) (Offset 0) "" "") (TagVal text Function Nothing)
 
 testProcess :: TestTree
 testProcess = testGroup "process"
-    [ testPrefixes
+    [ testMeta
     , testData
     , testGADT
     , testFamilies
@@ -432,71 +434,71 @@ testProcess = testGroup "process"
     , testFFI
     ]
 
-testPrefixes :: TestTree
-testPrefixes = testGroup "prefix tracking"
+testMeta :: TestTree
+testMeta = testGroup "prefix, suffix and offset tracking"
     [ "module Bar.Foo where\n" ==>
-        [Pos (SrcPos fn 1 "module Bar.Foo") (TagVal "Foo" Module Nothing)]
+        [Pos (SrcPos fn 1 14 "module Bar.Foo" " where") (TagVal "Foo" Module Nothing)]
     , "newtype Foo a b =\n\
       \\tBar x y z\n" ==>
-        [ Pos (SrcPos fn 1 "newtype Foo") (TagVal "Foo" Type Nothing)
-        , Pos (SrcPos fn 2 "\tBar") (TagVal "Bar" Constructor (Just "Foo"))
+        [ Pos (SrcPos fn 1 11 "newtype Foo" " a b =") (TagVal "Foo" Type Nothing)
+        , Pos (SrcPos fn 2 22 "\tBar" " x y z") (TagVal "Bar" Constructor (Just "Foo"))
         ]
     , "data Foo a b =\n\
       \\tBar x y z\n" ==>
-        [ Pos (SrcPos fn 1 "data Foo") (TagVal "Foo" Type Nothing)
-        , Pos (SrcPos fn 2 "\tBar") (TagVal "Bar" Constructor (Just "Foo"))
+        [ Pos (SrcPos fn 1 8 "data Foo" " a b =") (TagVal "Foo" Type Nothing)
+        , Pos (SrcPos fn 2 19 "\tBar" " x y z") (TagVal "Bar" Constructor (Just "Foo"))
         ]
     , "f :: A -> B\n\
       \g :: C -> D\n\
       \data D = C {\n\
       \\tf :: A\n\
       \\t}\n" ==>
-        [ Pos (SrcPos fn 1 "f") (TagVal "f" Function Nothing)
-        , Pos (SrcPos fn 2 "g") (TagVal "g" Function Nothing)
-        , Pos (SrcPos fn 3 "data D") (TagVal "D" Type Nothing)
-        , Pos (SrcPos fn 3 "data D = C") (TagVal "C" Constructor (Just "D"))
-        , Pos (SrcPos fn 4 "\tf") (TagVal "f" Function (Just "D"))
+        [ Pos (SrcPos fn 1 1 "f" " :: A -> B") (TagVal "f" Function Nothing)
+        , Pos (SrcPos fn 2 13 "g" " :: C -> D") (TagVal "g" Function Nothing)
+        , Pos (SrcPos fn 3 30 "data D" " = C {") (TagVal "D" Type Nothing)
+        , Pos (SrcPos fn 3 34 "data D = C" " {") (TagVal "C" Constructor (Just "D"))
+        , Pos (SrcPos fn 4 39 "\tf" " :: A") (TagVal "f" Function (Just "D"))
         ]
     , "instance Foo Bar where\n\
       \  newtype FooFam Bar = BarList [Int]" ==>
-        [ Pos (SrcPos fn 2 "  newtype FooFam Bar = BarList")
+        [ Pos (SrcPos fn 2 53 "  newtype FooFam Bar = BarList" " [Int]")
               (TagVal "BarList" Constructor (Just "FooFam"))
         ]
     , "instance Foo Bar where\n\
       \  newtype FooFam Bar = BarList { getBarList :: [Int] }" ==>
-        [ Pos (SrcPos fn 2 "  newtype FooFam Bar = BarList" )
+        [ Pos (SrcPos fn 2 53 "  newtype FooFam Bar = BarList" " { getBarList :: [Int] }")
               (TagVal "BarList" Constructor (Just "FooFam"))
-        , Pos (SrcPos fn 2 "  newtype FooFam Bar = BarList { getBarList" )
+        , Pos (SrcPos fn 2 66 "  newtype FooFam Bar = BarList { getBarList" " :: [Int] }")
               (TagVal "getBarList" Function (Just "FooFam"))
         ]
     , "instance Foo Bar where\n\
       \  data (Ord a) => FooFam Bar a = BarList { getBarList :: [a] }\n\
       \                               | BarMap { getBarMap :: Map a Int }" ==>
-        [ Pos (SrcPos fn 2 "  data (Ord a) => FooFam Bar a = BarList")
+        [ Pos (SrcPos fn 2 63 "  data (Ord a) => FooFam Bar a = BarList" " { getBarList :: [a] }")
               (TagVal "BarList" Constructor (Just "FooFam"))
-        , Pos (SrcPos fn 2 "  data (Ord a) => FooFam Bar a = BarList { getBarList")
+        , Pos (SrcPos fn 2 76 "  data (Ord a) => FooFam Bar a = BarList { getBarList" " :: [a] }")
               (TagVal "getBarList" Function (Just "FooFam"))
-        , Pos (SrcPos fn 3 "                               | BarMap")
+        , Pos (SrcPos fn 3 125 "                               | BarMap" " { getBarMap :: Map a Int }")
               (TagVal "BarMap" Constructor (Just "FooFam"))
-        , Pos (SrcPos fn 3"                               | BarMap { getBarMap")
+        , Pos (SrcPos fn 3 137 "                               | BarMap { getBarMap" " :: Map a Int }")
               (TagVal "getBarMap" Function (Just "FooFam"))
         ]
     , "newtype instance FooFam Bar = BarList { getBarList :: [Int] }" ==>
-        [ Pos (SrcPos fn 1 "newtype instance FooFam Bar = BarList")
+        [ Pos (SrcPos fn 1 37 "newtype instance FooFam Bar = BarList" " { getBarList :: [Int] }")
               (TagVal "BarList" Constructor (Just "FooFam"))
-        , Pos (SrcPos fn 1 "newtype instance FooFam Bar = BarList { getBarList")
+        , Pos (SrcPos fn 1 50 "newtype instance FooFam Bar = BarList { getBarList" " :: [Int] }")
               (TagVal "getBarList" Function (Just "FooFam"))
         ]
     , "data instance (Ord a) => FooFam Bar a = BarList { getBarList :: [a] }\n\
       \                                      | BarMap { getBarMap :: Map a Int }"
       ==>
-      [ Pos (SrcPos fn 1 "data instance (Ord a) => FooFam Bar a = BarList")
+      [ Pos (SrcPos fn 1 47 "data instance (Ord a) => FooFam Bar a = BarList" " { getBarList :: [a] }")
             (TagVal "BarList" Constructor (Just "FooFam"))
-      , Pos (SrcPos fn 1 "data instance (Ord a) => FooFam Bar a = BarList { getBarList")
+      , Pos (SrcPos fn 1 60 "data instance (Ord a) => FooFam Bar a = BarList { getBarList" " :: [a] }")
             (TagVal "getBarList" Function (Just "FooFam"))
-      , Pos (SrcPos fn 2 "                                      | BarMap")
+      , Pos (SrcPos fn 2 116 "                                      | BarMap" " { getBarMap :: Map a Int }")
             (TagVal "BarMap" Constructor (Just "FooFam"))
-      , Pos (SrcPos fn 2 "                                      | BarMap { getBarMap")
+      , Pos (SrcPos fn 2 128 "                                      | BarMap { getBarMap" " :: Map a Int }")
             (TagVal "getBarMap" Function (Just "FooFam"))
       ]
     ]
