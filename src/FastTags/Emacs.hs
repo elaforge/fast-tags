@@ -33,14 +33,18 @@ formatFileTags file tags = Text.concat
     ]
     where tagsText = Text.unlines $ map formatTag tags
 
+-- https://en.wikipedia.org/wiki/Ctags#Etags_2
 formatTag :: Token.Pos Tag.TagVal -> Text
 formatTag (Token.Pos pos tag) = Text.concat
-    [ Token.posPrefix pos, "\x7f"
-    , Tag.tvName tag, "\x01"
-    , showt (linenum-1) <> "," <> showt linenum
+    [ text, "\x7f"
+    , matching, "\x01"
+    , linenum , ",", offset
     ]
     where
-    linenum = Token.unLine (Token.posLine pos)
+    text = (Token.posPrefix pos) <> (Token.posSuffix pos)
+    matching = Tag.tvName tag
+    linenum = showt $ Token.unLine (Token.posLine pos)
+    offset = showt $ Token.unOffset (Token.posOffset pos) - (Text.length $ Token.posPrefix pos)
 
 showt :: Show a => a -> Text
 showt = Text.pack . show

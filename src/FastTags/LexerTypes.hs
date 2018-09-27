@@ -77,8 +77,13 @@ mkAlexInput s trackPrefixes = AlexInput
     utf8BOM' = "\xFEFF"
 
 mkSrcPos :: FilePath -> AlexInput -> SrcPos
-mkSrcPos filename (AlexInput {aiLine, aiPrefix}) =
-    SrcPos { posFile = filename, posLine = aiLine, posPrefix = aiPrefix }
+mkSrcPos filename (AlexInput {aiInput, aiLine, aiPrefix, aiAbsPos}) =
+    SrcPos { posFile = filename
+           , posLine = aiLine
+           , posOffset = Offset aiAbsPos
+           , posPrefix = aiPrefix
+           , posSuffix = Text.takeWhile (/= '\n') aiInput
+           }
 
 -- TODO: Not very efficient to snoc every character here, figure out something
 -- better.
