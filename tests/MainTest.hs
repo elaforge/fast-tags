@@ -15,6 +15,7 @@ import qualified FastTags.Tag as Tag
 import FastTags.Tag hiding (process)
 import FastTags.Token
 import qualified FastTags.Vim as Vim
+import qualified FastTags.Emacs as Emacs
 
 main :: IO ()
 main = Tasty.defaultMain tests
@@ -26,6 +27,7 @@ tests = testGroup "tests"
     , testStripComments
     , testBreakBlocks
     , testWhereBlock
+    , testEmacs
     , testVim
     , testProcess
     , testStripCpp
@@ -382,6 +384,16 @@ testWhereBlock = testGroup "whereBlock"
       . Tag.whereBlock
       . tokenize
 
+testEmacs :: TestTree
+testEmacs = testGroup "Emacs" [emacsFormat]
+
+emacsFormat :: TestTree
+emacsFormat = testGroup "format"
+  [
+    test Emacs.formatTag (Pos tag val) $ T.concat ["wibble wobble", "\x7f", "wibble wobble", "\x01", "10,14"]
+  ]
+  where tag = (SrcPos "fn" 10 20 "wibble" " wobble")
+        val = (TagVal "wibble wobble" Tag.Function Nothing)
 
 testVim :: TestTree
 testVim = testGroup "Vim" [parseTag, dropAdjacent]
