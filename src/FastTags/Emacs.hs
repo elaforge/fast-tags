@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 -- | Functions specific to emacs tags.
-module FastTags.Emacs (format) where
+module FastTags.Emacs (format, formatTag) where
 import Data.Monoid ((<>))
 import qualified Data.Text as Text
 import Data.Text (Text)
