@@ -12,9 +12,7 @@
     the tags up to date.
 -}
 module FastTags.Main (main) where
-#if !MIN_VERSION_base(4, 8, 0)
 import Control.Applicative
-#endif
 import qualified Control.Concurrent.Async as Async
 import qualified Control.Concurrent.MVar as MVar
 import qualified Control.DeepSeq as DeepSeq
@@ -34,6 +32,7 @@ import qualified System.FilePath as FilePath
 import System.FilePath ((</>))
 import qualified System.IO as IO
 
+import qualified FastTags.Cabal as Cabal
 import qualified FastTags.Emacs as Emacs
 import qualified FastTags.Tag as Tag
 import qualified FastTags.Token as Token
@@ -45,7 +44,11 @@ import qualified Paths_fast_tags
 
 options :: [GetOpt.OptDescr Flag]
 options =
-    [ GetOpt.Option ['e'] [] (GetOpt.NoArg ETags)
+    [ GetOpt.Option [] ["cabal"] (GetOpt.NoArg Cabal) $ concat
+        [ "parse the arguments as cabal files, then generate tags for exposed"
+        , " modules"
+        ]
+    , GetOpt.Option ['e'] [] (GetOpt.NoArg ETags)
         "generate tags in Emacs format"
     , GetOpt.Option [] ["exclude"] (GetOpt.ReqArg Exclude "pattern") $ concat
         [ "Add a pattern to a list of files to exclude when -R is given."
@@ -105,7 +108,9 @@ maxSeparation = 2
 
 type Pattern = String
 
-data Flag = ETags
+data Flag =
+    Cabal
+    | ETags
     | Exclude !Pattern
     | FollowSymlinks
     | FullyQualified
@@ -150,7 +155,13 @@ main = do
                 else return []
         else return [] -- we do not support tags merging for emacs for now
 
-    inputs <- map FilePath.normalise . Util.unique <$> getInputs flags inputs
+    when (Cabal `elem` flags) $ do
+        forM_ inputs $ \input ->
+            print =<< Cabal.parse input
+        Exit.exitSuccess
+    inputs <- map FilePath.normalise . Util.unique <$> if Cabal `elem` flags
+        then undefined
+        else getInputs flags inputs
     when (null inputs) $
         Exit.exitSuccess
     stderr <- MVar.newMVar IO.stderr
