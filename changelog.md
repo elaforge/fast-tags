@@ -1,3 +1,5 @@
+* add --cabal flag, which parses .cabal files and generates tags for the package
+
 1.5.0
 
 * many small accuracy fixes from @sergv, see

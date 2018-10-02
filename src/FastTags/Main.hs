@@ -1,8 +1,9 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE TupleSections #-}
 
 {- | Tagify haskell source.
 
@@ -21,6 +22,7 @@ import qualified Control.DeepSeq as DeepSeq
 import qualified Control.Exception as Exception
 import Control.Monad
 
+import qualified Data.Either as Either
 import qualified Data.List as List
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
@@ -34,6 +36,7 @@ import qualified System.FilePath as FilePath
 import System.FilePath ((</>))
 import qualified System.IO as IO
 
+import qualified FastTags.Cabal as Cabal
 import qualified FastTags.Emacs as Emacs
 import qualified FastTags.Tag as Tag
 import qualified FastTags.Token as Token
@@ -45,7 +48,15 @@ import qualified Paths_fast_tags
 
 options :: [GetOpt.OptDescr Flag]
 options =
-    [ GetOpt.Option ['e'] [] (GetOpt.NoArg ETags)
+    [ GetOpt.Option [] ["cabal"] (GetOpt.NoArg Cabal) $ concat
+        [ "Parse the arguments as cabal files, then generate tags for exposed"
+        , " modules.  Has the effect of adding --src-prefix as appropriate."
+        , " This will fail on *.x or *.lhs files, generated"
+        , " Paths_*.hs, or exposed-modules controlled by flags."
+        , " Also, if there are multiple hs-source-dirs it will pick the first."
+        , " (TODO: fix that)"
+        ]
+    , GetOpt.Option ['e'] [] (GetOpt.NoArg ETags)
         "generate tags in Emacs format"
     , GetOpt.Option [] ["exclude"] (GetOpt.ReqArg Exclude "pattern") $ concat
         [ "Add a pattern to a list of files to exclude when -R is given."
@@ -79,7 +90,7 @@ options =
         ]
     , GetOpt.Option ['R'] [] (GetOpt.NoArg Recurse)
         "read all files under any specified directories recursively"
-    , GetOpt.Option ['v'] [] (GetOpt.NoArg Verbose)
+    , GetOpt.Option ['v'] ["verbose"] (GetOpt.NoArg Verbose)
         "print files as they are tagged, useful to track down slow files"
     , GetOpt.Option [] ["version"] (GetOpt.NoArg Version)
         "print current version"
@@ -105,7 +116,9 @@ maxSeparation = 2
 
 type Pattern = String
 
-data Flag = ETags
+data Flag =
+    Cabal
+    | ETags
     | Exclude !Pattern
     | FollowSymlinks
     | FullyQualified
@@ -139,7 +152,8 @@ main = do
         vim           = not emacs
         trackPrefixes = emacs
         output        = last $ defaultOutput : [fn | Output fn <- flags]
-        srcPrefix     = Text.pack $ last $ "" : [fn | SrcPrefix fn <- flags]
+        srcPrefix     = Text.pack $ FilePath.normalise $
+            last $ "" : [fn | SrcPrefix fn <- flags]
         defaultOutput = if vim then "tags" else "TAGS"
 
     oldTags <- if vim && NoMerge `notElem` flags
@@ -150,12 +164,23 @@ main = do
                 else return []
         else return [] -- we do not support tags merging for emacs for now
 
-    inputs <- map FilePath.normalise . Util.unique <$> getInputs flags inputs
+    inputs <- if Cabal `elem` flags
+        then getCabalInputs inputs
+        else map ((srcPrefix,) . FilePath.normalise) . Util.unique <$>
+            getInputs flags inputs
     when (null inputs) $
         Exit.exitSuccess
+
+    -- Hack: cabal just lists the module name, which I turn into a filename, so
+    -- I don't know if it actually is .hsc.  Or .lhs, but I can't parse those
+    -- anyway.
+    let tryHsc = Cabal `elem` flags
     stderr <- MVar.newMVar IO.stderr
-    newTags <- flip Async.mapConcurrently (zip [0..] inputs) $
-        \(i :: Int, fn) -> Exception.handle (catchError stderr fn) $ do
+    newTags <- flip Async.mapConcurrently (zip [0 :: Int ..] inputs) $
+        \(i, (srcPrefix, fn)) -> Exception.handle (catchError stderr fn) $ do
+            useHsc <- if tryHsc then Directory.doesFileExist (fn ++ "c")
+                else return False
+            fn <- return $ if useHsc then fn ++ "c" else fn
             (newTags, warnings) <- Tag.processFile fn trackPrefixes
             newTags <- return $ if NoModuleTags `elem` flags
                 then filter ((/=Tag.Module) . typeOf) newTags else newTags
@@ -178,7 +203,7 @@ main = do
     when verbose $ putChar '\n'
 
     let allTags = if vim
-            then Vim.merge maxSeparation inputs newTags oldTags
+            then Vim.merge maxSeparation (map snd inputs) newTags oldTags
             else Emacs.format maxSeparation (concat newTags)
     let write = if vim then Text.IO.hPutStrLn else Text.IO.hPutStr
     let withOutput action = if output == "-"
@@ -193,7 +218,8 @@ main = do
         putStr $ GetOpt.usageInfo (msg ++ "\n" ++ help) options
         Exit.exitFailure
 
-catchError :: MVar.MVar IO.Handle -> FilePath -> Exception.SomeException -> IO [a]
+catchError :: MVar.MVar IO.Handle -> FilePath -> Exception.SomeException
+    -> IO [a]
 catchError stderr fn e = do
     MVar.withMVar stderr $ \hdl -> IO.hPutStrLn hdl $
         "Error while analyzing " ++ fn ++ ":\n" ++ show e
@@ -218,6 +244,22 @@ getInputs flags inputs
     where
     sep = if ZeroSep `elem` flags then '\0' else '\n'
     followSymlinks = FollowSymlinks `elem` flags
+
+-- | Parse .cabal files.
+getCabalInputs :: [FilePath] -> IO [(Text.Text, FilePath)]
+    -- ^ [(hsSrcDir, modulePath)]
+getCabalInputs fnames = do
+    results <- mapM Cabal.parse fnames
+    let (errs, srcMods) = Either.partitionEithers
+            [(fname,) <$> result | (fname, result) <- zip fnames results]
+    -- (errs, srcMods) <- Either.partitionEithers <$> mapM Cabal.parse fnames
+    mapM_ (IO.hPutStrLn IO.stderr) errs
+    return $ do
+        (cabalFname, (hsSrcDir, mods)) <- srcMods
+        let srcDir = FilePath.normalise $
+                FilePath.takeDirectory cabalFname </> hsSrcDir
+        mod <- mods
+        return (Text.pack srcDir, srcDir </> mod)
 
 -- | Recurse directories collecting all files
 getRecursiveDirContents :: Bool -> [Pattern] -> FilePath -> IO [FilePath]

@@ -56,7 +56,12 @@ flag profile
 
 library
     build-depends:
-        base >= 3 && < 5, mtl >=2.1, containers, cpphs >1.18, filepath,
+        base >= 3 && < 5,
+        Cabal,
+        mtl >=2.1,
+        containers,
+        cpphs >1.18,
+        filepath,
         directory >=1.3.0.0,
         -- text 0.11.1.12 has a bug.
         text (> 0.11.1.12 || < 0.11.1.12),
@@ -68,13 +73,14 @@ library
     build-tools: alex
     exposed-modules:
         Control.Monad.EitherK
-        FastTags.Tag
+        FastTags.Cabal
         FastTags.Emacs
-        FastTags.Vim
         FastTags.Lexer
         FastTags.LexerTypes
+        FastTags.Tag
         FastTags.Token
         FastTags.Util
+        FastTags.Vim
     hs-source-dirs: src
     ghc-options: -Wall -fno-warn-name-shadowing
     if flag(profile)
