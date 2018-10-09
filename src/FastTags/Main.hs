@@ -56,7 +56,7 @@ options =
         , " Also, if there are multiple hs-source-dirs it will pick the first."
         , " (TODO: fix that)"
         ]
-    , GetOpt.Option ['e'] [] (GetOpt.NoArg ETags)
+    , GetOpt.Option ['e'] ["emacs"] (GetOpt.NoArg ETags)
         "generate tags in Emacs format"
     , GetOpt.Option [] ["exclude"] (GetOpt.ReqArg Exclude "pattern") $ concat
         [ "Add a pattern to a list of files to exclude when -R is given."
