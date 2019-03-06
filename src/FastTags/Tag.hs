@@ -877,7 +877,7 @@ stripBalanced open close (Pos _ tok : xs)
 stripBalanced _ _ xs = xs
 
 gadtTags :: UnstrippedTokens -> [Tag]
-gadtTags unstripped = case rest of
+gadtTags unstripped = case dropDataContext rest of
     Pos _ LBrace : rest' -> constructorTag ++ collectFields rest'
     _                    -> constructorTag
     where

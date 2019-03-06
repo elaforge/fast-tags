@@ -893,6 +893,9 @@ testGADT = testGroup "gadt"
       \#endif\n\
       \           )"
       ==> ["TyConProxy", "TyConProxy"]
+    , "data Foo a where\n\
+      \  Bar :: Baz a => { foo :: Int, bar :: a } -> Foo a"
+      ==> ["Bar", "Foo", "bar", "foo"]
     ]
     where
     (==>) = testTagNames filename
