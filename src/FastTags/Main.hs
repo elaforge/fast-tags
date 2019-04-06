@@ -22,8 +22,9 @@ import qualified Control.DeepSeq as DeepSeq
 import qualified Control.Exception as Exception
 import Control.Monad
 
-import qualified Data.Either as Either
+import Data.Bifunctor (first, second)
 import qualified Data.List as List
+import Data.Monoid ((<>))
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
 import qualified Data.Version as Version
@@ -55,6 +56,7 @@ options =
         , " Paths_*.hs, or exposed-modules controlled by flags."
         , " Also, if there are multiple hs-source-dirs it will pick the first."
         , " (TODO: fix that)"
+        , " This only works for >=Cabal-2.2.0."
         ]
     , GetOpt.Option ['e'] ["emacs"] (GetOpt.NoArg ETags)
         "generate tags in Emacs format"
@@ -250,10 +252,9 @@ getCabalInputs :: [FilePath] -> IO [(Text.Text, FilePath)]
     -- ^ [(hsSrcDir, modulePath)]
 getCabalInputs fnames = do
     results <- mapM Cabal.parse fnames
-    let (errs, srcMods) = Either.partitionEithers
-            [(fname,) <$> result | (fname, result) <- zip fnames results]
-    -- (errs, srcMods) <- Either.partitionEithers <$> mapM Cabal.parse fnames
-    mapM_ (IO.hPutStrLn IO.stderr) errs
+    let (errs, srcMods) = partitionEitherSnd $ zip fnames results
+    forM_ errs $ \(fname, err) ->
+        IO.hPutStrLn IO.stderr $ "parsing " <> show fname <> ": " <> err
     return $ do
         (cabalFname, (hsSrcDir, mods)) <- srcMods
         let srcDir = FilePath.normalise $
@@ -279,12 +280,18 @@ patternMatches :: Pattern -> FilePath -> Bool
 patternMatches pattern fname =
     pattern == fname || pattern == FilePath.takeBaseName fname
 
--- | 'Directory.getDirectoryContents', but don't return dot files, and prepend
--- directory.
+partitionEitherSnd :: [(a, Either b c)] -> ([(a, b)], [(a, c)])
+partitionEitherSnd = go
+    where
+    go ((a, Left b) : xs) = first ((a, b) :) (go xs)
+    go ((a, Right c) : xs) = second ((a, c) :) (go xs)
+    go [] = ([], [])
+
+-- | Like 'Directory.listDirectory', but prepend the directory.
 listDir :: FilePath -> IO [FilePath]
 listDir dir =
     map (clean . (dir</>)) . filter (not . ("." `List.isPrefixOf`)) <$>
-        Directory.getDirectoryContents dir
+        Directory.listDirectory dir
     where
     clean ('.' : '/' : path) = path
     clean path = path

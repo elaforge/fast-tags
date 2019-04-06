@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 -- | Parse Cabal files.
 module FastTags.Cabal (parse) where
@@ -5,9 +6,15 @@ import qualified Control.Monad as Monad
 import Control.Monad ((<=<))
 import Data.Bifunctor (first)
 import qualified Data.ByteString as ByteString
+import Data.Monoid ((<>))
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Encoding
 import qualified Data.Text.Encoding.Error as Encoding.Error
+
+#if ! MIN_VERSION_Cabal(2, 2, 0)
+parse :: FilePath -> IO (Either String (FilePath, [FilePath]))
+parse = const $ return $ Left "cabal parsing not supported <Cabal-2.2.0"
+#else
 
 import qualified Distribution.Parsec.Parser as Parser
 
@@ -66,3 +73,5 @@ caseEq bytes text = Text.toLower (utf8 bytes) == text
 
 utf8 :: ByteString.ByteString -> Text.Text
 utf8 = Encoding.decodeUtf8With Encoding.Error.lenientDecode
+
+#endif
