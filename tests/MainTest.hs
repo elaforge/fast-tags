@@ -1,6 +1,6 @@
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
-
+module MainTest where
 import Control.Arrow (first)
 import qualified Data.List as List
 import Data.Text (Text)
@@ -16,6 +16,7 @@ import FastTags.Tag hiding (process)
 import FastTags.Token
 import qualified FastTags.Vim as Vim
 import qualified FastTags.Emacs as Emacs
+
 
 main :: IO ()
 main = Tasty.defaultMain tests
@@ -56,7 +57,8 @@ instance ExtendedEq a => ExtendedEq (Maybe a) where
     (===) (Just x) (Just y) = x === y
     (===) _        _        = False
 
-instance (ExtendedEq a, ExtendedEq b, ExtendedEq c) => ExtendedEq (a, b, c) where
+instance (ExtendedEq a, ExtendedEq b, ExtendedEq c) => ExtendedEq (a, b, c)
+        where
     (a, b, c) === (a', b', c') = a === a' && b === b' && c === c'
 
 instance ExtendedEq Int

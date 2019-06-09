@@ -22,7 +22,7 @@ import qualified Control.DeepSeq as DeepSeq
 import qualified Control.Exception as Exception
 import Control.Monad
 
-import Data.Bifunctor (first, second)
+import Control.Arrow (first, second)
 import qualified Data.List as List
 import Data.Monoid ((<>))
 import qualified Data.Text as Text

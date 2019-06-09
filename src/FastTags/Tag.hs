@@ -36,15 +36,16 @@ module FastTags.Tag (
     )
 where
 import Control.Arrow ((***))
+import Control.DeepSeq (rnf, NFData)
 import Control.Monad
-import Control.DeepSeq (NFData, rnf)
+
 import qualified Data.Char as Char
 import Data.Functor ((<$>))
 import qualified Data.IntSet as IntSet
 import qualified Data.List as List
 import qualified Data.Map as Map
 import Data.Maybe (maybeToList)
-import Data.Monoid (Monoid, (<>))
+import Data.Monoid ((<>), Monoid)
 import qualified Data.Text as T
 import Data.Text (Text)
 
@@ -53,7 +54,7 @@ import qualified System.FilePath as FilePath
 
 import qualified FastTags.Lexer as Lexer
 import qualified FastTags.Token as Token
-import FastTags.Token (Pos(..), Token, SrcPos(..), TokenVal(..))
+import FastTags.Token (Token, Pos(..), SrcPos(..), TokenVal(..))
 import qualified FastTags.Util as Util
 
 -- * types

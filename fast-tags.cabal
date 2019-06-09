@@ -110,6 +110,7 @@ test-suite test-fast-tags
     main-is: MainTest.hs
     hs-source-dirs: tests
     ghc-options: -Wall -fno-warn-name-shadowing -fno-warn-type-defaults
+        -main-is MainTest
     build-depends:
         base >= 3 && < 5,
         -- text 0.11.1.12 has a bug.
