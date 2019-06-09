@@ -62,10 +62,8 @@ library
         containers,
         cpphs >1.18,
         filepath,
-        directory >=1.3.0.0,
         -- text 0.11.1.12 has a bug.
         text (> 0.11.1.12 || < 0.11.1.12),
-        async,
         bytestring,
         deepseq,
         array,
@@ -90,11 +88,10 @@ executable fast-tags
     main-is: src/FastTags/Main.hs
     other-modules: Paths_fast_tags
     build-depends:
-        base >= 3 && < 5, containers, filepath, directory >=1.3.0.0,
+        base >= 3 && < 5, filepath, directory >=1.3.0.0,
         -- text 0.11.1.12 has a bug.
         text (> 0.11.1.12 || < 0.11.1.12),
         async,
-        bytestring,
         deepseq,
         fast-tags
     -- cabal emits a warning about -main-is, but there doesn't seem to
@@ -114,10 +111,8 @@ test-suite test-fast-tags
     hs-source-dirs: tests
     ghc-options: -Wall -fno-warn-name-shadowing -fno-warn-type-defaults
     build-depends:
-        base >= 3 && < 5, containers, filepath, directory >=1.3.0.0,
+        base >= 3 && < 5,
         -- text 0.11.1.12 has a bug.
         text (> 0.11.1.12 || < 0.11.1.12),
-        async,
-        bytestring,
         tasty, tasty-hunit,
         fast-tags
