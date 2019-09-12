@@ -26,33 +26,39 @@ module FastTags.Tag (
     , processTokens
     -- * util
     , isHsFile
-    , isLiterateFile
+    , defaultModes
+    , determineModes
+    , ProcessMode(..)
 
-    -- TODO for testing
+    -- for testing
     , unstrippedTokensOf
-    , stripCpp
     , stripNewlines
     , breakBlocks
     , whereBlock
     )
 where
+
 import Control.Arrow ((***))
 import Control.DeepSeq (rnf, NFData)
 import Control.Monad
 
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import qualified Data.Char as Char
 import Data.Functor ((<$>))
-import qualified Data.IntSet as IntSet
 import qualified Data.List as List
 import qualified Data.Map as Map
-import Data.Maybe (maybeToList)
+import Data.Maybe (maybeToList, isJust, fromMaybe)
 import Data.Monoid ((<>), Monoid)
-import qualified Data.Text as T
 import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Builder as TLB
+import Data.Void (Void)
 
-import qualified Language.Preprocessor.Unlit as Unlit
 import qualified System.FilePath as FilePath
 
+import FastTags.LexerTypes (LitMode(..))
 import qualified FastTags.Lexer as Lexer
 import qualified FastTags.Token as Token
 import FastTags.Token (Token, Pos(..), SrcPos(..), TokenVal(..))
@@ -91,6 +97,7 @@ data Type =
     | Operator
     | Pattern
     | Family
+    | Define -- ^ Preprocessor #define
     deriving (Eq, Ord, Show)
 
 instance NFData Type where
@@ -154,12 +161,20 @@ dropTokens k = mapTokens (f k)
     f n (Pos _ (Newline _) : xs) = f n xs
     f n (Pos _ _           : xs) = f (n - 1) xs
 
+
+data ProcessMode
+    = ProcessVanilla
+      -- ^ LitVanilla Haskell file - everything can produce tags
+    | ProcessAlexHappy
+      -- ^ Alex/Happy, only first and last braced blocks may produce tags
+    deriving (Eq, Ord, Show, Enum, Bounded)
+
 -- * processFile
 
 -- | Read tags from one file.
 processFile :: FilePath -> Bool -> IO ([Pos TagVal], [String])
 processFile fn trackPrefixes =
-    process fn trackPrefixes <$> Util.readFileLenient fn
+    process fn trackPrefixes <$> BS.readFile fn
 
 -- * qualify
 
@@ -195,40 +210,23 @@ findSrcPrefix prefixes (Token.Pos pos _) =
     where file = T.pack $ FilePath.dropExtension $ Token.posFile pos
 
 -- | Process one file's worth of tags.
-process :: FilePath -> Bool -> Text -> ([Pos TagVal], [String])
+process :: FilePath -> Bool -> ByteString -> ([Pos TagVal], [String])
 process fn trackPrefixes input =
-    case tokenizeInput fn trackPrefixes input  of
-        Left msg   -> ([], [msg])
-        Right toks -> processTokens toks
-
-tokenizeInput :: FilePath -> Bool -> Text -> Either String [Token]
-tokenizeInput fn trackPrefixes =
-    Lexer.tokenize fn trackPrefixes . stripCpp . unlit
+    case tokenizeInput fn trackPrefixes litMode input of
+        Left msg   -> ([], [T.unpack msg])
+        Right toks -> processTokens procMode toks
     where
-    unlit :: Text -> Text
-    unlit src
-        | isLiterateFile fn =
-            T.pack $ Unlit.unlit fn $ T.unpack $ stripLiterate src
-        | otherwise = src
+    (procMode, litMode) = fromMaybe defaultModes $ determineModes fn
 
-stripLiterate :: Text -> Text
-stripLiterate src
-    | "\\begin{code}" `T.isInfixOf` src
-            && "\\end{code}" `T.isInfixOf` src =
-        T.unlines $ filter (not . birdLiterateLine) $ T.lines src
-    | otherwise = src
-    where
-    birdLiterateLine xs
-        | T.null xs = False
-        | otherwise = case Util.headt $ T.dropWhile Char.isSpace xs of
-            Just '>' -> True
-            _ -> False
+tokenizeInput :: FilePath -> Bool -> LitMode Void -> BS.ByteString -> Either Text [Token]
+tokenizeInput fn trackPrefixes mode =
+    Lexer.tokenize fn mode trackPrefixes
 
-processTokens :: [Token] -> ([Pos TagVal], [String])
-processTokens =
+processTokens :: ProcessMode -> [Token] -> ([Pos TagVal], [String])
+processTokens mode =
     splitAndRemoveRepeats .
     concatMap blockTags .
-    breakBlocks .
+    breakBlocks mode .
     UnstrippedTokens
     where
     splitAndRemoveRepeats :: [Tag] -> ([Pos TagVal], [String])
@@ -247,25 +245,17 @@ processTokens =
             | tagLine x < tagLine y = x
             | otherwise             = y
 
--- | Strip cpp lines starting with #. Also strips out hsc detritus.
-stripCpp :: Text -> Text
-stripCpp =
-    T.intercalate "\n" . snd . List.mapAccumL replaceCppLine False . T.lines
-    where
-    replaceCppLine :: Bool -> Text -> (Bool, Text)
-    replaceCppLine insideMacro line
-        | "#" `T.isPrefixOf` line = (insideMacro', T.empty)
-        | insideMacro             = (insideMacro', T.empty)
-        | otherwise               = (False, line)
-        where
-        insideMacro' = "\\" `T.isSuffixOf` line
-
 startIdentChar :: Char -> Bool
-startIdentChar c = Char.isAlpha c || c == '_'
+startIdentChar '_' = True
+startIdentChar c   = Char.isAlpha c
 
 identChar :: Bool -> Char -> Bool
-identChar considerDot c = Char.isAlphaNum c || c == '\'' || c == '_'
-    || c == '#' || considerDot && c == '.'
+identChar considerDot c = case c of
+    '\'' -> True
+    '_'  -> True
+    '#'  -> True
+    '.'  -> considerDot
+    c'   -> Char.isAlphaNum c'
 
 isHaskellOp :: Text -> Bool
 isHaskellOp str = case Util.headt str of
@@ -280,13 +270,29 @@ isHaskellConstructorOp str = case T.uncons str of
     Just _         -> False
 
 haskellOpChar :: Char -> Bool
-haskellOpChar '_' = False
-haskellOpChar c   =
-    IntSet.member (Char.ord c) opChars
-        || Util.isSymbolCharacterCategory (Char.generalCategory c)
-    where
-    opChars :: IntSet.IntSet
-    opChars = IntSet.fromList $ map Char.ord "-!#$%&*+./<=>?@^|~:\\"
+haskellOpChar c = case c of
+    '_'   -> False
+    '-'   -> True
+    '!'   -> True
+    '#'   -> True
+    '$'   -> True
+    '%'   -> True
+    '&'   -> True
+    '*'   -> True
+    '+'   -> True
+    '.'   -> True
+    '/'   -> True
+    '<'   -> True
+    '='   -> True
+    '>'   -> True
+    '?'   -> True
+    '@'   -> True
+    '^'   -> True
+    '|'   -> True
+    '~'   -> True
+    ':'   -> True
+    '\\'  -> True
+    other -> Util.isSymbolCharacterCategory (Char.generalCategory other)
 
 isTypeVarStart :: Text -> Bool
 isTypeVarStart x = case Util.headt x of
@@ -294,10 +300,16 @@ isTypeVarStart x = case Util.headt x of
     _ -> False
 
 -- | Break the input up into blocks based on indentation.
-breakBlocks :: UnstrippedTokens -> [UnstrippedTokens]
-breakBlocks =
-    map UnstrippedTokens . filter (not . null)
-        . go . stripSemicolonsNotInBraces . filterBlank . unstrippedTokensOf
+breakBlocks :: ProcessMode -> UnstrippedTokens -> [UnstrippedTokens]
+breakBlocks mode
+    = map UnstrippedTokens
+    . filter (not . null)
+    . go
+    . stripSemicolonsNotInBraces
+    . (case mode of { ProcessVanilla -> id; ProcessAlexHappy -> uncurry (++) . firstLastBracedBlock; })
+    . stripToplevelHscDirectives
+    . filterBlank
+    . unstrippedTokensOf
     where
     go :: [Token] -> [[Token]]
     go []     = []
@@ -310,6 +322,35 @@ breakBlocks =
         filterBlank xs
     filterBlank (x:xs) = x : filterBlank xs
 
+-- | Collect tokens between toplevel braces. Motivated by Alex/Happy
+-- file format that uses braced blocks to separate Haskell source from
+-- other directives.
+firstLastBracedBlock :: [Token] -> ([Token], [Token])
+firstLastBracedBlock tokens =
+    (first, last)
+    where
+    (first, rest) = forward 0 [] tokens
+    last          = backward 0 [] $ reverse rest
+    forward :: Int -> [Token] -> [Token] -> ([Token], [Token])
+    forward  _ acc []                       = (reverse acc, [])
+    forward  0 acc (Pos _ LBrace      : ts) = forward 1 acc ts
+    forward  0 acc (_                 : ts) = forward 0 acc ts
+    forward  1 acc (Pos _ RBrace      : ts) = (reverse acc, ts)
+    forward !n acc (t@(Pos _ LBrace)  : ts) = forward (n + 1) (t : acc) ts
+    forward !n acc (t@(Pos _ HSCEnum) : ts) = forward (n + 1) (t : acc) ts
+    forward !n acc (t@(Pos _ RBrace)  : ts) = forward (n - 1) (t : acc) ts
+    forward !n acc (t                 : ts) = forward n (t : acc) ts
+
+    backward :: Int -> [Token] -> [Token] -> [Token]
+    backward  _ acc []                       = acc
+    backward  0 acc (Pos _ RBrace      : ts) = backward 1 acc ts
+    backward  0 acc (_                 : ts) = backward 0 acc ts
+    backward  1 acc (Pos _ LBrace      : _)  = acc
+    backward !n acc (t@(Pos _ LBrace)  : ts) = backward (n - 1) (t : acc) ts
+    backward !n acc (t@(Pos _ HSCEnum) : ts) = backward (n - 1) (t : acc) ts
+    backward !n acc (t@(Pos _ RBrace)  : ts) = backward (n + 1) (t : acc) ts
+    backward !n acc (t                 : ts) = backward n (t : acc) ts
+
 -- | Take until a newline, then take lines until the indent established after
 -- that newline decreases. Or, alternatively, if "{" is encountered then count
 -- it as a block until closing "}" is found taking nesting into account.
@@ -318,22 +359,31 @@ breakBlock = go []
     where
     go :: [Token] -> [Token] -> ([Token], [Token])
     go acc [] = (reverse acc, [])
+    go acc (Pos _ Newline{} : t@(Pos _ KWModule) : ts) =
+        (reverse acc ++ t : importList, drop 1 rest)
+        where
+        (importList, rest) = span ((/= KWWhere) . valOf) ts
     go acc (t@(Pos _ tok) : ts) = case tok of
         Newline indent -> collectIndented acc indent ts
         LBrace         -> collectBracedBlock (t : acc) go ts 1
+        HSCEnum        -> collectBracedBlock (t : acc) go ts 1
         _              -> go (t : acc) ts
 
     collectIndented :: [Token] -> Int -> [Token] -> ([Token], [Token])
     collectIndented acc indent = goIndented acc
         where
-        goIndented acc' = \case
-            tsFull@(t : ts) -> case t of
-                Pos _ (Newline n) | n <= indent -> (reverse acc', tsFull)
+        goIndented acc' ts' = case ts' of
+            Pos _ Newline{} : Pos _ KWModule : _ ->
+                (reverse acc', ts')
+
+            []     -> (reverse acc', [])
+            t : ts -> case t of
+                Pos _ (Newline n) | n <= indent ->
+                    (reverse acc', ts')
                 Pos _ LBrace ->
                     collectBracedBlock (t : acc') goIndented ts 1
-                _            ->
+                _ ->
                     goIndented (t : acc') ts
-            [] -> (reverse acc', [])
 
     collectBracedBlock
         :: Show b
@@ -351,10 +401,27 @@ breakBlock = go []
             Pos _ RBrace -> n - 1
             _            -> n
 
+stripToplevelHscDirectives :: [Token] -> [Token]
+stripToplevelHscDirectives = scan
+    where
+    scan :: [Token] -> [Token]
+    scan = \case
+        []                            -> []
+        Pos _ HSCDirectiveBraced : ts -> skip 1 ts
+        t : ts                        -> t : scan ts
+
+    skip :: Int -> [Token] -> [Token]
+    skip _  []                              = []
+    skip 0  ts                              = scan ts
+    skip !n (Pos _ HSCDirectiveBraced : ts) = skip (n + 1) ts
+    skip !n (Pos _ LBrace       : ts)       = skip (n + 1) ts
+    skip !n (Pos _ RBrace       : ts)       = skip (n - 1) ts
+    skip !n (_                  : ts)       = skip n ts
+
 stripSemicolonsNotInBraces :: [Token] -> [Token]
 stripSemicolonsNotInBraces =
     go False 0 0
-  where
+    where
     go  :: Bool -- Whether inside let or where block or case expression
         -> Int -- Indent of last newline
         -> Int -- Parenthesis nesting depth
@@ -374,11 +441,14 @@ stripSemicolonsNotInBraces =
     go !_     !_  0 (     Pos _ Semicolon    : tok@(Pos _ (Newline k)) : ts) = tok : go False k 0 ts
     go  False !k  0 (     Pos p Semicolon    : ts)                           = Pos p (Newline k) : go False k 0 ts
     go !b     !k !n (tok@(Pos _ LParen)      : ts)                           = tok : skipBalancedParens b k (inc n) ts
+    go !b     !k !n (tok@(Pos _ SpliceStart) : ts)                           = tok : skipBalancedParens b k (inc n) ts
     go !b     !k !n (tok@(Pos _ LBracket)    : ts)                           = tok : skipBalancedParens b k (inc n) ts
     go !b     !k !n (tok@(Pos _ LBrace)      : ts)                           = tok : skipBalancedParens b k (inc n) ts
+    go !b     !k !n (tok@(Pos _ LBanana)     : ts)                           = tok : skipBalancedParens b k (inc n) ts
     go !b     !k !n (tok@(Pos _ RParen)      : ts)                           = tok : go b k (dec n) ts
     go !b     !k !n (tok@(Pos _ RBracket)    : ts)                           = tok : go b k (dec n) ts
     go !b     !k !n (tok@(Pos _ RBrace)      : ts)                           = tok : go b k (dec n) ts
+    go !b     !k !n (tok@(Pos _ RBanana)     : ts)                           = tok : go b k (dec n) ts
     go !b     !k !n (tok : ts)                                               = tok : go b k n       ts
 
     skipBalancedParens
@@ -392,13 +462,16 @@ stripSemicolonsNotInBraces =
         skip :: Int -> [Token] -> [Token]
         skip _  []                          = []
         skip 0  ts                          = go b k 0 ts
-        skip !n (tok@(Pos _ LParen)   : ts) = tok : skip (inc n) ts
-        skip !n (tok@(Pos _ LBracket) : ts) = tok : skip (inc n) ts
-        skip !n (tok@(Pos _ LBrace)   : ts) = tok : skip (inc n) ts
-        skip !n (tok@(Pos _ RParen)   : ts) = tok : skip (dec n) ts
-        skip !n (tok@(Pos _ RBracket) : ts) = tok : skip (dec n) ts
-        skip !n (tok@(Pos _ RBrace)   : ts) = tok : skip (dec n) ts
-        skip !n (tok : ts)                  = tok : skip n ts
+        skip !n (tok@(Pos _ LParen)      : ts) = tok : skip (inc n) ts
+        skip !n (tok@(Pos _ SpliceStart) : ts) = tok : skip (inc n) ts
+        skip !n (tok@(Pos _ LBracket)    : ts) = tok : skip (inc n) ts
+        skip !n (tok@(Pos _ LBrace)      : ts) = tok : skip (inc n) ts
+        skip !n (tok@(Pos _ LBanana)     : ts) = tok : skip (inc n) ts
+        skip !n (tok@(Pos _ RParen)      : ts) = tok : skip (dec n) ts
+        skip !n (tok@(Pos _ RBracket)    : ts) = tok : skip (dec n) ts
+        skip !n (tok@(Pos _ RBrace)      : ts) = tok : skip (dec n) ts
+        skip !n (tok@(Pos _ RBanana)     : ts) = tok : skip (dec n) ts
+        skip !n (tok : ts)                     = tok : skip n ts
 
     inc :: Int -> Int
     inc n = n + 1
@@ -412,8 +485,8 @@ explodeToplevelBracedBlocks toks =
       _                    -> [toks]
     where
     go :: [Token] -> Int -> [Token] -> [[Token]]
-    go acc _    []                          = [reverse acc]
-    go acc 0    ts                          = [reverse acc, ts]
+    go acc  _   []                          = [reverse acc]
+    go acc  0   ts                          = [reverse acc, ts]
     go acc !n   (tok@(Pos _ LBrace)   : ts) = go (tok : acc) (n + 1) ts
     go acc  1   (     Pos _ RBrace    : ts) = reverse acc : go [] 0 ts
     go acc !n   (tok@(Pos _ RBrace)   : ts) = go (tok : acc) (n - 1) ts
@@ -428,6 +501,11 @@ blockTags :: UnstrippedTokens -> [Tag]
 blockTags unstripped = case stripNewlines unstripped of
     [] -> []
     Pos _ SpliceStart : _ -> []
+    Pos _ ToplevelSplice : _ -> []
+    Pos pos (CppDefine name) : _ ->
+        [mkRepeatableTag pos name Define]
+    Pos _ HSCEnum : rest ->
+        hsc2hsEnum rest
     Pos _ KWModule : Pos pos (T name) : _ ->
         [mkTag pos (snd (T.breakOnEnd "." name)) Module]
     stripped@(Pos _       (T "pattern") : Pos _ DoubleColon : _) ->
@@ -576,6 +654,36 @@ dropInfixTypeStart = dropWhile f
 -- and need to call 'breakBlocks' again.
 stripNewlines :: UnstrippedTokens -> [Token]
 stripNewlines = filter (not . isNewline) . unstrippedTokensOf
+
+-- | hsc2hs's '#enum ... \n' or '#{enum...}' definition.
+hsc2hsEnum :: [Token] -> [Tag]
+hsc2hsEnum = \case
+    _ : Pos _ Comma : _ : Pos _ Comma : rest -> extractValues rest
+    _ -> []
+    where
+    -- Values are not really functions, they're constants like x = 0 but there's
+    -- no tag type for that.
+    valueTyp = Function
+    extractValues :: [Token] -> [Tag]
+    extractValues = \case
+        Pos _ Comma : rest ->
+            extractValues rest
+        Pos p (T name) : Pos _ Equals : rest ->
+            mkTag p name valueTyp : extractValues (dropUntil Comma (stripBalancedParens rest))
+        Pos p (T name) : rest ->
+            mkTag p (translateName name) valueTyp : extractValues rest
+        _ -> []
+    translateName :: Text -> Text
+    translateName
+        = TL.toStrict
+        . TLB.toLazyText
+        . snd
+        . T.foldl' addChar (False, mempty)
+    addChar :: (Bool, TLB.Builder) -> Char -> (Bool, TLB.Builder)
+    addChar (_, acc) '_' = (True, acc)
+    addChar (b, acc) c   = (False, acc <> TLB.singleton c')
+        where
+        c' = if b then Char.toUpper c else Char.toLower c
 
 -- | Tags from foreign import.
 --
@@ -880,7 +988,7 @@ stripBalanced open close (Pos _ tok : xs)
         | tok' == open  = go (n + 1) ys
         | tok' == close = go (n - 1) ys
     go !n (_: ys) = go n ys
-    go _ []      = []
+    go _  []      = []
 stripBalanced _ _ xs = xs
 
 gadtTags :: UnstrippedTokens -> [Tag]
@@ -925,7 +1033,7 @@ classBodyTags unstripped = case stripNewlines unstripped of
 -- | Skip to the where and split the indented block below it.
 whereBlock :: UnstrippedTokens -> [UnstrippedTokens]
 whereBlock =
-    concatMap (breakBlocks . UnstrippedTokens) .
+    concatMap (breakBlocks ProcessVanilla . UnstrippedTokens) .
     explodeToplevelBracedBlocks .
     dropUntil KWWhere .
     unstrippedTokensOf
@@ -1001,13 +1109,25 @@ dropUntil token = drop 1 . dropWhile (not . (== token) . valOf)
 
 spanUntil :: TokenVal -> UnstrippedTokens
     -> (UnstrippedTokens, UnstrippedTokens)
-spanUntil token =
-    (UnstrippedTokens *** UnstrippedTokens)
-    .  span (not . (== token) . valOf) . unstrippedTokensOf
+spanUntil token
+    = (UnstrippedTokens *** UnstrippedTokens)
+    . span (not . (== token) . valOf)
+    . unstrippedTokensOf
 
 -- | Crude predicate for Haskell files
 isHsFile :: FilePath -> Bool
-isHsFile = (`elem` [".hs", ".hsc", ".lhs"]) . FilePath.takeExtension
+isHsFile = isJust . determineModes
 
-isLiterateFile :: FilePath -> Bool
-isLiterateFile = (==".lhs") . FilePath.takeExtension
+defaultModes :: (ProcessMode, LitMode Void)
+defaultModes = (ProcessVanilla, LitVanilla)
+
+determineModes :: FilePath -> Maybe (ProcessMode, LitMode Void)
+determineModes x = case FilePath.takeExtension x of
+    ".hs"  -> Just defaultModes
+    ".hsc" -> Just defaultModes
+    ".lhs" -> Just (ProcessVanilla, LitOutside)
+    ".x"   -> Just (ProcessAlexHappy, LitVanilla)
+    ".y"   -> Just (ProcessAlexHappy, LitVanilla)
+    ".lx"  -> Just (ProcessAlexHappy, LitOutside)
+    ".ly"  -> Just (ProcessAlexHappy, LitOutside)
+    _      -> Nothing

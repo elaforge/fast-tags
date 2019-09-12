@@ -1,3 +1,9 @@
+----------------------------------------------------------------------------
+-- |
+-- Module      :  MainTest
+-- Copyright   :  (c) Sergey Vinokurov 2019
+----------------------------------------------------------------------------
+
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 module MainTest where
@@ -5,17 +11,20 @@ import Control.Arrow (first)
 import qualified Data.List as List
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
+import Data.Void (Void)
 
 import qualified Test.Tasty as Tasty
 import Test.Tasty (TestTree, testGroup)
 import qualified Test.Tasty.HUnit as HUnit
 
+import qualified FastTags.Emacs as Emacs
 import qualified FastTags.Lexer as Lexer
+import FastTags.LexerTypes (LitMode(..))
 import qualified FastTags.Tag as Tag
 import FastTags.Tag hiding (process)
 import FastTags.Token
 import qualified FastTags.Vim as Vim
-import qualified FastTags.Emacs as Emacs
 
 
 main :: IO ()
@@ -31,7 +40,6 @@ tests = testGroup "tests"
     , testEmacs
     , testVim
     , testProcess
-    , testStripCpp
     ]
 
 class ExtendedEq a where
@@ -82,7 +90,7 @@ testTokenize = testGroup "tokenize"
         [T "a", DoubleColon, T "b", Arrow, T "c", Newline 0]
     , "a∷b→c"             ==>
         [T "a", DoubleColon, T "b", Arrow, T "c", Newline 0]
-    , "x{-\n  bc#-}\n"    ==> [T "x", Newline 0]
+    , "x{-\n  bc#-}\n"    ==> [T "x", Newline 0, Newline 0]
     , "X.Y"               ==> [T "X.Y", Newline 0]
     , "a=>b"              ==> [T "a", Implies, T "b", Newline 0]
     , "a ⇒ b"             ==> [T "a", Implies, T "b", Newline 0]
@@ -128,17 +136,22 @@ testTokenize = testGroup "tokenize"
         [ T "foo", Equals, String, T "bar", Newline 0]
 
     , "{-   ___   -}import Data.Char;main=putStr$do{c<-\"/1 AA A A;9+ )11929 )1191A 2C9A \";e\r\n\
-      \ {- {- | -} -}  {- {- || -} -}{- {- || -} -}{- {- || -} -} {--}.(`divMod`8).(+(-32)).ord$c};f(0,0)=\"\n\";f(m,n)=m?\"  \"++n?\"_/\"\r\n\
+      \ {- {- | -} -}  {- {- || -} -}{- {- || -} -}{- {- || -} -} {--}.(`divMod`8).(+(-32)).ord$c};f(0,0)=\"\\n\";f(m,n)=m?\"  \"++n?\"_/\"\r\n\
       \{- {- | -} -}n?x=do{[1..n];x}                                    --- obfuscated\r\n\
       \{-\\_/ on Fairbairn, with apologies to Chris Brown. Above is / Haskell 98 -}"
       ==>
       [ KWImport, T "Data.Char", Semicolon
-      , T "main", Equals , T "putStr", T "$", KWDo, LBrace, T "c", T "<-", String, Semicolon, T "e", Newline 4
+      , T "main", Equals , T "putStr", T "$", KWDo, LBrace, T "c", T "<-"
+      , String, Semicolon, T "e", Newline 4
       , Dot, LParen, Backtick, T "divMod", Backtick, Number, RParen, Dot
-      , LParen, T "+", LParen, Number, RParen, RParen, Dot, T "ord", T "$", T "c", RBrace, Semicolon
+      , LParen, T "+", LParen, Number, RParen, RParen, Dot
+      , T "ord", T "$", T "c", RBrace, Semicolon
       , T "f", LParen, Number, Comma, Number, RParen, Equals, String, Semicolon
-      , T "f", LParen, T "m", Comma, T "n", RParen, Equals, T "m", T "?", String, T "++", T "n", T "?", String, Newline 0
-      , T "n", T "?", T "x", Equals, KWDo, LBrace, LBracket, Number, T "..", T "n", RBracket, Semicolon, T "x", RBrace, Newline 0, Newline 0
+      , T "f", LParen, T "m", Comma, T "n", RParen, Equals, T "m", T "?"
+      , String, T "++", T "n", T "?", String, Newline 0
+      , T "n", T "?", T "x", Equals, KWDo, LBrace, LBracket, Number
+      , T "..", T "n", RBracket, Semicolon, T "x", RBrace, Newline 0
+      , Newline 0
       ]
 
     , "one_hash, two_hash :: text_type\n\
@@ -155,7 +168,9 @@ testTokenize = testGroup "tokenize"
       ]
     , "showComplexFloat x 0.0 = showFFloat Nothing x \"\""
       ==>
-      [T "showComplexFloat", T "x", Number, Equals, T "showFFloat", T "Nothing", T "x", String, Newline 0]
+      [ T "showComplexFloat", T "x", Number, Equals
+      , T "showFFloat", T "Nothing", T "x", String, Newline 0
+      ]
     , "deriveJSON defaultOptions ''CI.CI"
       ==>
       [T "deriveJSON", T "defaultOptions", T "''CI.CI", Newline 0]
@@ -164,16 +179,17 @@ testTokenize = testGroup "tokenize"
       [T "--:+:", T ":+:", T ":+:", Newline 0]
 
     , "\\x -> y" ==> [LambdaBackslash, T "x", Arrow, T "y", Newline 0]
-    , "precalcClosure0 :: Grammar -> Name -> RuleList\n\
-      \precalcClosure0 g = \n\
+    , "f :: G -> N -> R\n\
+      \f g = \n\
       \\\n -> case lookup n info' of\n\
       \\tNothing -> []\n\
       \\tJust c  -> c\n\
       \  where"
       ==>
-      [ T "precalcClosure0", DoubleColon, T "Grammar", Arrow, T "Name", Arrow, T "RuleList", Newline 0
-      , T "precalcClosure0", T "g", Equals, Newline 0
-      , LambdaBackslash, T "n", Arrow, KWCase, T "lookup", T "n", T "info'", KWOf, Newline 1
+      [ T "f", DoubleColon, T "G", Arrow, T "N", Arrow, T "R", Newline 0
+      , T "f", T "g", Equals, Newline 0
+      , LambdaBackslash, T "n", Arrow
+      , KWCase, T "lookup", T "n", T "info'", KWOf, Newline 1
       , T "Nothing", Arrow, LBracket, RBracket, Newline 1
       , T "Just", T "c", Arrow, T "c", Newline 2
       , KWWhere, Newline 0
@@ -182,6 +198,84 @@ testTokenize = testGroup "tokenize"
     , tokenizeSplices
     , "import Foo hiding (Bar)" ==>
       [KWImport, T "Foo", T "hiding", LParen, T "Bar", RParen, Newline 0]
+
+    , "foo\n\
+      \#{enum Bar, Baz }\n\
+      \quux" ==>
+      [ T "foo", Newline 0, HSCEnum, T "Bar", Comma, T "Baz", RBrace, Newline 0
+      , T "quux", Newline 0
+      ]
+
+    , "newtype ControlOp' = ControlOp' CInt\n\
+      \\n\
+      \#{enum ControlOp, ControlOp\n\
+      \ , controlOpAdd    = EPOLL_CTL_ADD\n\
+      \ , controlOpModify = EPOLL_CTL_MOD\n\
+      \ , controlOpDelete = EPOLL_CTL_DEL\n\
+      \ }" ==>
+      [ KWNewtype, T "ControlOp'", Equals, T "ControlOp'", T "CInt", Newline 0
+      , Newline 0
+      , HSCEnum, T "ControlOp", Comma, T "ControlOp", Newline 1
+      , Comma, T "controlOpAdd", Equals, T "EPOLL_CTL_ADD", Newline 1
+      , Comma, T "controlOpModify", Equals, T "EPOLL_CTL_MOD", Newline 1
+      , Comma, T "controlOpDelete", Equals, T "EPOLL_CTL_DEL", Newline 1
+      , RBrace, Newline 0
+      ]
+    , "a # b = apply a b" ==>
+      [T "a", T "#", T "b", Equals, T "apply", T "a", T "b", Newline 0]
+
+    , "\"\""         ==> [String, Newline 0]
+    , "\"a\""        ==> [String, Newline 0]
+    , "\"abc\""      ==> [String, Newline 0]
+    , "\"abc\\n\""   ==> [String, Newline 0]
+    , "\"abc\\d\""   ==> [String, Newline 0]
+    , "\"abc\\\\d\"" ==> [String, Newline 0]
+    , "\"\\\\d\""    ==> [String, Newline 0]
+    , "\"\\\\\""     ==> [String, Newline 0]
+
+    , "\"a\" ++ \"b\""  ==> [String, T "++", String, Newline 0]
+    , "\"\\\\\" ++ \"b\"" ==> [String, T "++", String, Newline 0]
+
+    , "'a'"       ==> [Character, Newline 0]
+    , "'\\''"     ==> [Character, Newline 0]
+    , "'\"'"      ==> [Character, Newline 0]
+    , "'\\\\'"    ==> [Character, Newline 0]
+    , "foo' bar'" ==> [T "foo'", T "bar'", Newline 0]
+    , "'\\n'"     ==> [Character, Newline 0]
+
+    , "argsOf s = map (init . (drop $ 2 + length s)) . filter ((\"\\\\\" ++ s ++ \"{\") `isPrefixOf`)"
+      ==>
+      [ T "argsOf", T "s", Equals, T "map", LParen, T "init", Dot
+      , LParen, T "drop", T "$", Number, T "+"
+      , T "length", T "s", RParen, RParen , Dot, T "filter"
+      , LParen, LParen, String, T "++", T "s", T "++", String, RParen
+      , Backtick, T "isPrefixOf", Backtick, RParen, Newline 0
+      ]
+
+    , "foo\n\
+      \# 17 \"/usr/include/stdc-predef.h\" 3 4\n\
+      \bar"
+      ==>
+      [ T "foo", Newline 0
+      , Newline 0
+      , T "bar", Newline 0
+      ]
+    , "foo\n\
+      \#{get_area \"Queue.T\"}\n\
+      \bar"
+      ==>
+      [ T "foo", Newline 0
+      , Newline 0
+      , T "bar", Newline 0
+      ]
+    , "foo\n\
+      \#ccall apr_atomic_init, Ptr <apr_pool_t> -> IO <apr_status_t>\n\
+      \bar"
+      ==>
+      [ T "foo", Newline 0
+      , Newline 0
+      , T "bar", Newline 0
+      ]
     ]
     where
     (==>) = test f
@@ -192,25 +286,25 @@ testTokenize = testGroup "tokenize"
       . tokenize
 
     tokenizeSplices = testGroup "tokenize splices"
-        [ "$(foo)"                              ==>
+        [ "$(foo)"                                  ==>
             [SpliceStart, T "foo", RParen, Newline 0]
-        , "$(foo [| baz |])"                    ==>
+        , "$(foo [| baz |])"                        ==>
             [ SpliceStart, T "foo", QuasiquoterStart, QuasiquoterEnd, RParen
             , Newline 0
             ]
-        , "$(foo ⟦ baz ⟧)"                    ==>
+        , "$(foo ⟦ baz ⟧)"                          ==>
             [ SpliceStart, T "foo", QuasiquoterStart, QuasiquoterEnd, RParen
             , Newline 0
             ]
-        , "$(foo [bar| baz |])"                 ==>
+        , "$(foo [bar| baz |])"                     ==>
             [ SpliceStart, T "foo", QuasiquoterStart, QuasiquoterEnd, RParen
             , Newline 0
             ]
-        , "$(foo [Foo.bar| baz ⟧)"                 ==>
+        , "$(foo [Foo.bar| baz ⟧)"                  ==>
             [ SpliceStart, T "foo", QuasiquoterStart, QuasiquoterEnd, RParen
             , Newline 0
             ]
-        , "$(foo [$bar| baz |])"                 ==>
+        , "$(foo [$bar| baz |])"                    ==>
             [ SpliceStart, T "foo", QuasiquoterStart, QuasiquoterEnd, RParen
             , Newline 0
             ]
@@ -218,15 +312,15 @@ testTokenize = testGroup "tokenize"
             [ SpliceStart, T "foo", QuasiquoterStart, QuasiquoterEnd, RParen
             , Newline 0
             ]
-        , "$(foo [bar| bar!\nbaz!\n $(baz) |])" ==>
+        , "$(foo [bar| bar!\nbaz!\n $(baz) |])"     ==>
              [ SpliceStart, T "foo", QuasiquoterStart, SpliceStart, T "baz"
              , RParen, QuasiquoterEnd, RParen, Newline 0
              ]
-        , "$(foo [Foo.bar| bar!\nbaz!\n $(baz) ⟧)" ==>
+        , "$(foo [Foo.bar| bar!\nbaz!\n $(baz) ⟧)"  ==>
              [ SpliceStart, T "foo", QuasiquoterStart, SpliceStart, T "baz"
              , RParen, QuasiquoterEnd, RParen, Newline 0
              ]
-        , "$(foo [$bar| bar!\nbaz!\n $(baz) |])" ==>
+        , "$(foo [$bar| bar!\nbaz!\n $(baz) |])"    ==>
              [ SpliceStart, T "foo", QuasiquoterStart, SpliceStart, T "baz"
              , RParen, QuasiquoterEnd, RParen, Newline 0
              ]
@@ -234,81 +328,329 @@ testTokenize = testGroup "tokenize"
              [ SpliceStart, T "foo", QuasiquoterStart, SpliceStart, T "baz"
              , RParen, QuasiquoterEnd, RParen, Newline 0
              ]
+        , "foo [$bar| baz |]"                       ==>
+             [ T "foo", QuasiquoterStart, QuasiquoterEnd, Newline 0 ]
+        , "foo [$bar|\n\
+          \ baz |]"                                 ==>
+             [ T "foo", QuasiquoterStart, QuasiquoterEnd, Newline 0 ]
+        , "foo [$bar|\n\
+          \ baz \n\
+          \|]"                                      ==>
+             [ T "foo", QuasiquoterStart, QuasiquoterEnd, Newline 0 ]
+        , "foo\n\
+          \$bar\n\
+          \baz"                                     ==>
+             [ T "foo", Newline 0
+             , ToplevelSplice, Newline 0
+             , T "baz", Newline 0
+             ]
+        , "foo\nf $ x = f x\nbaz"                   ==>
+             [ T "foo", Newline 0
+             , T "f", T "$", T "x", Equals, T "f", T "x", Newline 0
+             , T "baz", Newline 0
+             ]
         ]
 
 testTokenizeWithNewlines :: TestTree
 testTokenizeWithNewlines = testGroup "tokenize with newlines"
-    [ "x\ny\n"     ==> [Newline 0, T "x", Newline 0, T "y", Newline 0]
-    , " xx\n yy\n" ==> [Newline 1, T "xx", Newline 1, T "yy", Newline 0]
+    [ testGroup "vanilla"
+        [ "x\ny\n"
+          ==> [Newline 0, T "x", Newline 0, T "y", Newline 0, Newline 0]
+        , " xx\n yy\n"
+          ==> [Newline 1, T "xx", Newline 1, T "yy", Newline 0, Newline 0]
+        , "\n\
+          \class (X x) => C a b where\n\
+          \\tm :: a->b\n\
+          \\tn :: c\n"
+          ==>
+          [ Newline 0
+          , Newline 0
+          , KWClass, LParen, T "X", T "x", RParen, Implies
+          , T "C", T "a", T "b", KWWhere, Newline 1
+          , T "m", DoubleColon, T "a", Arrow, T "b", Newline 1
+          , T "n", DoubleColon, T "c"
+          , Newline 0
+          , Newline 0
+          ]
+        ]
+    , testGroup "literate"
+        [ "foo bar baz"
+          |=>
+          []
+        , "foo bar baz\nquux fizz buzz"
+          |=>
+          []
+        , "> foo = 1"
+          |=>
+          [Newline 1, T "foo", Equals, Number, Newline 0]
+        , "This is a factorial function\n\
+          \\n\
+          \> f :: Integer -> Integer\n\
+          \> f 0 = 1\n\
+          \> f n = \n\
+          \>   n * (f $ n - 1)\n\
+          \\n\
+          \And that's it !"
+          |=>
+          [ Newline 1
+          , T "f", DoubleColon, T "Integer", Arrow, T "Integer", Newline 1
+          , T "f", Number, Equals, Number, Newline 1
+          , T "f", T "n", Equals, Newline 3
+          , T "n", T "*", LParen, T "f", T "$"
+          , T "n", T "-", Number, RParen, Newline 0
+          ]
+        , "This is a factorial function\n\
+          \\n\
+          \> f :: Integer -> Integer\n\
+          \> f 0 = 1\n\
+          \> f n = \n\
+          \>   n * (f $ n - 1)\n\
+          \\n\
+          \And another function:\n\
+          \\n\
+          \> foo :: a -> a\n\
+          \> foo x = x"
+          |=>
+          [ Newline 1
+          , T "f", DoubleColon, T "Integer", Arrow, T "Integer", Newline 1
+          , T "f", Number, Equals, Number, Newline 1
+          , T "f", T "n", Equals, Newline 3
+          , T "n", T "*", LParen, T "f", T "$"
+          , T "n", T "-", Number, RParen, Newline 0
+          , Newline 1
+          , T "foo", DoubleColon, T "a", Arrow, T "a", Newline 1
+          , T "foo", T "x", Equals, T "x", Newline 0
+          ]
+
+        , "    This is a factorial function\n\
+          \\n\
+          \> f :: Integer -> Integer\n\
+          \> f 0 = 1\n\
+          \> f n = \n\
+          \>   n * (f $ n - 1)\n\
+          \\n\
+          \    And another function:\n\
+          \\n\
+          \> foo :: a -> a\n\
+          \> foo x = x"
+          |=>
+          [ Newline 1
+          , T "f", DoubleColon, T "Integer", Arrow, T "Integer", Newline 1
+          , T "f", Number, Equals, Number, Newline 1
+          , T "f", T "n", Equals, Newline 3
+          , T "n", T "*", LParen, T "f", T "$"
+          , T "n", T "-", Number, RParen, Newline 0
+          , Newline 1
+          , T "foo", DoubleColon, T "a", Arrow, T "a", Newline 1
+          , T "foo", T "x", Equals, T "x", Newline 0
+          ]
+
+        , "This is a factorial function\n\
+          \\\begin{code}\n\
+          \f :: Integer -> Integer\n\
+          \f 0 = 1\n\
+          \f n = \n\
+          \  n * (f $ n - 1)\n\
+          \\\end{code}\n\
+          \And that's it !"
+          |=>
+          [ Newline 0
+          , T "f", DoubleColon, T "Integer", Arrow, T "Integer", Newline 0
+          , T "f", Number, Equals, Number, Newline 0
+          , T "f", T "n", Equals, Newline 2
+          , T "n", T "*", LParen, T "f", T "$", T "n", T "-", Number, RParen
+          ]
+        , "This is a 'factorial' function\n\
+          \\\begin{code}\n\
+          \f :: Integer -> Integer\n\
+          \f 0 = 1\n\
+          \f n = \n\
+          \  n * (f $ n - 1)\n\
+          \\\end{code}\n\
+          \But that's not it yet! Here's another function:\n\
+          \\\begin{code}\n\
+          \foo :: a -> a\n\
+          \foo x = x\n\
+          \\\end{code}\n\
+          \And that's it !"
+          |=>
+          [ Newline 0
+          , T "f", DoubleColon, T "Integer", Arrow, T "Integer", Newline 0
+          , T "f", Number, Equals, Number, Newline 0
+          , T "f", T "n", Equals, Newline 2
+          , T "n", T "*", LParen, T "f", T "$"
+          , T "n", T "-", Number, RParen, Newline 0
+          , T "foo", DoubleColon, T "a", Arrow, T "a", Newline 0
+          , T "foo", T "x", Equals, T "x"
+          ]
+        , "This is a 'factorial' function\n\
+          \\\begin{code}\n\
+          \  f :: Integer -> Integer\n\
+          \  f 0 = 1\n\
+          \  f n = \n\
+          \    n * (f $ n - 1)\n\
+          \\\end{code}\n\
+          \But that's not it yet! Here's another function:\n\
+          \\\begin{code}\n\
+          \  foo :: a -> a\n\
+          \  foo x = x\n\
+          \\\end{code}\n\
+          \And that's it !"
+          |=>
+          [ Newline 2
+          , T "f", DoubleColon, T "Integer", Arrow, T "Integer", Newline 2
+          , T "f", Number, Equals, Number, Newline 2
+          , T "f", T "n", Equals, Newline 4
+          , T "n", T "*", LParen, T "f", T "$", T "n", T "-", Number, RParen
+
+          , Newline 2
+          , T "foo", DoubleColon, T "a", Arrow, T "a", Newline 2
+          , T "foo", T "x", Equals, T "x"
+          ]
+        , "Test\n\
+          \\\begin{code}\n\
+          \class (X x) => C a b where\n\
+          \  m :: a->b\n\
+          \  n :: c\n\
+          \\\end{code}"
+          |=>
+          [ Newline 0
+          , KWClass, LParen, T "X", T "x", RParen, Implies
+          , T "C", T "a", T "b", KWWhere, Newline 2
+          , T "m", DoubleColon, T "a", Arrow, T "b", Newline 2
+          , T "n", DoubleColon, T "c"
+          ]
+        , "Test\n\
+          \\\begin{code}\n\
+          \class (X x) => C a b where\n\
+          \\tm :: a->b\n\
+          \\tn :: c\n\
+          \\\end{code}"
+          |=>
+          [ Newline 0
+          , KWClass, LParen, T "X", T "x", RParen, Implies
+          , T "C", T "a", T "b", KWWhere, Newline 1
+          , T "m", DoubleColon, T "a", Arrow, T "b", Newline 1
+          , T "n", DoubleColon, T "c"
+          ]
+        ]
+    ]
+    where
+    (==>) = test (f LitVanilla)
+    (|=>) = test (f LitOutside)
+    f mode = map valOf . unstrippedTokensOf . tokenizeWith mode
+
+
+testStripComments :: TestTree
+testStripComments = testGroup "Comments stripping"
+    [ "hello -- there"
+      ==>
+      [Newline 0, T "hello", Newline 0]
+    , "hello --there"
+      ==>
+      [Newline 0, T "hello", Newline 0]
+    , "hello {- there -} fred"
+      ==>
+      [Newline 0, T "hello", T "fred", Newline 0]
+    , "hello -- {- there -}\n\
+      \fred"
+      ==>
+      [Newline 0, T "hello", Newline 0, T "fred", Newline 0]
+    , "{-# LANG #-} hello {- there {- nested -} comment -} fred"
+      ==>
+      [Newline 1, T "hello", T "fred", Newline 0]
+    , "hello {-\n\
+      \there\n\
+      \------}\n\
+      \ fred"
+      ==>
+      [Newline 0, T "hello", Newline 1, T "fred", Newline 0]
+    , "hello {-  \n\
+      \there\n\
+      \  ------}  \n\
+      \ fred"
+      ==>
+      [Newline 0, T "hello", Newline 1, T "fred", Newline 0]
+    , "hello {-\n\
+      \there\n\
+      \-----}\n\
+      \ fred"
+      ==>
+      [Newline 0, T "hello", Newline 1, T "fred", Newline 0]
+    , "hello {-  \n\
+      \there\n\
+      \  -----}  \n\
+      \ fred"
+      ==>
+      [Newline 0, T "hello", Newline 1, T "fred", Newline 0]
+    , "hello {-\n\
+      \-- there -}"
+      ==>
+      [Newline 0, T "hello", Newline 0]
+    , "foo --- my comment\n\
+      \--- my other comment\n\
+      \bar"
+      ==>
+      [Newline 0, T "foo", Newline 0, Newline 0, T "bar", Newline 0]
     ]
     where
     (==>) = test f
     f = map valOf . unstrippedTokensOf . tokenize
 
-testStripComments :: TestTree
-testStripComments = testGroup "stripComments"
-    [ "hello -- there"                                           ==>
-        ["nl 0", "hello", "nl 0"]
-    , "hello --there"                                            ==>
-        ["nl 0", "hello", "nl 0"]
-    , "hello {- there -} fred"                                   ==>
-        ["nl 0", "hello", "fred", "nl 0"]
-    , "hello -- {- there -}\nfred"                               ==>
-        ["nl 0", "hello", "nl 0", "fred", "nl 0"]
-    , "{-# LANG #-} hello {- there {- nested -} comment -} fred" ==>
-        ["nl 1", "hello", "fred", "nl 0"]
-    , "hello {-\nthere\n------}\n fred"                          ==>
-        ["nl 0", "hello",  "nl 1", "fred", "nl 0"]
-    , "hello {-  \nthere\n  ------}  \n fred"                    ==>
-        ["nl 0", "hello",  "nl 1", "fred", "nl 0"]
-    , "hello {-\nthere\n-----}\n fred"                           ==>
-        ["nl 0", "hello", "nl 1", "fred", "nl 0"]
-    , "hello {-  \nthere\n  -----}  \n fred"                     ==>
-        ["nl 0", "hello",  "nl 1", "fred", "nl 0"]
-    , "hello {-\n-- there -}"                                    ==>
-        ["nl 0", "hello", "nl 0"]
-    , "foo --- my comment\n--- my other comment\nbar"            ==>
-        ["nl 0", "foo", "nl 0", "nl 0", "bar", "nl 0"]
-    ]
-    where
-    (==>) = test f
-    f = extractTokens . tokenize
-
 testBreakBlocks :: TestTree
-testBreakBlocks = testGroup "breakBlocks"
-    [ "x\n\
-      \y\n"
-      ==> [["x"], ["y"]]
-    , "x\n\
-      \ y\n\
-      \z\n"
-      ==> [["x", "y"], ["z"]]
-    , "x\n\
-      \ y\n\
-      \ z\n\
-      \w\n"
-      ==> [["x", "y", "z"], ["w"]]
+testBreakBlocks = testGroup "Break blocks"
+  [ testGroup "vanilla"
+    [ "a\n\
+      \b\n"
+      ==>
+      [ [T "a"]
+      , [T "b"]
+      ]
+    , "a\n\
+      \ a\n\
+      \b\n"
+      ==>
+      [ [T "a", Newline 1, T "a"]
+      , [T "b"]
+      ]
+    , "a\n\
+      \ a\n\
+      \ a\n\
+      \b\n"
+      ==>
+      [ [T "a", Newline 1, T "a", Newline 1, T "a"]
+      , [T "b"]
+      ]
     -- intervening blank lines are ignored
-    , "x\n\
-      \ y\n\
+    , "a\n\
+      \ a\n\
       \\n\
-      \ z\n\
-      \w\n"
-      ==> [["x", "y", "z"], ["w"]]
-    , "x\n\
+      \ a\n\
+      \b\n"
+      ==>
+      [ [T "a", Newline 1, T "a", Newline 1, T "a"]
+      , [T "b"]
+      ]
+    , "a\n\
       \\n\
       \\n\
-      \ y\n\
-      \z\n"
-      ==> [["x", "y"], ["z"]]
-
-    , "x\n\
-      \ yy\n\
-      \ zz\n"
-      ==> [["x", "yy", "zz"]]
-    , " xx\n\
-      \ yy\n"
-      ==> [["xx"], ["yy"]]
+      \ a\n\
+      \b\n"
+      ==>
+      [ [T "a", Newline 1, T "a"]
+      , [T "b"]
+      ]
+    , "a\n\
+      \ aa\n\
+      \ aa\n"
+      ==>
+      [[T "a", Newline 1, T "aa", Newline 1, T "aa"]]
+    , " aa\n\
+      \ aa\n"
+      ==>
+      [ [T "aa"]
+      , [T "aa"]
+      ]
 
     , "one_hash, two_hash :: text_type\n\
       \hash_prec :: Int -> Int\n\
@@ -316,11 +658,11 @@ testBreakBlocks = testGroup "breakBlocks"
       \two_hash  = from_string \"##\"\n\
       \hash_prec = const 0"
       ==>
-      [ ["one_hash", "Comma", "two_hash", "DoubleColon", "text_type"]
-      , ["hash_prec", "DoubleColon", "Int", "Arrow", "Int"]
-      , ["one_hash", "Equals", "from_char", "Character"]
-      , ["two_hash",  "Equals", "from_string", "String"]
-      , ["hash_prec", "Equals", "const", "Number"]
+      [ [T "one_hash", Comma, T "two_hash", DoubleColon, T "text_type"]
+      , [T "hash_prec", DoubleColon, T "Int", Arrow, T "Int"]
+      , [T "one_hash", Equals, T "from_char", Character]
+      , [T "two_hash",  Equals, T "from_string", String]
+      , [T "hash_prec", Equals, T "const", Number]
       ]
     , "one_hash, two_hash :: text_type; \
       \hash_prec :: Int -> Int; \
@@ -328,11 +670,11 @@ testBreakBlocks = testGroup "breakBlocks"
       \two_hash  = from_string \"##\"; \
       \hash_prec = const 0"
       ==>
-      [ ["one_hash", "Comma", "two_hash", "DoubleColon", "text_type"]
-      , ["hash_prec", "DoubleColon", "Int", "Arrow", "Int"]
-      , ["one_hash", "Equals", "from_char", "Character"]
-      , ["two_hash",  "Equals", "from_string", "String"]
-      , ["hash_prec", "Equals", "const", "Number"]
+      [ [T "one_hash", Comma, T "two_hash", DoubleColon, T "text_type"]
+      , [T "hash_prec", DoubleColon, T "Int", Arrow, T "Int"]
+      , [T "one_hash", Equals, T "from_char", Character]
+      , [T "two_hash",  Equals, T "from_string", String]
+      , [T "hash_prec", Equals, T "const", Number]
       ]
     , "{\n\
       \  data F f :: * ; -- foo\n\
@@ -341,18 +683,55 @@ testBreakBlocks = testGroup "breakBlocks"
       \  mkF  :: f -> F f ; getF :: F f -> f ;\n\
       \} ;"
       ==>
-      [ ["LBrace", "KWData", "F", "f", "DoubleColon", "*", "Semicolon"
-        , "mkF", "DoubleColon", "f", "Arrow", "F", "f", "Semicolon"
-        , "getF", "DoubleColon", "F", "f", "Arrow", "f", "Semicolon"
-        , "RBrace"
+      [ [ LBrace, Newline 2, KWData, T "F", T "f", DoubleColon
+        , T "*", Semicolon, Newline 2
+        , T "mkF", DoubleColon, T "f", Arrow, T "F", T "f", Semicolon
+        , T "getF", DoubleColon, T "F", T "f", Arrow, T "f", Semicolon
+        , Newline 0
+        , RBrace
+        ]
         ]
       ]
+  , testGroup "literate"
+    [ "> a\n\
+      \>\n\
+      \>\n\
+      \>  a\n\
+      \> b\n"
+      |=>
+      [ [T "a", Newline 2, T "a"]
+      , [T "b"]
+      ]
+    , "> a\n\
+      \> \n\
+      \> \n\
+      \>  a\n\
+      \> b\n"
+      |=>
+      [ [T "a", Newline 2, T "a"]
+      , [T "b"]
+      ]
+    , "> a\n\
+      \>  aa\n\
+      \>  aa\n"
+      |=>
+      [[T "a", Newline 2, T "aa", Newline 2, T "aa"]]
+    , "> a\n\
+      \>  aa\n\
+      \>\n\
+      \>  aa\n"
+      |=>
+      [[T "a", Newline 2, T "aa", Newline 2, T "aa"]]
+   ]
     ]
     where
-    (==>) = test f
-    f = map (extractTokens . UnstrippedTokens . Tag.stripNewlines)
-      . Tag.breakBlocks
-      . tokenize
+    (==>) = test (f LitVanilla)
+    (|=>) = test (f LitOutside)
+    f :: LitMode Void -> Text -> [[TokenVal]]
+    f mode
+        = map (map valOf . unstrippedTokensOf)
+        . breakBlocks ProcessVanilla
+        . tokenizeWith mode
 
 testWhereBlock :: TestTree
 testWhereBlock = testGroup "whereBlock"
@@ -363,9 +742,9 @@ testWhereBlock = testGroup "whereBlock"
       \  mkF  :: f -> F f\n\
       \  getF :: F f -> f"
       ==>
-      [ ["KWData", "F", "f", "DoubleColon", "*"]
-      , ["mkF", "DoubleColon", "f", "Arrow", "F", "f"]
-      , ["getF", "DoubleColon", "F", "f", "Arrow", "f"]
+      [ [KWData, T "F", T "f", DoubleColon, T "*"]
+      , [T "mkF", DoubleColon, T "f", Arrow, T "F", T "f"]
+      , [T "getF", DoubleColon, T "F", T "f", Arrow, T "f"]
       ]
     , "class A f where {\n\
       \  data F f :: * ; -- foo\n\
@@ -375,14 +754,14 @@ testWhereBlock = testGroup "whereBlock"
       \  getF :: F f -> f ;\n\
       \} ;"
       ==>
-      [ ["KWData", "F", "f", "DoubleColon", "*"]
-      , ["mkF", "DoubleColon", "f", "Arrow", "F", "f"]
-      , ["getF", "DoubleColon", "F", "f", "Arrow", "f"]
+      [ [KWData, T "F", T "f", DoubleColon, T "*"]
+      , [T "mkF", DoubleColon, T "f", Arrow, T "F", T "f"]
+      , [T "getF", DoubleColon, T "F", T "f", Arrow, T "f"]
       ]
     ]
     where
     (==>) = test f
-    f = map (extractTokens . UnstrippedTokens . Tag.stripNewlines)
+    f = map (map valOf . Tag.stripNewlines)
       . Tag.whereBlock
       . tokenize
 
@@ -446,6 +825,10 @@ testProcess = testGroup "process"
     , testLiterate
     , testPatterns
     , testFFI
+    , testDefine
+    , testHSC2HS
+    , testAlex
+    , testHappy
     ]
 
 testMeta :: TestTree
@@ -625,7 +1008,7 @@ testData = testGroup "data"
         ["Add", "X"]
     , "newtype (Eq a, Ord a) => X a = Add a"                            ==>
         ["Add", "X"]
-    , "newtype () => X a = Add a"                                     ==>
+    , "newtype () => X a = Add a"                                       ==>
         ["Add", "X"]
 
     , "newtype (u :*: v) z = X"                                         ==>
@@ -642,11 +1025,11 @@ testData = testGroup "data"
     , "type ((u :: (* -> *) -> *) :*: v) z = (u, v, z)"                 ==>
         [":*:"]
 
-    , "newtype () => ((u :: (* -> *) -> *) :*: v) z = X"        ==>
+    , "newtype () => ((u :: (* -> *) -> *) :*: v) z = X"                ==>
         [":*:", "X"]
-    , "data () => ((u :: (* -> *) -> *) :*: v) z = X"           ==>
+    , "data () => ((u :: (* -> *) -> *) :*: v) z = X"                   ==>
         [":*:", "X"]
-    , "type () => ((u :: (* -> *) -> *) :*: v) z = (u, v, z)"   ==>
+    , "type () => ((u :: (* -> *) -> *) :*: v) z = (u, v, z)"           ==>
         [":*:"]
 
     , "newtype (Eq (v z)) => ((u :: (* -> *) -> *) :*: v) z = X"        ==>
@@ -1087,13 +1470,13 @@ testFunctions = testGroup "functions"
       ["."]
 
     , "{- 123___ -}import Data.Char;main=putStr$do{c<-\"/1 AA A A;9+ )11929 )1191A 2C9A \";e\n\
-      \{-  |  -}    .(`divMod`8).(+(-32)).ord$c};f(0,0)=\"\n\";f(m,n)=m?\"  \"++n?\"_/\"\n\
+      \{-  |  -}    .(`divMod`8).(+(-32)).ord$c};f(0,0)=\"\\n\";f(m,n)=m?\"  \"++n?\"_/\"\n\
       \{-  |  -}n?x=do{[1..n];x}                                    --- obfuscated\n\
       \{-\\_/ on Fairbairn, with apologies to Chris Brown. Above is / Haskell 98 -}"
       ==>
       ["?", "f", "main"]
     , "{-   456___   -}import Data.Char;main=putStr$do{c<-\"/1 AA A A;9+ )11929 )1191A 2C9A \";e\n\
-      \ {- {- | -} -}  {- {- || -} -}{- {- || -} -}{- {- || -} -} {--}.(`divMod`8).(+(-32)).ord$c};f(0,0)=\"\n\";f(m,n)=m?\"  \"++n?\"_/\"\n\
+      \ {- {- | -} -}  {- {- || -} -}{- {- || -} -}{- {- || -} -} {--}.(`divMod`8).(+(-32)).ord$c};f(0,0)=\"\\n\";f(m,n)=m?\"  \"++n?\"_/\"\n\
       \{- {- | -} -}n?x=do{[1..n];x}                                    --- obfuscated\n\
       \{-\\_/ on Fairbairn, with apologies to Chris Brown. Above is / Haskell 98 -}"
       ==>
@@ -1118,10 +1501,93 @@ testFunctions = testGroup "functions"
 
     , "_g :: X -> Y" ==> ["_g"]
     , "(f . g) x = f (g x)" ==> ["."]
+    , "(#) :: TransArray c => c -> (b -> IO r) -> Trans c b -> IO r\n\
+      \a # b = apply a b\n\
+      \{-# INLINE (#) #-}\n\
+      \\n"
+      ==>
+      ["#"]
+
+    , "escape :: FilePath -> FilePath\n\
+      \escape s = \"\\\"\" ++ concatMap esc s ++ \"\\\"\"\n\
+      \  where\n\
+      \  esc c | c `elem` ['\\\\', '\"']   = '\\\\' : [c]\n\
+      \        | isAscii c && isPrint c = [c]\n\
+      \        | otherwise              = \"\\\\x\" ++ showHex (fromEnum c) \"\\\\ \"\n\
+      \\n\
+      \------------------------------------------------------------------------\n\
+      \-- Compiling Emacs Lisp files\n\
+      \\n\
+      \-- | The Agda mode's Emacs Lisp files, given in the order in which\n\
+      \-- they should be compiled.\n\
+      \\n\
+      \emacsLispFiles :: [FilePath]\n\
+      \emacsLispFiles =\n\
+      \  [ \"agda2-abbrevs.el\"\n\
+      \  , \"annotation.el\"\n\
+      \  , \"agda2-queue.el\"\n\
+      \  , \"eri.el\"\n\
+      \  , \"agda2.el\"\n\
+      \  , \"agda-input.el\"\n\
+      \  , \"agda2-highlight.el\"\n\
+      \  , \"agda2-mode.el\"\n\
+      \  ]\n"
+      ==>
+      ["emacsLispFiles", "escape"]
+
+    , "happyError = \tks i -> error (\n\
+      \\t\"Parse error in line \" ++ show (i::Int) ++ \"\\n\")\n"
+      ==>
+      ["happyError"]
+    , "> happyError = \tks i -> error (\n\
+      \>\t\"Parse error in line \" ++ show (i::Int) ++ \"\\n\")\n"
+      |=>
+      ["happyError"]
+
+    , "module UnindentedImportList(\n\
+      \foo,\n\
+      \(++),\n\
+      \bar\
+      \,\n\
+      \quux \n\
+      \)\n\
+      \where\n\
+      \\n\
+      \import Test\n\
+      \\n\
+      \baz :: a -> a\n\
+      \baz x = x\n\
+      \"
+      ==>
+      ["UnindentedImportList", "baz"]
+
+    , "\n\
+      \\n\
+      \#define FOO\n\
+      \\n\
+      \\n\
+      \  module UnindentedImportList(\n\
+      \  foo,\n\
+      \  (++),\n\
+      \  bar\
+      \  ,\n\
+      \  quux \n\
+      \  )\n\
+      \  where\n\
+      \\n\
+      \  import Test\n\
+      \\n\
+      \  baz :: a -> a\n\
+      \  baz x = x\n\
+      \"
+      ==>
+      ["FOO", "UnindentedImportList", "baz"]
+
     , toplevelFunctionsWithoutSignatures
     ]
     where
     (==>) = testTagNames filename
+    (|=>) = testTagNames literateFilename
     toplevelFunctionsWithoutSignatures =
         testGroup "toplevel functions without signatures"
         [ "$(return . map sumDeclaration $ [0..15])" ==> []
@@ -1184,6 +1650,7 @@ testFunctions = testGroup "functions"
         , "pattern x y z = x + y + z"                   ==> ["pattern"]
         -- Arguments named "forall
         , "f forall = forall + 1"                       ==> ["f"]
+        , "a # b = apply a b"                           ==> ["#"]
         ]
     strictMatchTests = testGroup "strict match (!)"
         [ "f !x y = x"                ==> ["f"]
@@ -1392,12 +1859,18 @@ testInstance = testGroup "instance"
     (==>) = testTagNames filename
 
 testLiterate :: TestTree
-testLiterate = testGroup "literate"
-    [ "> class (X x) => C a b where\n>\tm :: a->b\n>\tn :: c\n"
-      ==>
+testLiterate = testGroup "Literate"
+    [ "> class (X x) => C a b where\n\
+      \>\tm :: a->b\n\
+      \>\tn :: c\n"
+    ==>
       ["C", "m", "n"]
-    , "Test\n\\begin{code}\nclass (X x) => C a b where\n\
-      \\tm :: a->b\n\tn :: c\n\\end{code}"
+    , "Test\n\
+      \\\begin{code}\n\
+      \class (X x) => C a b where\n\
+      \\tm :: a->b\n\
+      \\tn :: c\n\
+      \\\end{code}"
       ==>
       ["C", "m", "n"]
     , "> precalcClosure0 :: Grammar -> Name -> RuleList\n\
@@ -1408,6 +1881,45 @@ testLiterate = testGroup "literate"
       \>  where"
       ==>
       ["precalcClosure0"]
+    , "New Resolutions by Jean-Luc Ponty, Scott O'Neil, and John Garvin\r\n\
+      \\r\n\
+      \> module Euterpea.Examples.NewResolutions where\r\n\
+      \> import Euterpea\r\n\
+      \\r\n\
+      \> nrContext = Context {cTime = 0,\r\n\
+      \>                      cPlayer = fancyPlayer,\r\n\
+      \>                      cInst = Marimba,\r\n\
+      \>                      cDur = 1.0,\r\n\
+      \>                      cPch = 0,\r\n\
+      \>                      cKey = (C,Major),\r\n\
+      \>                      cVol = 100}\r\n\
+      \>\r\n\
+      \> tNewRes m = makeMidi (m, nrContext, defUpm)\r\n\
+      \\r\n\
+      \> root, minThird, fifth, octave :: Pitch -> Dur -> Music Pitch\r\n\
+      \> root       p dur = Prim $ Note dur p\r\n\
+      \> minThird   p dur = Prim $ Note dur (trans 3 p)\r\n\
+      \> majThird   p dur = Prim $ Note dur (trans 4 p)\r\n\
+      \> fifth      p dur = Prim $ Note dur (trans 7 p)\r\n\
+      \> majSixth   p dur = Prim $ Note dur (trans 9 p)\r\n\
+      \> minSeventh p dur = Prim $ Note dur (trans 10 p)\r\n\
+      \> octave     p dur = Prim $ Note dur (trans 12 p)\r\n\
+      \> oMinThird  p dur = Prim $ Note dur (trans 15 p)\r\n\
+      \> oFifth     p dur = Prim $ Note dur (trans 19 p)"
+      ==>
+      [ "NewResolutions"
+      , "fifth"
+      , "majSixth"
+      , "majThird"
+      , "minSeventh"
+      , "minThird"
+      , "nrContext"
+      , "oFifth"
+      , "oMinThird"
+      , "octave"
+      , "root"
+      , "tNewRes"
+      ]
     ]
     where
     (==>) = test f
@@ -1455,32 +1967,600 @@ testFFI = testGroup "ffi"
     where
     (==>) = testTagNames filename
 
-testStripCpp :: TestTree
-testStripCpp = testGroup "strip cpp"
-    [ "foo\n\
-      \#if 0\n\
-      \bar\n\
-      \baz\n\
-      \#endif\n\
-      \quux" ==> "foo\n\nbar\nbaz\n\nquux"
-    , "foo\n\
-      \#if 0\n\
-      \bar\n\
+testDefine :: TestTree
+testDefine = testGroup "preprocessor defines"
+    [ "#define FOO 1" ==>
+        ["FOO"]
+    , "#define FOO \n\
+      \ 1" ==>
+        ["FOO"]
+    , "#define FOO \n\
+      \1" ==>
+        ["FOO"]
+    , "#define FOO(x) (x + x)" ==>
+        ["FOO"]
+    , "#if X\n\
+      \#define FOO 1\n\
       \#else\n\
-      \baz\n\
-      \#endif\n\
-      \quux" ==> "foo\n\nbar\n\nbaz\n\nquux"
-    , "foo\n\
-      \#let a t = \"%lu\", (ul)offsetof(struct {char x__; t (y__); }, y__)\n\
-      \bar" ==> "foo\n\nbar"
-    , "foo\n\
-      \#let x = y\\\n\
-      \         z\\\n\
-      \         w\n\
-      \bar" ==> "foo\n\n\n\nbar"
+      \#define FOO 2\n\
+      \#endif" ==>
+        ["FOO"]
+    , "#if X\n\
+      \\n\
+      \#define FOO 1\n\
+      \\n\
+      \\n\
+      \#else\n\
+      \\n\
+      \\n\
+      \#define FOO 2\n\
+      \\n\
+      \#endif" ==>
+        ["FOO"]
+    , "#define FOO(x) (x + x)" ==>
+        ["FOO"]
+    , "#let BAR x y z = \"x + y + z\"" ==>
+        ["BAR"]
     ]
     where
-    (==>) = test stripCpp
+    (==>) = testTagNames filename
+
+testHSC2HS :: TestTree
+testHSC2HS = testGroup "hsc2hs"
+    [ "#{enum ControlOp, ControlOp\n\
+      \ , controlOpAdd    = EPOLL_CTL_ADD\n\
+      \ , controlOpModify = EPOLL_CTL_MOD\n\
+      \ , controlOpDelete = EPOLL_CTL_DEL\n\
+      \ }"
+      ==>
+      [ "controlOpAdd", "controlOpDelete", "controlOpModify"
+      ]
+    , "#{\n\
+      \enum ControlOp, ControlOp\n\
+      \ , controlOpAdd    = EPOLL_CTL_ADD\n\
+      \ , controlOpModify = EPOLL_CTL_MOD\n\
+      \ , controlOpDelete = EPOLL_CTL_DEL\n\
+      \ }"
+      ==>
+      [ "controlOpAdd", "controlOpDelete", "controlOpModify"
+      ]
+    , "#{enum Test1, Test2 \n\
+      \ , foo\n\
+      \ , foo_bar\n\
+      \ , BAR_BAZ\n\
+      \ , BAR_BAZquux\n\
+      \ }"
+      ==>
+      [ "barBaz", "barBazquux", "foo", "fooBar"
+      ]
+    , "#enum Mask, UserSpace, IN_ACCESS, IN_MODIFY, IN_ATTRIB, IN_CLOSE_WRITE\n\
+      \#enum Mask, UserSpace, IN_CLOSE_NOWRITE, IN_OPEN, IN_MOVED_FROM, IN_MOVED_TO\n\
+      \#enum Mask, UserSpace, IN_CREATE, IN_DELETE, IN_DELETE_SELF, IN_MOVE_SELF\n"
+      ==>
+      [ "inAccess", "inAttrib", "inCloseNowrite", "inCloseWrite"
+      , "inCreate", "inDelete", "inDeleteSelf", "inModify"
+      , "inMoveSelf", "inMovedFrom", "inMovedTo", "inOpen"
+      ]
+
+    , "#enum ExecOption,ExecOption, \\\n\
+      \  execAnchored = PCRE_ANCHORED, \\\n\
+      \  execNotBOL = PCRE_NOTBOL, \\\n\
+      \  execNotEOL = PCRE_NOTEOL, \\\n\
+      \  execNotEmpty = PCRE_NOTEMPTY, \\\n\
+      \  execNoUTF8Check = PCRE_NO_UTF8_CHECK, \\\n\
+      \  execPartial = PCRE_PARTIAL"
+      ==>
+      [ "execAnchored"
+      , "execNoUTF8Check"
+      , "execNotBOL"
+      , "execNotEOL"
+      , "execNotEmpty"
+      , "execPartial"
+      ]
+
+    , "#enum ReturnCode,ReturnCode, \\\n\
+      \  retNoMatch = PCRE_ERROR_NOMATCH, \\\n\
+      \  retNull = PCRE_ERROR_NULL, \\\n\
+      \  retBadOption = PCRE_ERROR_BADOPTION, \\\n\
+      \  retBadMagic = PCRE_ERROR_BADMAGIC, \\\n\
+      \  retUnknownNode = PCRE_ERROR_UNKNOWN_NODE, \\\n\
+      \  retNoMemory = PCRE_ERROR_NOMEMORY, \\\n\
+      \  retNoSubstring = PCRE_ERROR_NOSUBSTRING"
+      ==>
+      [ "retBadMagic"
+      , "retBadOption"
+      , "retNoMatch"
+      , "retNoMemory"
+      , "retNoSubstring"
+      , "retNull"
+      , "retUnknownNode"
+      ]
+
+    , "#{\n\
+      \define hsc_patsyn(l, typ, cons, hprefix, recmac) { \\\n\
+      \  struct { const char *s; unsigned n; } *p, list[] = { LLVM_HS_FOR_EACH_ ## l(recmac) }; \\\n\
+      \  for(p = list; p < list + sizeof(list)/sizeof(list[0]); ++p) { \\\n\
+      \    hsc_printf(\"pattern \" #hprefix \"%s :: \" #typ \"\\n\", p->s); \\\n\
+      \    hsc_printf(\"pattern \" #hprefix \"%s =  \" #cons \" %u\\n\", p->s, p->n); \\\n\
+      \  }\\\n\
+      \}\\\n\
+      \}\\\n\
+      \\n\
+      \foo x = x"
+      ==>
+      [ "foo"
+      ]
+    ]
+    where
+    (==>) = testTagNames "Test.hsc"
+
+testAlex :: TestTree
+testAlex = testGroup "alex"
+    [ testGroup "vanilla"
+        [ "{\n\
+          \module AlexTest where\n\
+          \\n\
+          \import FooBar\n\
+          \\n\
+          \foobar :: Int -> Int\n\
+          \foobar = (+ 1)\n\
+          \\n\
+          \}\n\
+          \\n\
+          \\n\
+          \-- Can skip whitespace everywhere since it does not affect meaning in any\n\
+          \-- state.\n\
+          \<0, comment, qq, literate> $ws+ ;\n\
+          \\n\
+          \-- Literate Haskell support. 'literate' code handles all text except actual\n\
+          \-- Haskell program text. It aims to strip all non-Haskell text.\n\
+          \<literate> {\n\
+          \$nl \">\" $ws*\n\
+          \  { \\_ len -> (Newline $! len - 2) <$ startLiterateBird }\n\
+          \$nl \"\\begin{code}\" @nl $space*\n\
+          \  { \\input len -> (Newline $! countInputSpace input len) <$ startLiterateLatex }\n\
+          \$nl ;\n\
+          \.\n\
+          \  { \\_ _ -> dropUntilNL' }\n\
+          \}\n\
+          \\n\
+          \-- Vanilla tokens\n\
+          \<0> {\n\
+          \\n\
+          \\"#\" @cpp_opt_ws (\"{\" (@cpp_ws | @nl)*)? \"enum\"\n\
+          \  { \\_ _ -> pure HSCEnum }\n\
+          \\"#\" @cpp_opt_ws\n\
+          \  ( ($ascident # [e]) $ascident*\n\
+          \  | $ascident ($ascident # [n]) $ascident*\n\
+          \  | $ascident $ascident ($ascident # [u]) $ascident*\n\
+          \  | $ascident $ascident $ascident ($ascident # [m]) $ascident*\n\
+          \  | $ascident $ascident $ascident $ascident $ascident+\n\
+          \  )\n\
+          \  { \\_ _ -> pure HSCDirective }\n\
+          \\"#\" @cpp_opt_ws \"{\" (@cpp_ws | @nl)*\n\
+          \  ( ($ascident # [e]) $ascident*\n\
+          \  | $ascident ($ascident # [n]) $ascident*\n\
+          \  | $ascident $ascident ($ascident # [u]) $ascident*\n\
+          \  | $ascident $ascident $ascident ($ascident # [m]) $ascident*\n\
+          \  | $ascident $ascident $ascident $ascident $ascident+\n\
+          \  )\n\
+          \  { \\_ _ -> pure HSCDirectiveBraced }\n\
+          \}\n\
+          \\n\
+          \\n\
+          \\n\
+          \\n\
+          \{\n\
+          \foo :: Int -> Int\n\
+          \foo x = x + x\n\
+          \}\n\
+          \\n"
+          ==>
+          ["AlexTest", "foo", "foobar"]
+      ]
+    , testGroup "literate"
+        [ "Very useful description 1\n\
+          \Very useful description 2\n\
+          \> {\n\
+          \> module AlexTest where\n\
+          \>\n\
+          \> import FooBar\n\
+          \>\n\
+          \> foobar :: Int -> Int\n\
+          \> foobar = (+ 1)\n\
+          \>\n\
+          \> }\n\
+          \\n\
+          \Useful description 1\n\
+          \Useful description 2\n\
+          \Useful description 3\n\
+          \Useful description 4\n\
+          \\n\
+          \> -- Can skip whitespace everywhere since it does not affect meaning in any\n\
+          \> -- state.\n\
+          \> <0, comment, qq, literate> $ws+ ;\n\
+          \>\n\
+          \> -- Literate Haskell support. 'literate' code handles all text except actual\n\
+          \> -- Haskell program text. It aims to strip all non-Haskell text.\n\
+          \> <literate> {\n\
+          \> $nl \">\" $ws*\n\
+          \>   { \\_ len -> (Newline $! len - 2) <$ startLiterateBird }\n\
+          \> $nl \"\\begin{code}\" @nl $space*\n\
+          \>   { \\input len -> (Newline $! countInputSpace input len) <$ startLiterateLatex }\n\
+          \> $nl ;\n\
+          \> .\n\
+          \>   { \\_ _ -> dropUntilNL' }\n\
+          \> }\n\
+          \>\n\
+          \Useful description 1\n\
+          \Useful description 2\n\
+          \Useful description 3\n\
+          \Useful description 4\n\
+          \> -- Vanilla tokens\n\
+          \> <0> {\n\
+          \>\n\
+          \> \"#\" @cpp_opt_ws (\"{\" (@cpp_ws | @nl)*)? \"enum\"\n\
+          \>   { \\_ _ -> pure HSCEnum }\n\
+          \> \"#\" @cpp_opt_ws\n\
+          \>   ( ($ascident # [e]) $ascident*\n\
+          \>   | $ascident ($ascident # [n]) $ascident*\n\
+          \>   | $ascident $ascident ($ascident # [u]) $ascident*\n\
+          \>   | $ascident $ascident $ascident ($ascident # [m]) $ascident*\n\
+          \>   | $ascident $ascident $ascident $ascident $ascident+\n\
+          \>   )\n\
+          \>   { \\_ _ -> pure HSCDirective }\n\
+          \> \"#\" @cpp_opt_ws \"{\" (@cpp_ws | @nl)*\n\
+          \>   ( ($ascident # [e]) $ascident*\n\
+          \>   | $ascident ($ascident # [n]) $ascident*\n\
+          \>   | $ascident $ascident ($ascident # [u]) $ascident*\n\
+          \>   | $ascident $ascident $ascident ($ascident # [m]) $ascident*\n\
+          \>   | $ascident $ascident $ascident $ascident $ascident+\n\
+          \>   )\n\
+          \>   { \\_ _ -> pure HSCDirectiveBraced }\n\
+          \> }\n\
+          \>\n\
+          \>\n\
+          \> {\n\
+          \> foo :: Int -> Int\n\
+          \> foo x = x + x\n\
+          \> }\n\
+          \>\n\
+          \\n"
+          |=>
+          ["AlexTest", "foo", "foobar"]
+        , "Very useful description 1\n\
+          \Very useful description 2\n\
+          \\\begin{code}\n\
+          \{\n\
+          \module AlexTest where\n\
+          \\n\
+          \import FooBar\n\
+          \\n\
+          \foobar :: Int -> Int\n\
+          \foobar = (+ 1)\n\
+          \\n\
+          \}\n\
+          \\\end{code}\n\
+          \\n\
+          \Useful description 1\n\
+          \Useful description 2\n\
+          \Useful description 3\n\
+          \Useful description 4\n\
+          \\n\
+          \\\begin{code}\n\
+          \-- Can skip whitespace everywhere since it does not affect meaning in any\n\
+          \-- state.\n\
+          \<0, comment, qq, literate> $ws+ ;\n\
+          \\n\
+          \-- Literate Haskell support. 'literate' code handles all text except actual\n\
+          \-- Haskell program text. It aims to strip all non-Haskell text.\n\
+          \<literate> {\n\
+          \$nl \">\" $ws*\n\
+          \  { \\_ len -> (Newline $! len - 2) <$ startLiterateBird }\n\
+          \$nl \"\\begin{code}\" @nl $space*\n\
+          \  { \\input len -> (Newline $! countInputSpace input len) <$ startLiterateLatex }\n\
+          \$nl ;\n\
+          \.\n\
+          \  { \\_ _ -> dropUntilNL' }\n\
+          \}\n\
+          \\n\
+          \\\end{code}\n\
+          \\n\
+          \Useful description 1\n\
+          \Useful description 2\n\
+          \Useful description 3\n\
+          \Useful description 4\n\
+          \\n\
+          \\\begin{code}\n\
+          \-- Vanilla tokens\n\
+          \<0> {\n\
+          \\n\
+          \\"#\" @cpp_opt_ws (\"{\" (@cpp_ws | @nl)*)? \"enum\"\n\
+          \  { \\_ _ -> pure HSCEnum }\n\
+          \\"#\" @cpp_opt_ws\n\
+          \  ( ($ascident # [e]) $ascident*\n\
+          \  | $ascident ($ascident # [n]) $ascident*\n\
+          \  | $ascident $ascident ($ascident # [u]) $ascident*\n\
+          \  | $ascident $ascident $ascident ($ascident # [m]) $ascident*\n\
+          \  | $ascident $ascident $ascident $ascident $ascident+\n\
+          \  )\n\
+          \  { \\_ _ -> pure HSCDirective }\n\
+          \\"#\" @cpp_opt_ws \"{\" (@cpp_ws | @nl)*\n\
+          \  ( ($ascident # [e]) $ascident*\n\
+          \  | $ascident ($ascident # [n]) $ascident*\n\
+          \  | $ascident $ascident ($ascident # [u]) $ascident*\n\
+          \  | $ascident $ascident $ascident ($ascident # [m]) $ascident*\n\
+          \  | $ascident $ascident $ascident $ascident $ascident+\n\
+          \  )\n\
+          \  { \\_ _ -> pure HSCDirectiveBraced }\n\
+          \}\n\
+          \\n\
+          \\n\
+          \{\n\
+          \foo :: Int -> Int\n\
+          \foo x = x + x\n\
+          \}\n\
+          \\n\
+          \\\end{code}\n\
+          \\n"
+          |=>
+          ["AlexTest", "foo", "foobar"]
+      ]
+    ]
+    where
+    (==>) = testTagNames "Test.x"
+    (|=>) = testTagNames "Test.lx"
+
+testHappy :: TestTree
+testHappy = testGroup "happy"
+    [ testGroup "vanilla"
+        [ "{\n\
+          \{-# OPTIONS_GHC -w #-}\n\
+          \module AttrGrammarParser (agParser) where\n\
+          \import ParseMonad\n\
+          \import AttrGrammar\n\
+          \}\n\
+          \\n\
+          \%name agParser\n\
+          \%tokentype { AgToken }\n\
+          \%token\n\
+          \  \"{\"     { AgTok_LBrace }\n\
+          \  \"}\"     { AgTok_RBrace }\n\
+          \  \";\"     { AgTok_Semicolon }\n\
+          \  '{'       { AgTok_LBrace }\n\
+          \  '}'       { AgTok_RBrace }\n\
+          \  '::'      { AgTok_Semicolon }\n\
+          \  \"=\"     { AgTok_Eq }\n\
+          \  where     { AgTok_Where }\n\
+          \  selfRef   { AgTok_SelfRef _ }\n\
+          \  subRef    { AgTok_SubRef _ }\n\
+          \  rightRef  { AgTok_RightmostRef _ }\n\
+          \  unknown   { AgTok_Unknown _ }\n\
+          \\n\
+          \%monad { P }\n\
+          \%lexer { agLexer } { AgTok_EOF }\n\
+          \\n\
+          \%%\n\
+          \\n\
+          \agParser :: { [AgRule] }\n\
+          \  : rules                                      { $1 }\n\
+          \\n\
+          \rules :: { [AgRule] }\n\
+          \  : rule '::' rules                            { $1 : $3 }\n\
+          \  | rule                                       { $1 : [] }\n\
+          \  |                                            { [] }\n\
+          \\n\
+          \rule :: { AgRule }\n\
+          \  : selfRef  \"=\" code                        { SelfAssign (selfRefVal $1) $3 }\n\
+          \  | subRef   \"=\" code                        { SubAssign (subRefVal $1) $3 }\n\
+          \  | rightRef \"=\" code                        { RightmostAssign (rightRefVal $1) $3 }\n\
+          \  | where code                                 { Conditional $2 }\n\
+          \\n\
+          \code :: { [AgToken] }\n\
+          \  : '{' code0 '}' code                         { [$1] ++ $2 ++ [$3] ++ $4 }\n\
+          \  | \"=\" code                                 { $1 : $2 }\n\
+          \  | selfRef code                               { $1 : $2 }\n\
+          \  | subRef code                                { $1 : $2 }\n\
+          \  | rightRef code                              { $1 : $2 }\n\
+          \  | unknown code                               { $1 : $2 }\n\
+          \  |                                            { [] }\n\
+          \\n\
+          \code0 :: { [AgToken] }\n\
+          \  : \"{\" code0 \"}\" code0                    { [$1] ++ $2 ++ [$3] ++ $4 }\n\
+          \  | \"=\" code0                                { $1 : $2 }\n\
+          \  | '::' code0                                 { $1 : $2 }\n\
+          \  | selfRef code0                              { $1 : $2 }\n\
+          \  | subRef code0                               { $1 : $2 }\n\
+          \  | rightRef code                              { $1 : $2 }\n\
+          \  | unknown code0                              { $1 : $2 }\n\
+          \  |                                            { [] }\n\
+          \\n\
+          \{\n\
+          \happyError :: P a\n\
+          \happyError = fail (\"Parse error\\n\")\n\
+          \\n\
+          \test :: a -> a\n\
+          \test x = x\n\
+          \}\n\
+          \\n"
+          ==>
+          ["AttrGrammarParser", "happyError", "test"]
+        ]
+    , testGroup "literate"
+        [ "This parser parses the contents of the attribute grammar\n\
+          \into a list of rules.  A rule can either be an assignment\n\
+          \to an attribute of the LHS (synthesized attribute), and\n\
+          \assignment to an attribute of the RHS (an inherited attribute),\n\
+          \or a conditional statement.\n\
+          \\n\
+          \> {\n\
+          \> {-# OPTIONS_GHC -w #-}\n\
+          \> module AttrGrammarParser (agParser) where\n\
+          \> import ParseMonad\n\
+          \> import AttrGrammar\n\
+          \> }\n\
+          \\n\
+          \> %name agParser\n\
+          \> %tokentype { AgToken }\n\
+          \> %token\n\
+          \>   \"{\"     { AgTok_LBrace }\n\
+          \>   \"}\"     { AgTok_RBrace }\n\
+          \>   \";\"     { AgTok_Semicolon }\n\
+          \>   \"=\"     { AgTok_Eq }\n\
+          \>   where     { AgTok_Where }\n\
+          \>   selfRef   { AgTok_SelfRef _ }\n\
+          \>   subRef    { AgTok_SubRef _ }\n\
+          \>   rightRef  { AgTok_RightmostRef _ }\n\
+          \>   unknown   { AgTok_Unknown _ }\n\
+          \>\n\
+          \> %monad { P }\n\
+          \> %lexer { agLexer } { AgTok_EOF }\n\
+          \\n\
+          \> %%\n\
+          \\n\
+          \> agParser :: { [AgRule] }\n\
+          \>   : rules                                      { $1 }\n\
+          \\n\
+          \> rules :: { [AgRule] }\n\
+          \>   : rule \";\" rules                           { $1 : $3 }\n\
+          \>   | rule                                       { $1 : [] }\n\
+          \>   |                                            { [] }\n\
+          \\n\
+          \> rule :: { AgRule }\n\
+          \>   : selfRef  \"=\" code                        { SelfAssign (selfRefVal $1) $3 }\n\
+          \>   | subRef   \"=\" code                        { SubAssign (subRefVal $1) $3 }\n\
+          \>   | rightRef \"=\" code                        { RightmostAssign (rightRefVal $1) $3 }\n\
+          \>   | where code                                 { Conditional $2 }\n\
+          \\n\
+          \> code :: { [AgToken] }\n\
+          \>   : \"{\" code0 \"}\" code                     { [$1] ++ $2 ++ [$3] ++ $4 }\n\
+          \>   | \"=\" code                                 { $1 : $2 }\n\
+          \>   | selfRef code                               { $1 : $2 }\n\
+          \>   | subRef code                                { $1 : $2 }\n\
+          \>   | rightRef code                              { $1 : $2 }\n\
+          \>   | unknown code                               { $1 : $2 }\n\
+          \>   |                                            { [] }\n\
+          \\n\
+          \> code0 :: { [AgToken] }\n\
+          \>   : \"{\" code0 \"}\" code0                    { [$1] ++ $2 ++ [$3] ++ $4 }\n\
+          \>   | \"=\" code0                                { $1 : $2 }\n\
+          \>   | \";\" code0                                { $1 : $2 }\n\
+          \>   | selfRef code0                              { $1 : $2 }\n\
+          \>   | subRef code0                               { $1 : $2 }\n\
+          \>   | rightRef code                              { $1 : $2 }\n\
+          \>   | unknown code0                              { $1 : $2 }\n\
+          \>   |                                            { [] }\n\
+          \\n\
+          \> {\n\
+          \> happyError :: P a\n\
+          \> happyError = fail (\"Parse error\\n\")\n\
+          \>\n\
+          \> test :: a -> a\n\
+          \> test x = x\n\
+          \> }\n\
+          \\n"
+          |=>
+          ["AttrGrammarParser", "happyError", "test"]
+        , "This parser parses the contents of the attribute grammar\n\
+          \into a list of rules.  A rule can either be an assignment\n\
+          \to an attribute of the LHS (synthesized attribute), and\n\
+          \assignment to an attribute of the RHS (an inherited attribute),\n\
+          \or a conditional statement.\n\
+          \\n\
+          \\\begin{code}\n\
+          \\n\
+          \{\n\
+          \{-# OPTIONS_GHC -w #-}\n\
+          \module AttrGrammarParser (agParser) where\n\
+          \import ParseMonad\n\
+          \import AttrGrammar\n\
+          \}\n\
+          \\n\
+          \\\end{code}\n\
+          \\n\
+          \\\begin{code}\n\
+          \%name agParser\n\
+          \%tokentype { AgToken }\n\
+          \%token\n\
+          \  \"{\"     { AgTok_LBrace }\n\
+          \  \"}\"     { AgTok_RBrace }\n\
+          \  \";\"     { AgTok_Semicolon }\n\
+          \  \"=\"     { AgTok_Eq }\n\
+          \  where     { AgTok_Where }\n\
+          \  selfRef   { AgTok_SelfRef _ }\n\
+          \  subRef    { AgTok_SubRef _ }\n\
+          \  rightRef  { AgTok_RightmostRef _ }\n\
+          \  unknown   { AgTok_Unknown _ }\n\
+          \\n\
+          \%monad { P }\n\
+          \%lexer { agLexer } { AgTok_EOF }\n\
+          \\\end{code}\n\
+          \\n\
+          \\\begin{code}\n\
+          \%%\n\
+          \\\end{code}\n\
+          \\n\
+          \\\begin{code}\n\
+          \agParser :: { [AgRule] }\n\
+          \  : rules                                      { $1 }\n\
+          \\\end{code}\n\
+          \\n\
+          \\\begin{code}\n\
+          \rules :: { [AgRule] }\n\
+          \  : rule \";\" rules                           { $1 : $3 }\n\
+          \  | rule                                       { $1 : [] }\n\
+          \  |                                            { [] }\n\
+          \\\end{code}\n\
+          \\n\
+          \\\begin{code}\n\
+          \rule :: { AgRule }\n\
+          \  : selfRef  \"=\" code                        { SelfAssign (selfRefVal $1) $3 }\n\
+          \  | subRef   \"=\" code                        { SubAssign (subRefVal $1) $3 }\n\
+          \  | rightRef \"=\" code                        { RightmostAssign (rightRefVal $1) $3 }\n\
+          \  | where code                                 { Conditional $2 }\n\
+          \\\end{code}\n\
+          \\n\
+          \\\begin{code}\n\
+          \code :: { [AgToken] }\n\
+          \  : \"{\" code0 \"}\" code                     { [$1] ++ $2 ++ [$3] ++ $4 }\n\
+          \  | \"=\" code                                 { $1 : $2 }\n\
+          \  | selfRef code                               { $1 : $2 }\n\
+          \  | subRef code                                { $1 : $2 }\n\
+          \  | rightRef code                              { $1 : $2 }\n\
+          \  | unknown code                               { $1 : $2 }\n\
+          \  |                                            { [] }\n\
+          \\\end{code}\n\
+          \\n\
+          \\\begin{code}\n\
+          \code0 :: { [AgToken] }\n\
+          \  : \"{\" code0 \"}\" code0                    { [$1] ++ $2 ++ [$3] ++ $4 }\n\
+          \  | \"=\" code0                                { $1 : $2 }\n\
+          \  | \";\" code0                                { $1 : $2 }\n\
+          \  | selfRef code0                              { $1 : $2 }\n\
+          \  | subRef code0                               { $1 : $2 }\n\
+          \  | rightRef code                              { $1 : $2 }\n\
+          \  | unknown code0                              { $1 : $2 }\n\
+          \  |                                            { [] }\n\
+          \\\end{code}\n\
+          \\n\
+          \\\begin{code}\n\
+          \{\n\
+          \happyError :: P a\n\
+          \happyError = fail (\"Parse error\\n\")\n\
+          \\n\
+          \test :: a -> a\n\
+          \test x = x\n\
+          \}\n\
+          \\\end{code}\n\
+          \\n"
+          |=>
+          ["AttrGrammarParser", "happyError", "test"]
+        ]
+    ]
+    where
+    (==>) = testTagNames "Test.y"
+    (|=>) = testTagNames "Test.ly"
+
 
 test :: (Show a, ExtendedEq b, Show b) => (a -> b) -> a -> b -> TestTree
 test f x expected =
@@ -1493,9 +2573,12 @@ test f x expected =
 filename :: FilePath
 filename = "fn.hs"
 
+literateFilename :: FilePath
+literateFilename = "fn.lhs"
+
 testFullTagsWithPrefixes :: FilePath -> Text -> [Pos TagVal] -> TestTree
 testFullTagsWithPrefixes fn = \source tags ->
-    test (first List.sort . Tag.process fn trackPrefixes) source (tags, warnings)
+    test (first List.sort . Tag.process fn trackPrefixes . TE.encodeUtf8) source (tags, warnings)
     where
     warnings :: [String]
     warnings = []
@@ -1510,7 +2593,10 @@ testTagNames fn source tags =
     warnings = []
 
     process :: Text -> ([String], [String])
-    process = first (List.sort . map untag) . Tag.process fn trackPrefixes
+    process
+        = first (List.sort . map untag)
+        . Tag.process fn trackPrefixes
+        . TE.encodeUtf8
 
     trackPrefixes :: Bool
     trackPrefixes = False
@@ -1519,10 +2605,13 @@ untag :: Pos TagVal -> String
 untag (Pos _ (TagVal name _ _)) = T.unpack name
 
 tokenize :: Text -> UnstrippedTokens
-tokenize =
-    either error UnstrippedTokens .
-    Lexer.tokenize filename trackPrefixes .
-    Tag.stripCpp
+tokenize = tokenizeWith LitVanilla
+
+tokenizeWith :: LitMode Void -> Text -> UnstrippedTokens
+tokenizeWith mode =
+    either (error . T.unpack) UnstrippedTokens .
+    Lexer.tokenize filename mode trackPrefixes .
+    TE.encodeUtf8
     where
     trackPrefixes = False
 

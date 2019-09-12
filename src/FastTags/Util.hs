@@ -61,18 +61,15 @@ groupOnKey key = Map.toAscList . List.foldl' go Map.empty
     where go m x = Map.alter (Just . maybe [x] (x:)) (key x) m
 
 isSymbolCharacterCategory :: Char.GeneralCategory -> Bool
-isSymbolCharacterCategory cat = Set.member cat symbolCategories
-    where
-    symbolCategories :: Set.Set Char.GeneralCategory
-    symbolCategories = Set.fromList
-        [ Char.ConnectorPunctuation
-        , Char.DashPunctuation
-        , Char.OtherPunctuation
-        , Char.MathSymbol
-        , Char.CurrencySymbol
-        , Char.ModifierSymbol
-        , Char.OtherSymbol
-        ]
+isSymbolCharacterCategory cat = case cat of
+    Char.ConnectorPunctuation -> True
+    Char.DashPunctuation      -> True
+    Char.OtherPunctuation     -> True
+    Char.MathSymbol           -> True
+    Char.CurrencySymbol       -> True
+    Char.ModifierSymbol       -> True
+    Char.OtherSymbol          -> True
+    _                         -> False
 
 unique :: Ord a => [a] -> [a]
 unique = Set.toList . Set.fromList

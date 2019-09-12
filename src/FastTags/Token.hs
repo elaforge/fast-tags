@@ -1,11 +1,13 @@
+{-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings          #-}
 
 module FastTags.Token where
 
 import Control.DeepSeq (NFData, rnf)
 import Data.Text (Text)
 import qualified Data.Text as Text
-
+import GHC.Generics (Generic)
 
 data Pos a = Pos {
     posOf   :: {-# UNPACK #-} !SrcPos
@@ -34,7 +36,7 @@ data SrcPos = SrcPos {
     -- | No need to keep prefix strict since most of the prefixes will not be
     -- used.
     , posPrefix :: Text
-    , posSuffix  :: Text
+    , posSuffix :: Text
     } deriving (Eq, Ord)
 
 instance NFData SrcPos where
@@ -48,6 +50,12 @@ instance Show SrcPos where
         suffix' = clean suffix
         clean s | Text.null s = ""
                 | otherwise   = ":/" ++ Text.unpack s ++ "/"
+
+forallTokenVal :: TokenVal
+forallTokenVal = T "forall"
+
+patternTokenVal :: TokenVal
+patternTokenVal = T "pattern"
 
 data TokenVal =
     KWCase
@@ -91,9 +99,9 @@ data TokenVal =
     | RParen
     | Tilde
     | Semicolon
-    | T !Text
+    | T {-# UNPACK #-} !Text
     -- | Special token, not part of Haskell spec. Stores indentation.
-    | Newline !Int
+    | Newline {-# UNPACK #-} !Int
     -- | String contents is not tracked since it's irrelevant.
     | String
     -- | Actual character not tracked since it's irrelevant.
@@ -102,9 +110,21 @@ data TokenVal =
     | Number
     | QuasiquoterStart
     | QuasiquoterEnd
-    | SpliceStart -- \$(
+    | SpliceStart -- \$(, ends with RParen
+    | ToplevelSplice -- e.g. \$foo
     | LambdaBackslash -- \
+    | CppDefine {-# UNPACK #-} !Text
+    | HSCEnum      -- #{enum...}
+    | HSCDirective -- e.g. #define foo bar...
+    | HSCDirectiveBraced
+      -- ^ e.g. #{define foo...\nbar}, #{\ndefine foo...\nbar}, ends with RBrace
+    | LBanana      -- Arrows: (|
+    | RBanana      -- Arrows: |)
+    | Error Text
+    | DQuote -- '"' when not part of string in Alex or Happy
     | EOF
-    deriving (Show, Eq, Ord)
+    deriving (Show, Eq, Ord, Generic)
+
+instance NFData TokenVal
 
 type Token = Pos TokenVal
