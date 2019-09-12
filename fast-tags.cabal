@@ -64,20 +64,21 @@ library
         Cabal,
         mtl >=2.1,
         containers,
-        cpphs >1.18,
         filepath,
         -- text 0.11.1.12 has a bug.
         text (> 0.11.1.12 || < 0.11.1.12),
         bytestring,
         deepseq,
         array,
-        utf8-string
+        vector,
+        void
     build-tools: alex
     exposed-modules:
-        Control.Monad.EitherK
         FastTags.Cabal
         FastTags.Emacs
+        FastTags.LensBlaze
         FastTags.Lexer
+        FastTags.LexerM
         FastTags.LexerTypes
         FastTags.Tag
         FastTags.Token
@@ -104,7 +105,7 @@ executable fast-tags
     -- and adding a dummy Main means I have to export it from the
     -- library.
     ghc-options:
-        -main-is FastTags.Main -Wall -fno-warn-name-shadowing -threaded
+        -main-is FastTags.Main -Wall -fno-warn-name-shadowing -threaded -rtsopts
     if flag(profile)
         ghc-prof-options:
             -auto-all -Wall -fno-warn-name-shadowing -threaded
@@ -117,6 +118,7 @@ test-suite test-fast-tags
         -main-is MainTest
     build-depends:
         base >= 3 && < 5,
+        bytestring,
         -- text 0.11.1.12 has a bug.
         text (> 0.11.1.12 || < 0.11.1.12),
         tasty, tasty-hunit,

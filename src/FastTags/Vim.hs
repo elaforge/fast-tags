@@ -112,6 +112,7 @@ toType typ = case typ of
     Tag.Operator    -> 'o'
     Tag.Pattern     -> 'p'
     Tag.Family      -> 'F'
+    Tag.Define      -> 'D'
 
 fromType :: Char -> Maybe Tag.Type
 fromType c = case c of
@@ -123,4 +124,5 @@ fromType c = case c of
     'o' -> Just Tag.Operator
     'p' -> Just Tag.Pattern
     'F' -> Just Tag.Family
-    _ -> Nothing
+    'D' -> Just Tag.Define
+    _   -> Nothing
