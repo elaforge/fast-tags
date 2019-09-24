@@ -1,12 +1,13 @@
 #!/bin/zsh
 # fast-tags wrapper to generate tags automatically if there are none.
 
-setopt extended_glob
-
+flags=(
+    --fully-qualified
+)
 fns=$@
 if [[ ! -r tags ]]; then
     echo Generating tags from scratch...
-    exec fast-tags **/*.hs $fns
+    exec fast-tags $flags -R .
 else
-    exec fast-tags $fns
+    exec fast-tags $flags $fns
 fi

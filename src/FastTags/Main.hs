@@ -154,8 +154,9 @@ main = do
         vim           = not emacs
         trackPrefixes = emacs
         output        = last $ defaultOutput : [fn | Output fn <- flags]
-        srcPrefix     = Text.pack $ FilePath.normalise $
-            last $ "" : [fn | SrcPrefix fn <- flags]
+        -- Put the longest prefixes first, so they don't shadow each other.
+        srcPrefixes   = List.reverse $ List.sortOn Text.length
+            [Text.pack (FilePath.normalise fn) | SrcPrefix fn <- flags]
         defaultOutput = if vim then "tags" else "TAGS"
 
     oldTags <- if vim && NoMerge `notElem` flags
@@ -167,8 +168,8 @@ main = do
         else return [] -- we do not support tags merging for emacs for now
 
     inputs <- if Cabal `elem` flags
-        then getCabalInputs inputs
-        else map ((srcPrefix,) . FilePath.normalise) . Util.unique <$>
+        then map (first (:[])) <$> getCabalInputs inputs
+        else map ((srcPrefixes,) . FilePath.normalise) . Util.unique <$>
             getInputs flags inputs
     when (null inputs) $
         Exit.exitSuccess
@@ -179,18 +180,23 @@ main = do
     let tryHsc = Cabal `elem` flags
     stderr <- MVar.newMVar IO.stderr
     newTags <- flip Async.mapConcurrently (zip [0 :: Int ..] inputs) $
-        \(i, (srcPrefix, fn)) -> Exception.handle (catchError stderr fn) $ do
+        \(i, (srcPrefixes, fn)) -> Exception.handle (catchError stderr fn) $ do
             useHsc <- if tryHsc then Directory.doesFileExist (fn ++ "c")
                 else return False
             fn <- return $ if useHsc then fn ++ "c" else fn
             (newTags, warnings) <- Tag.processFile fn trackPrefixes
             newTags <- return $ if NoModuleTags `elem` flags
                 then filter ((/=Tag.Module) . typeOf) newTags else newTags
+            -- All of the tags from one file should have the same src-prefix,
+            -- so save some work by finding it only once for the whole file.
+            let qualify fully = map
+                    (Tag.qualify fully
+                        (maybe Nothing (Tag.findSrcPrefix srcPrefixes)
+                            (Util.mhead newTags)))
+                    newTags
             newTags <- return $ (newTags ++) $ if
-                | FullyQualified `elem` flags ->
-                    map (Tag.qualify True srcPrefix) newTags
-                | Qualified `elem` flags ->
-                    map (Tag.qualify False srcPrefix) newTags
+                | FullyQualified `elem` flags -> qualify True
+                | Qualified `elem` flags -> qualify False
                 | otherwise -> []
             -- Try to do work before taking the lock.
             Exception.evaluate $ DeepSeq.rnf warnings

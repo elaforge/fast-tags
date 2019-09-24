@@ -1,3 +1,6 @@
+* it can now take multiple --src-prefix flags, in case your haskell repo has
+multiple roots, but no cabal files
+
 * add --cabal flag, which parses .cabal files and generates tags for the package
 
 1.5.0

@@ -20,6 +20,7 @@ module FastTags.Tag (
     -- * process
     , processFile
     , qualify
+    , findSrcPrefix
     , process
     , tokenizeInput
     , processTokens
@@ -168,7 +169,7 @@ processFile fn trackPrefixes =
 -- TODO I could mark it static, to put in a file: mark, which would make vim
 -- prioritize it for same-file tags, but I think it already does that, so maybe
 -- this isn't necessary?
-qualify :: Bool -> Text -> Pos TagVal -> Pos TagVal
+qualify :: Bool -> Maybe Text -> Pos TagVal -> Pos TagVal
 qualify fullyQualify srcPrefix (Token.Pos pos (TagVal name typ _)) =
     Token.Pos pos TagVal
         { tvName   = qualified
@@ -181,12 +182,17 @@ qualify fullyQualify srcPrefix (Token.Pos pos (TagVal name typ _)) =
         _ -> module_ <> "." <> name
     module_
         | fullyQualify = T.replace "/" "." $ T.dropWhile (=='/') $
-            dropPrefix srcPrefix $ T.pack file
+            maybe id dropPrefix srcPrefix $ T.pack file
         | otherwise = T.pack $ FilePath.takeFileName file
     file = FilePath.dropExtension $ Token.posFile pos
 
 dropPrefix :: Text -> Text -> Text
 dropPrefix prefix txt = maybe txt id $ T.stripPrefix prefix txt
+
+findSrcPrefix :: [Text] -> Pos a -> Maybe Text
+findSrcPrefix prefixes (Token.Pos pos _) =
+    List.find (`T.isPrefixOf` file) prefixes
+    where file = T.pack $ FilePath.dropExtension $ Token.posFile pos
 
 -- | Process one file's worth of tags.
 process :: FilePath -> Bool -> Text -> ([Pos TagVal], [String])
