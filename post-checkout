@@ -1,0 +1,29 @@
+#!/usr/bin/env zsh
+# Run after git checkout and update the tags file.
+# Put this in .git/hooks
+
+set -eu
+
+# Path to wherever you put this.
+init_tags=./init_tags
+
+old=$1
+new=$2
+# is_branch=$2 # 1 if branch, 2 if file
+
+# filter out only the changed files
+changed=($(git diff --name-only $old $new))
+
+if [[ ! -r tags ]]; then
+    $init_tags
+elif [[ ${#changed} -gt 0 ]]; then
+    grep -v -F --regexp=${^changed} tags >tags.tmp
+    mv tags.tmp tags
+
+    # Retag all hs files except the ones that were deleted.
+    modified=($(git diff --name-only --diff-filter=d $old $new))
+    # Filter *.hs, since grep returns non-zero for no matches.
+    modified=(${(M)modified:#*.hs})
+    echo "modified: $modified"
+    $init_tags $modified
+fi
