@@ -3,6 +3,16 @@ multiple roots, but no cabal files
 
 * add --cabal flag, which parses .cabal files and generates tags for the package
 
+* collect tags from Alex and Happy files
+
+* collect tags from some hsc2hs directives
+
+* collect tags from #define and #let constructs
+
+* lexer is now almost twice as fast
+
+* improved line number precision when analysing Literal Haskell
+
 1.5.0
 
 * many small accuracy fixes from @sergv, see
