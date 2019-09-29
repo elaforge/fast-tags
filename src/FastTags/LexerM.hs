@@ -5,6 +5,7 @@
 ----------------------------------------------------------------------------
 
 {-# LANGUAGE BangPatterns               #-}
+{-# LANGUAGE CPP                        #-}
 {-# LANGUAGE ConstraintKinds            #-}
 {-# LANGUAGE DeriveFunctor              #-}
 {-# LANGUAGE FlexibleContexts           #-}
@@ -61,6 +62,7 @@ module FastTags.LexerM
     , asHaveQQEndL
     ) where
 
+import Control.Applicative as A
 import Control.DeepSeq
 import Control.Monad.ST
 import Control.Monad.State.Strict
@@ -68,11 +70,9 @@ import Control.Monad.Writer.Strict
 
 import Data.Char
 import Data.Int
-import Data.Maybe
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Void (Void, vacuous)
-import Data.Word (Word8)
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
@@ -83,7 +83,6 @@ import qualified Data.Vector.Unboxed.Mutable as UM
 import Foreign.ForeignPtr
 import Foreign.Ptr
 import GHC.Base
-import GHC.IO (IO(..))
 import GHC.Ptr
 import GHC.Word
 import Text.Printf
@@ -92,6 +91,10 @@ import FastTags.LensBlaze
 import FastTags.LexerTypes
 import FastTags.Token
 
+#if __GLASGOW_HASKELL__ > 710
+import Data.Word (Word8)
+import GHC.IO (IO(..))
+#endif
 
 countInputSpace :: AlexInput -> Int -> Int
 countInputSpace AlexInput{aiPtr} len =
@@ -112,7 +115,8 @@ instance Show AlexInput where
     show AlexInput{aiPtr, aiIntStore} =
         printf "AlexInput 0x%08x 0x%08x" ptr aiIntStore
         where
-        WordPtr ptr = ptrToWordPtr aiPtr
+        ptr :: Word
+        ptr = fromIntegral $ ptrToWordPtr aiPtr
 
 {-# INLINE aiIntStoreL #-}
 aiIntStoreL :: Lens' AlexInput Word64
@@ -158,7 +162,11 @@ withAlexInput s f =
     -- as in the old C days...)
     s' = C8.cons '\n' $ C8.snoc (C8.snoc (stripBOM s) '\n') '\0'
     stripBOM :: C8.ByteString -> C8.ByteString
-    stripBOM xs = fromMaybe xs $ C8.stripPrefix "\xEF\xBB\xBF" xs
+    stripBOM xs
+        | "\xEF\xBB\xBF" `C8.isPrefixOf` xs
+        = C8.drop 3 xs
+        | otherwise
+        = xs
 
 mkSrcPosNoPrefix :: FilePath -> AlexInput -> SrcPos
 mkSrcPosNoPrefix filename input =
@@ -284,7 +292,7 @@ modifyCommentDepth f = do
     depth <- gets (view asCommentDepthL)
     let !depth' = f depth
     modify $ \s -> set asCommentDepthL depth' s
-    pure depth'
+    return depth'
 
 {-# INLINE modifyQuasiquoterDepth #-}
 modifyQuasiquoterDepth :: MonadState AlexState m => (Int16 -> Int16) -> m Int16
@@ -292,7 +300,7 @@ modifyQuasiquoterDepth f = do
     depth <- gets (view asQuasiquoterDepthL)
     let !depth' = f depth
     modify $ \s -> set asQuasiquoterDepthL depth' s
-    pure depth'
+    return depth'
 
 {-# INLINE modifyPreprocessorDepth #-}
 modifyPreprocessorDepth :: MonadState AlexState m => (Int16 -> Int16) -> m Int16
@@ -300,7 +308,7 @@ modifyPreprocessorDepth f = do
     depth <- gets (view asPreprocessorDepthL)
     let !depth' = f depth
     modify $ \s -> set asPreprocessorDepthL depth' s
-    pure depth'
+    return depth'
 
 {-# INLINE takeText #-}
 takeText :: AlexInput -> Int -> T.Text
@@ -386,7 +394,7 @@ positionsIndex (Ptr start#) len =
                         assignAfter (I# bytes#) (I# nBytes#) nChars
                         go (bytes# +# nBytes#) $ nChars + 1
         go 0# 0
-        pure vec
+        A.pure vec
 
 -- Alex interface
 
@@ -421,9 +429,9 @@ extractDefineOrLetName :: AlexInput -> Int -> T.Text
 extractDefineOrLetName AlexInput{aiPtr} n =
     TE.decodeUtf8 $ regionToUtf8BS (Ptr start#) end
     where
-    end :: Ptr Word8
-    !end@(Ptr end#) = aiPtr `plusPtr` n
-    start# = (goBack# (end# `plusAddr#` -1#)) `plusAddr#` 1#
+    !end        = aiPtr `plusPtr` n
+    !(Ptr end#) = end
+    start#      = (goBack# (end# `plusAddr#` -1#)) `plusAddr#` 1#
 
     goBack# :: Addr# -> Addr#
     goBack# ptr# = case indexWord8OffAddr# ptr# 0# of

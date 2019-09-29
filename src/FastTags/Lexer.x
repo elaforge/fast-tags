@@ -12,10 +12,11 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-{-# OPTIONS_GHC -Wno-unused-imports -Wno-tabs #-}
+{-# OPTIONS_GHC -fno-warn-tabs #-}
 
 module FastTags.Lexer (tokenize) where
 
+import Control.Applicative as A
 import Control.Monad
 import Control.Monad.Writer.Strict
 import Control.Monad.State.Strict
@@ -501,7 +502,7 @@ errorAtLine
   => Text -> m TokenVal
 errorAtLine msg = do
     line <- gets (unLine . view aiLineL . asInput)
-    pure $ Error $ "Error at line " <> T.pack (show line) <> ": " <> msg
+    return $ Error $ "Error at line " <> T.pack (show line) <> ": " <> msg
 
 startLiterateBird :: AlexM ()
 startLiterateBird = do
@@ -531,7 +532,7 @@ reservedSymbol = \case
     '⇒' -> pure Implies
     '∀' -> pure forallTokenVal
     '⦇' -> pure LBanana
-    '⦈' -> pure RBanana
+    '⦈' -> A.pure RBanana
     '⟦' -> startUnconditionalQuasiQuoter
     '⟧' -> endQuasiquoter
     c   -> error $ "Unexpected reserved symbol: " ++ show c
