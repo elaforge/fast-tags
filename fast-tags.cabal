@@ -60,16 +60,17 @@ flag profile
 
 library
     build-depends:
-        base >= 3 && < 5,
         Cabal,
-        mtl >=2.1,
+        array,
+        base >= 3 && < 5,
+        bytestring,
         containers,
+        deepseq,
         filepath,
+        mtl >=2.1,
         -- text 0.11.1.12 has a bug.
         text (> 0.11.1.12 || < 0.11.1.12),
-        bytestring,
-        deepseq,
-        array,
+        transformers,
         vector,
         void
     build-tools: alex
@@ -119,7 +120,9 @@ test-suite test-fast-tags
     build-depends:
         base >= 3 && < 5,
         bytestring,
+        tasty,
+        tasty-hunit,
         -- text 0.11.1.12 has a bug.
         text (> 0.11.1.12 || < 0.11.1.12),
-        tasty, tasty-hunit,
+        void,
         fast-tags
