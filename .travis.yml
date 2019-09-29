@@ -59,6 +59,13 @@ matrix:
           packages: [ghc-8.4.3, cabal-install-2.2, alex-3.1.7]
           sources: [hvr-ghc]
 
+    - compiler: "ghc-8.6.5"
+      env: GHC=8.6.5 CABALVER=2.4 ALEXVER=3.1.7
+      addons:
+        apt:
+          packages: [ghc-8.6.5, cabal-install-2.4, alex-3.1.7]
+          sources: [hvr-ghc]
+
     # async not updated for base-4.12
     # - compiler: "ghc-HEAD"
     #   env: GHC=head CABALVER=head ALEXVER=3.1.7
