@@ -11,15 +11,20 @@ parse = const $ return $ Left "cabal parsing not supported <Cabal-2.2.0"
 #else
 
 import qualified Control.Monad as Monad
+import Control.Applicative ((<*>))
 import Control.Monad ((<=<))
-import Data.Bifunctor (first)
 import qualified Data.ByteString as ByteString
+import Data.Functor ((<$>))
 import Data.Monoid ((<>))
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Encoding
 import qualified Data.Text.Encoding.Error as Encoding.Error
 
+#if MIN_VERSION_Cabal(3, 0, 0)
+import qualified Distribution.Fields.Parser as Parser
+#else
 import qualified Distribution.Parsec.Parser as Parser
+#endif
 
 
 parse :: FilePath -> IO (Either String (FilePath, [FilePath]))
@@ -37,7 +42,7 @@ extract :: Show ann => [Parser.Field ann]
     -> Either String (FilePath, [FilePath]) -- ^ (hsSrcDir, modulePath)
 extract parsed = do
     fields <- library parsed
-    (,) <$> hsSourceDir fields <*> pure (exposed fields)
+    (,) <$> hsSourceDir fields <*> return (exposed fields)
     where
     hsSourceDir fields = case commaField (findField "hs-source-dirs" fields) of
         [] -> Right "."
@@ -76,5 +81,10 @@ caseEq bytes text = Text.toLower (utf8 bytes) == text
 
 utf8 :: ByteString.ByteString -> Text.Text
 utf8 = Encoding.decodeUtf8With Encoding.Error.lenientDecode
+
+-- | Ancient ghc doesn't have Data.Bifunctor.
+first :: (a -> c) -> Either a b -> Either c b
+first f (Left a) = Left (f a)
+first _ (Right b) = Right b
 
 #endif
