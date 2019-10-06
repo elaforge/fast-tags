@@ -41,8 +41,12 @@ extra-source-files:
     README.md
     changelog.md
     src/*.hs
-    vimrc
-    qualified_tag.py
+    tools/README.md
+    tools/init-tags
+    tools/post-checkout
+    tools/post-merge
+    tools/qualified_tag.py
+    tools/vimrc
 
 homepage: https://github.com/elaforge/fast-tags
 source-repository head
