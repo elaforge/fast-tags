@@ -1,0 +1,6 @@
+#!/bin/sh
+
+# This happens after merges and pulls.
+# The hook doesn't give any way to see what the previous commit was, but
+# HEAD@{1} (previous reflog entry) *seems* to get that effect.
+exec .git/hooks/post-checkout 'HEAD@{1}' HEAD

@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env zsh
 # fast-tags wrapper to generate tags automatically if there are none.
 #
 # I invoke this via vim autocommand and git hook.  See vimrc and post-checkout

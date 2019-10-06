@@ -18,8 +18,6 @@ In order to generate tags for all Haskell files under current directory, issue
   fast-tags -R .
 ```
 
-See `vimrc` for an example of how to keep the tags file up to date
-automatically, and `qualified_tags.py` for a way to use qualified names to
-disambiguate tags
+See the `tools` directory for editor and source control integration.
 
 [badge-travis]: https://travis-ci.org/elaforge/fast-tags.svg?branch=master
