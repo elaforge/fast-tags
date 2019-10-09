@@ -1,7 +1,19 @@
 ----------------------------------------------------------------------------
 -- |
--- Module      :  FastTags.LexerTypes
+-- Module      :  FastTags.LexerM
 -- Copyright   :  (c) Sergey Vinokurov 2019
+--
+-- All the types and functions needed to make lexer run:
+-- - 'AlexInput' - primary workhorse, an optimized representation of input
+--   stream as a pointer to utf8 bytes and our position within it.
+-- - Lexer monad 'AlexM' - a monad (self-explanatory) with state that describes
+--   current lexing context.
+-- - 'AlexState' - state of the lexing monad, maintains current Alex code,
+--   comment depth, quasiquoter depth, indentation size, whether we're in
+--   a literate mode (and in which one) or vanilla mode and whether there
+--   are any TH quasiquotes present till the end of file.
+--
+-- All the functions are to do with
 ----------------------------------------------------------------------------
 
 {-# LANGUAGE BangPatterns               #-}
@@ -19,13 +31,8 @@
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE UnboxedTuples              #-}
 
-{-# OPTIONS_GHC -O2 #-}
-
 module FastTags.LexerM
-    ( countInputSpace
-    , AlexInput(..)
-    , aiLineL
-    , AlexState(..)
+    ( AlexState(..)
     , mkAlexState
     , alexEnterBirdLiterateEnv
     , alexEnterLiterateLatexEnv
@@ -34,24 +41,27 @@ module FastTags.LexerM
     , modifyCommentDepth
     , modifyQuasiquoterDepth
     , modifyPreprocessorDepth
-    , takeText
     , addIndentationSize
     , checkQuasiQuoteEndPresent
+
     , AlexM
     , runAlexM
     , alexSetInput
     , alexSetNextCode
-    , alexInputPrevChar
+
+    , AlexInput(..)
+    , aiLineL
+    , takeText
+    , countInputSpace
+    , extractDefineOrLetName
     , dropUntilNL
     , dropUntilUnescapedNL
     , dropUntilNLOr
     , dropUntilNLOrEither
-    , alexGetByte
     , unsafeTextHeadAscii
     , unsafeTextHeadOfTailAscii
     , unsafeTextHead
     , utf8BS
-    , extractDefineOrLetName
 
     , asCodeL
     , asCommentDepthL
@@ -60,6 +70,10 @@ module FastTags.LexerM
     , asPreprocessorDepthL
     , asLiterateLocL
     , asHaveQQEndL
+
+      -- * Alex interface
+    , alexInputPrevChar
+    , alexGetByte
     ) where
 
 import Control.Applicative as A
@@ -91,105 +105,57 @@ import FastTags.LensBlaze
 import FastTags.LexerTypes
 import FastTags.Token
 
-#if __GLASGOW_HASKELL__ > 710
-import Data.Word (Word8)
-import GHC.IO (IO(..))
-#endif
+data AlexState = AlexState
+    { asInput        :: {-# UNPACK #-} !AlexInput
+    , asIntStore     :: {-# UNPACK #-} !Word64
+        -- ^ Integer field that stores all the other useful fields for lexing.
+    , asContextStack :: [Context]
+    } deriving (Show, Eq, Ord)
 
-countInputSpace :: AlexInput -> Int -> Int
-countInputSpace AlexInput{aiPtr} len =
-    utf8FoldlBounded len inc 0 aiPtr
-    where
-    inc !acc ' '#  = acc + 1
-    inc !acc '\t'# = acc + 8
-    inc !acc c#    = case fixChar c# of
-        1## -> acc + 1
-        _   -> acc
+{-# INLINE asIntStoreL #-}
+asIntStoreL :: Lens' AlexState Word64
+asIntStoreL = lens asIntStore (\b s -> s { asIntStore = b })
 
-data AlexInput = AlexInput
-    { aiPtr      :: {-# UNPACK #-} !(Ptr Word8)
-    , aiIntStore :: {-# UNPACK #-} !Word64
-    } deriving (Eq, Ord)
+{-# INLINE maybeBoolToInt #-}
+-- | Encode 'Maybe Bool' as bit mask to store it within integer store.
+maybeBoolToInt :: Maybe Bool -> Int
+maybeBoolToInt = \case
+    Nothing    -> 0
+    Just False -> 1
+    Just True  -> 2
 
-instance Show AlexInput where
-    show AlexInput{aiPtr, aiIntStore} =
-        printf "AlexInput 0x%08x 0x%08x" ptr aiIntStore
-        where
-        ptr :: Word
-        ptr = fromIntegral $ ptrToWordPtr aiPtr
+{-# INLINE intToMaybeBool #-}
+-- | Decofe 'Maybe Bool' from bit mask stored within integer store.
+intToMaybeBool :: Int -> Maybe Bool
+intToMaybeBool = \case
+    0 -> Nothing
+    1 -> Just False
+    2 -> Just True
+    x -> error $ "Invalid integer representation of 'Maybe Bool': " ++ show x
 
-{-# INLINE aiIntStoreL #-}
-aiIntStoreL :: Lens' AlexInput Word64
-aiIntStoreL = lens aiIntStore (\b s -> s { aiIntStore = b })
-
-lineInt32L :: Lens' Int32 Line
-lineInt32L = lens (Line . fromIntegral) (\(Line x) _ -> fromIntegral x)
-
-int2Int32L :: Lens' Int32 Int
-int2Int32L = lens fromIntegral (\x _ -> fromIntegral x)
-
-{-# INLINE aiLineL       #-}
-{-# INLINE aiLineLengthL #-}
-aiLineL       :: Lens' AlexInput Line
-aiLineLengthL :: Lens' AlexInput Int
-
-aiLineL       = aiIntStoreL . int32L 0  . lineInt32L
-aiLineLengthL = aiIntStoreL . int32L 32 . int2Int32L
-
-
-{-# INLINE withAlexInput #-}
-withAlexInput :: C8.ByteString -> (AlexInput -> Int -> a) -> a
-withAlexInput s f =
-    case s' of
-        BSI.PS ptr offset len ->
-            inlinePerformIO $ withForeignPtr ptr $ \ptr' -> do
-                let !input =
-                        set aiLineL initLine $
-                        AlexInput
-                            { aiPtr      = ptr' `plusPtr` offset
-                            , aiIntStore = 0
-                            }
-                    !res = f input $ len - offset
-                touchForeignPtr ptr
-                pure res
-    where
-    -- Line numbering starts from 0 because we're adding additional newline
-    -- at the beginning to simplify processing. Thus, line numbers in the
-    -- result are 1-based.
-    initLine = Line 0
-
-    -- Add '\0' at the end so that we'll find the end of stream (just
-    -- as in the old C days...)
-    s' = C8.cons '\n' $ C8.snoc (C8.snoc (stripBOM s) '\n') '\0'
-    stripBOM :: C8.ByteString -> C8.ByteString
-    stripBOM xs
-        | "\xEF\xBB\xBF" `C8.isPrefixOf` xs
-        = C8.drop 3 xs
-        | otherwise
-        = xs
-
-mkSrcPosNoPrefix :: FilePath -> AlexInput -> SrcPos
-mkSrcPosNoPrefix filename input =
-    SrcPos { posFile   = filename
-           , posLine   = view aiLineL input
-           , posOffset = Offset 0
-           , posPrefix = mempty
-           , posSuffix = mempty
-           }
-
-mkSrcPos :: FilePath -> U.Vector Int -> Ptr Word8 -> AlexInput -> SrcPos
-mkSrcPos filename bytesToCharsMap start (input@AlexInput {aiPtr}) =
-    SrcPos { posFile = filename
-           , posLine = view aiLineL input
-           , posOffset
-           , posPrefix
-           , posSuffix
-           }
-    where
-    lineLen   = view aiLineLengthL input
-    posPrefix = TE.decodeUtf8 $ bytesToUtf8BS lineLen $ plusPtr aiPtr $ negate lineLen
-    posSuffix = TE.decodeUtf8 $ regionToUtf8BS aiPtr $ dropUntilNL# aiPtr
-    posOffset = Offset $ U.unsafeIndex bytesToCharsMap $ minusPtr aiPtr start
+{-# INLINE asCodeL              #-}
+{-# INLINE asCommentDepthL      #-}
+{-# INLINE asQuasiquoterDepthL  #-}
+{-# INLINE asIndentationSizeL   #-}
+{-# INLINE asPreprocessorDepthL #-}
+{-# INLINE asLiterateLocL       #-}
+{-# INLINE asHaveQQEndL         #-}
+-- | Current Alex state the lexer is in. E.g. comments, string, TH quasiquoter
+-- or vanilla toplevel mode.
+asCodeL :: Lens' AlexState AlexCode
+asCommentDepthL, asQuasiquoterDepthL, asIndentationSizeL :: Lens' AlexState Int16
+-- | How many directives deep are we.
+asPreprocessorDepthL :: Lens' AlexState Int16
+-- | Whether we're in bird-style or latex-style literate environment
+asLiterateLocL :: Lens' AlexState (LitMode LitStyle)
+asHaveQQEndL   :: Lens' AlexState (Maybe Bool)
+asCodeL              = asIntStoreL . intL 0  0x000f
+asCommentDepthL      = asIntStoreL . intL 4  0x03ff
+asQuasiquoterDepthL  = asIntStoreL . intL 14 0x03ff
+asIndentationSizeL   = asIntStoreL . int16L  24
+asPreprocessorDepthL = asIntStoreL . int16L  40
+asLiterateLocL       = \f -> asIntStoreL (intL 56 0x0003 (fmap litLocToInt    . f . intToLitLoc))
+asHaveQQEndL         = \f -> asIntStoreL (intL 58 0x0003 (fmap maybeBoolToInt . f . intToMaybeBool))
 
 {-# INLINE litLocToInt #-}
 litLocToInt :: LitMode LitStyle -> Int
@@ -207,55 +173,6 @@ intToLitLoc = \case
     2 -> LitInside Bird
     3 -> LitInside Latex
     x -> error $ "Invalid literate location representation: " ++ show x
-
-data AlexState = AlexState
-    { asInput        :: {-# UNPACK #-} !AlexInput
-    , asIntStore     :: {-# UNPACK #-} !Word64
-    , asContextStack :: [Context]
-    } deriving (Show, Eq, Ord)
-
-{-# INLINE asIntStoreL #-}
-asIntStoreL :: Lens' AlexState Word64
-asIntStoreL = lens asIntStore (\b s -> s { asIntStore = b })
-
-{-# INLINE maybeBoolToInt #-}
-maybeBoolToInt :: Maybe Bool -> Int
-maybeBoolToInt = \case
-    Nothing    -> 0
-    Just False -> 1
-    Just True  -> 2
-
-{-# INLINE intToMaybeBool #-}
-intToMaybeBool :: Int -> Maybe Bool
-intToMaybeBool = \case
-    0 -> Nothing
-    1 -> Just False
-    2 -> Just True
-    x -> error $ "Invalid integer representation of 'Maybe Bool': " ++ show x
-
-{-# INLINE asCodeL              #-}
-{-# INLINE asCommentDepthL      #-}
-{-# INLINE asQuasiquoterDepthL  #-}
-{-# INLINE asIndentationSizeL   #-}
-{-# INLINE asPreprocessorDepthL #-}
-{-# INLINE asLiterateLocL       #-}
-{-# INLINE asHaveQQEndL         #-}
--- | Current Alex state the lexer is in. E.g. comments, string, TH quasiquoter
--- or vanilla toplevel mode.
-asCodeL        :: Lens' AlexState AlexCode
-asCommentDepthL, asQuasiquoterDepthL, asIndentationSizeL :: Lens' AlexState Int16
--- | How many directives deep are we.
-asPreprocessorDepthL :: Lens' AlexState Int16
--- | Whether we're in bird-style or latex-style literate environment
-asLiterateLocL :: Lens' AlexState (LitMode LitStyle)
-asHaveQQEndL   :: Lens' AlexState (Maybe Bool)
-asCodeL              = asIntStoreL . intL 0  0x000f
-asCommentDepthL      = asIntStoreL . intL 4  0x03ff
-asQuasiquoterDepthL  = asIntStoreL . intL 14 0x03ff
-asIndentationSizeL   = asIntStoreL . int16L  24
-asPreprocessorDepthL = asIntStoreL . int16L  40
-asLiterateLocL       = \f -> asIntStoreL (intL 56 0x0003 (fmap litLocToInt    . f . intToLitLoc))
-asHaveQQEndL         = \f -> asIntStoreL (intL 58 0x0003 (fmap maybeBoolToInt . f . intToMaybeBool))
 
 mkAlexState :: LitMode Void -> AlexCode -> AlexInput -> AlexState
 mkAlexState litLoc startCode input =
@@ -310,10 +227,13 @@ modifyPreprocessorDepth f = do
     modify $ \s -> set asPreprocessorDepthL depth' s
     return depth'
 
-{-# INLINE takeText #-}
-takeText :: AlexInput -> Int -> T.Text
-takeText AlexInput{aiPtr} len =
-    TE.decodeUtf8 $ utf8BS len aiPtr
+{-# INLINE alexSetInput #-}
+alexSetInput :: MonadState AlexState m => AlexInput -> m ()
+alexSetInput input = modify $ \s -> s { asInput = input }
+
+{-# INLINE alexSetNextCode #-}
+alexSetNextCode :: MonadState AlexState m => AlexCode -> m ()
+alexSetNextCode code = modify $ set asCodeL code
 
 {-# INLINE addIndentationSize #-}
 addIndentationSize :: MonadState AlexState m => Int16 -> m ()
@@ -326,8 +246,9 @@ data QQEndsState = QQEndsState
     }
 
 checkQuasiQuoteEndPresent :: Ptr Word8 -> Bool
-checkQuasiQuoteEndPresent =
-    (\x -> isTrue# (qqessPresent x)) . utf8Foldl' combine (QQEndsState 0# '\n'#)
+checkQuasiQuoteEndPresent
+    = (\x -> isTrue# (qqessPresent x))
+    . utf8Foldl' combine (QQEndsState 0# '\n'#)
     where
     combine :: QQEndsState -> Char# -> QQEndsState
     combine QQEndsState{qqessPresent, qqessPrevChar} c# = QQEndsState
@@ -366,13 +287,29 @@ runAlexM filepath trackPrefixesAndOffsets litLoc startCode input action =
         else
             (a, map (\(x, y) -> Pos (mkSrcPosNoPrefix filepath x) y) xs)
 
-{-# INLINE alexSetInput #-}
-alexSetInput :: MonadState AlexState m => AlexInput -> m ()
-alexSetInput input = modify $ \s -> s { asInput = input }
+mkSrcPosNoPrefix :: FilePath -> AlexInput -> SrcPos
+mkSrcPosNoPrefix filename input =
+    SrcPos { posFile   = filename
+           , posLine   = view aiLineL input
+           , posOffset = Offset 0
+           , posPrefix = mempty
+           , posSuffix = mempty
+           }
 
-{-# INLINE alexSetNextCode #-}
-alexSetNextCode :: MonadState AlexState m => AlexCode -> m ()
-alexSetNextCode code = modify $ set asCodeL code
+mkSrcPos :: FilePath -> U.Vector Int -> Ptr Word8 -> AlexInput -> SrcPos
+mkSrcPos filename bytesToCharsMap start (input@AlexInput {aiPtr}) =
+    SrcPos { posFile = filename
+           , posLine = view aiLineL input
+           , posOffset
+           , posPrefix
+           , posSuffix
+           }
+    where
+    lineLen   = view aiLineLengthL input
+    posPrefix = TE.decodeUtf8 $ bytesToUtf8BS lineLen $ plusPtr aiPtr $ negate lineLen
+    posSuffix = TE.decodeUtf8 $ regionToUtf8BS aiPtr $ dropUntilNL# aiPtr
+    posOffset = Offset $ U.unsafeIndex bytesToCharsMap $ minusPtr aiPtr start
+
 
 -- Vector mapping absolute offsets off a pointer into how many utf8 characters
 -- were encoded since the pointer start.
@@ -396,33 +333,86 @@ positionsIndex (Ptr start#) len =
         go 0# 0
         A.pure vec
 
--- Alex interface
 
-{-# INLINE alexInputPrevChar #-}
-alexInputPrevChar :: AlexInput -> Char
-alexInputPrevChar AlexInput{ aiPtr = Ptr ptr# } =
-    case base# `minusAddr#` start# of
-        0# -> C# (chr# ch0)
-        1# -> let !(# x, _ #) = readChar1# start# ch0 in C# x
-        2# -> let !(# x, _ #) = readChar2# start# ch0 in C# x
-        3# -> let !(# x, _ #) = readChar3# start# ch0 in C# x
-        _  -> '\0' -- Invalid!
-    where
-    ch0 :: Int#
-    !ch0 = word2Int# (indexWord8OffAddr# start# 0#)
+data AlexInput = AlexInput
+    { aiPtr      :: {-# UNPACK #-} !(Ptr Word8)
+    , aiIntStore :: {-# UNPACK #-} !Word64
+        -- ^ Integer field that stores all the other useful fields for lexing.
+    } deriving (Eq, Ord)
 
-    base# = findCharStart ptr# `plusAddr#` -1#
-
-    start# = findCharStart base#
-
-    findCharStart :: Addr# -> Addr#
-    findCharStart p#
-        | startsWith10# w#
-        = findCharStart (p# `plusAddr#` -1#)
-        | otherwise
-        = p#
+instance Show AlexInput where
+    show AlexInput{aiPtr, aiIntStore} =
+        printf "AlexInput 0x%08x 0x%08x" ptr aiIntStore
         where
-        w# = word2Int# (indexWord8OffAddr# p# 0#)
+        ptr :: Word
+        ptr = fromIntegral $ ptrToWordPtr aiPtr
+
+{-# INLINE aiIntStoreL #-}
+aiIntStoreL :: Lens' AlexInput Word64
+aiIntStoreL = lens aiIntStore (\b s -> s { aiIntStore = b })
+
+lineInt32L :: Lens' Int32 Line
+lineInt32L = lens (Line . fromIntegral) (\(Line x) _ -> fromIntegral x)
+
+int2Int32L :: Lens' Int32 Int
+int2Int32L = lens fromIntegral (\x _ -> fromIntegral x)
+
+{-# INLINE aiLineL       #-}
+{-# INLINE aiLineLengthL #-}
+-- | Current line in input stream.
+aiLineL       :: Lens' AlexInput Line
+-- | Length of current line.
+aiLineLengthL :: Lens' AlexInput Int
+
+aiLineL       = aiIntStoreL . int32L 0  . lineInt32L
+aiLineLengthL = aiIntStoreL . int32L 32 . int2Int32L
+
+{-# INLINE takeText #-}
+takeText :: AlexInput -> Int -> T.Text
+takeText AlexInput{aiPtr} len =
+    TE.decodeUtf8 $ utf8BS len aiPtr
+
+countInputSpace :: AlexInput -> Int -> Int
+countInputSpace AlexInput{aiPtr} len =
+    utf8FoldlBounded len inc 0 aiPtr
+    where
+    inc !acc ' '#  = acc + 1
+    inc !acc '\t'# = acc + 8
+    inc !acc c#    = case fixChar c# of
+        1## -> acc + 1
+        _   -> acc
+
+
+{-# INLINE withAlexInput #-}
+withAlexInput :: C8.ByteString -> (AlexInput -> Int -> a) -> a
+withAlexInput s f =
+    case s' of
+        BSI.PS ptr offset len ->
+            BSI.accursedUnutterablePerformIO $ withForeignPtr ptr $ \ptr' -> do
+                let !input =
+                        set aiLineL initLine $
+                        AlexInput
+                            { aiPtr      = ptr' `plusPtr` offset
+                            , aiIntStore = 0
+                            }
+                    !res = f input $ len - offset
+                touchForeignPtr ptr
+                pure res
+    where
+    -- Line numbering starts from 0 because we're adding additional newline
+    -- at the beginning to simplify processing. Thus, line numbers in the
+    -- result are 1-based.
+    initLine = Line 0
+
+    -- Add '\0' at the end so that we'll find the end of stream (just
+    -- as in the old C days...)
+    s' = C8.cons '\n' $ C8.snoc (C8.snoc (stripBOM s) '\n') '\0'
+    stripBOM :: C8.ByteString -> C8.ByteString
+    stripBOM xs
+        | "\xEF\xBB\xBF" `C8.isPrefixOf` xs
+        = C8.drop 3 xs
+        | otherwise
+        = xs
 
 {-# INLINE extractDefineOrLetName #-}
 extractDefineOrLetName :: AlexInput -> Int -> T.Text
@@ -466,6 +456,34 @@ dropUntilNLOr w input@AlexInput{aiPtr} =
 dropUntilNLOrEither :: Word8 -> Word8 -> AlexInput -> AlexInput
 dropUntilNLOrEither w1 w2 input@AlexInput{aiPtr} =
     input { aiPtr = dropUntilNLOrEither# w1 w2 aiPtr }
+
+-- Alex interface
+
+{-# INLINE alexInputPrevChar #-}
+alexInputPrevChar :: AlexInput -> Char
+alexInputPrevChar AlexInput{ aiPtr = Ptr ptr# } =
+    case base# `minusAddr#` start# of
+        0# -> C# (chr# ch0)
+        1# -> let !(# x, _ #) = readChar1# start# ch0 in C# x
+        2# -> let !(# x, _ #) = readChar2# start# ch0 in C# x
+        3# -> let !(# x, _ #) = readChar3# start# ch0 in C# x
+        _  -> '\0' -- Invalid!
+    where
+    ch0 :: Int#
+    !ch0 = word2Int# (indexWord8OffAddr# start# 0#)
+
+    base# = findCharStart ptr# `plusAddr#` -1#
+
+    start# = findCharStart base#
+
+    findCharStart :: Addr# -> Addr#
+    findCharStart p#
+        | startsWith10# w#
+        = findCharStart (p# `plusAddr#` -1#)
+        | otherwise
+        = p#
+        where
+        w# = word2Int# (indexWord8OffAddr# p# 0#)
 
 {-# INLINE alexGetByte #-}
 alexGetByte :: AlexInput -> Maybe (Word8, AlexInput)
@@ -660,7 +678,7 @@ utf8FoldlBounded (I# len#) f x0 (Ptr ptr#) =
 {-# INLINE utf8BS #-}
 utf8BS :: Int -> Ptr Word8 -> BS.ByteString
 utf8BS (I# nChars#) (Ptr start#) =
-    BSI.PS (inlinePerformIO (newForeignPtr_ (Ptr start#))) 0 (I# (go nChars# 0#))
+    BSI.PS (BSI.accursedUnutterablePerformIO (newForeignPtr_ (Ptr start#))) 0 (I# (go nChars# 0#))
     where
     go :: Int# -> Int# -> Int#
     go 0# bytes# = bytes#
@@ -672,16 +690,12 @@ utf8BS (I# nChars#) (Ptr start#) =
 {-# INLINE bytesToUtf8BS #-}
 bytesToUtf8BS :: Int -> Ptr Word8 -> BS.ByteString
 bytesToUtf8BS (I# nbytes#) (Ptr start#) =
-    BSI.PS (inlinePerformIO (newForeignPtr_ (Ptr start#))) 0 (I# nbytes#)
+    BSI.PS (BSI.accursedUnutterablePerformIO (newForeignPtr_ (Ptr start#))) 0 (I# nbytes#)
 
 {-# INLINE regionToUtf8BS #-}
 regionToUtf8BS :: Ptr Word8 -> Ptr Word8 -> BS.ByteString
 regionToUtf8BS start end =
-    BSI.PS (inlinePerformIO (newForeignPtr_ start)) 0 (minusPtr end start)
-
-{-# INLINE inlinePerformIO #-}
-inlinePerformIO :: IO a -> a
-inlinePerformIO (IO m) = case m realWorld# of (# _, r #) -> r
+    BSI.PS (BSI.accursedUnutterablePerformIO (newForeignPtr_ start)) 0 (minusPtr end start)
 
 {-# INLINE utf8DecodeChar# #-}
 utf8DecodeChar# :: Addr# -> (# Char#, Int# #)
