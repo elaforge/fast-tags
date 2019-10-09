@@ -82,7 +82,7 @@ library
         FastTags.Util
         FastTags.Vim
     hs-source-dirs: src
-    ghc-options: -Wall -fno-warn-name-shadowing
+    ghc-options: -Wall -fno-warn-name-shadowing -O2
     if flag(profile)
         ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all
 
@@ -102,7 +102,12 @@ executable fast-tags
     -- and adding a dummy Main means I have to export it from the
     -- library.
     ghc-options:
-        -main-is FastTags.Main -Wall -fno-warn-name-shadowing -threaded -rtsopts
+        -main-is FastTags.Main
+        -O2
+        -Wall
+        -fno-warn-name-shadowing
+        -threaded
+        -rtsopts
     if flag(profile)
         ghc-prof-options:
             -auto-all -Wall -fno-warn-name-shadowing -threaded
@@ -111,7 +116,10 @@ test-suite test-fast-tags
     type: exitcode-stdio-1.0
     main-is: MainTest.hs
     hs-source-dirs: tests
-    ghc-options: -Wall -fno-warn-name-shadowing -fno-warn-type-defaults
+    ghc-options:
+        -Wall
+        -fno-warn-name-shadowing
+        -fno-warn-type-defaults
         -main-is MainTest
     build-depends:
         base >= 3 && < 5,
