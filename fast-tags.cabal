@@ -1,5 +1,5 @@
 name: fast-tags
-version: 1.5.0
+version: 2.0.0
 cabal-version: >= 1.8
 build-type: Simple
 synopsis: Fast incremental vi and emacs tags.
@@ -12,13 +12,13 @@ description:
     .
     The intent is to bind it to vim's BufWrite autocommand to automatically
     keep the tags file up to date.  This only works for files changed by the
-    editor of course, so you may want to bind 'rm tags' to a 'pull' posthook.
+    editor of course, so there are separate git hooks to update on pulls etc.
     .
     With the --fully_qualified flag and a fancy vim function, it can
     disambiguate tags based on their qualification, even if it's locally
     renamed.  So M.x will find  A.B.x if you import A.B as M.
     .
-    To see the extra vim configuration, you probably have to get the source via
+    To see the configuration examples, you probably have to get the source via
     cabal unpack or git clone.
     .
     Limitations:

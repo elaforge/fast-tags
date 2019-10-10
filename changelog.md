@@ -1,5 +1,11 @@
-* it can now take multiple --src-prefix flags, in case your haskell repo has
-multiple roots, but no cabal files
+2.0.0
+
+* Added example git hooks in tools/ to incrementally update tags across
+checkouts, pulls, rebases.  There is now no reason to generate tags from
+scratch, except to clean out changes that this misses.
+
+* accept multiple --src-prefix flags, in case your haskell repo has multiple
+roots, but no cabal files
 
 * add --cabal flag, which parses .cabal files and generates tags for the package
 
