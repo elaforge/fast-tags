@@ -115,7 +115,7 @@ def finished_imports(line):
     # Hacky heuristic to see if I'm past the import block.
     # If it starts with non-space but not 'import', then it's probably
     # not an import or import continuation.
-    return line and not line.startswith('import') and not line[0].isspace()
+    return line and not line.startswith('import') and not line[0].isspace() and not line.startswith('--')
 
 def test():
     fn, tag = sys.argv[1:]
