@@ -18,6 +18,11 @@ In order to generate tags for all Haskell files under current directory, issue
   fast-tags -R .
 ```
 
+You can also generate tags that span accross directories or projects:
+```
+fast-tags -R . path/to/other/project
+```
+
 See the `tools` directory for editor and source control integration.
 
 [badge-travis]: https://travis-ci.org/elaforge/fast-tags.svg?branch=master
