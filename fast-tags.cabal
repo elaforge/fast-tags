@@ -97,7 +97,7 @@ executable fast-tags
         base >= 3 && < 5, filepath, directory >=1.3.0.0,
         -- text 0.11.1.12 has a bug.
         text (> 0.11.1.12 || < 0.11.1.12),
-        async,
+        async >= 2.0.0.0,
         deepseq,
         fast-tags
     -- cabal emits a warning about -main-is, but there doesn't seem to
