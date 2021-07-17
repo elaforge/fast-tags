@@ -599,130 +599,130 @@ testStripComments = testGroup "Comments stripping"
 
 testBreakBlocks :: TestTree
 testBreakBlocks = testGroup "Break blocks"
-  [ testGroup "vanilla"
-    [ "a\n\
-      \b\n"
-      ==>
-      [ [T "a"]
-      , [T "b"]
-      ]
-    , "a\n\
-      \ a\n\
-      \b\n"
-      ==>
-      [ [T "a", Newline 1, T "a"]
-      , [T "b"]
-      ]
-    , "a\n\
-      \ a\n\
-      \ a\n\
-      \b\n"
-      ==>
-      [ [T "a", Newline 1, T "a", Newline 1, T "a"]
-      , [T "b"]
-      ]
-    -- intervening blank lines are ignored
-    , "a\n\
-      \ a\n\
-      \\n\
-      \ a\n\
-      \b\n"
-      ==>
-      [ [T "a", Newline 1, T "a", Newline 1, T "a"]
-      , [T "b"]
-      ]
-    , "a\n\
-      \\n\
-      \\n\
-      \ a\n\
-      \b\n"
-      ==>
-      [ [T "a", Newline 1, T "a"]
-      , [T "b"]
-      ]
-    , "a\n\
-      \ aa\n\
-      \ aa\n"
-      ==>
-      [[T "a", Newline 1, T "aa", Newline 1, T "aa"]]
-    , " aa\n\
-      \ aa\n"
-      ==>
-      [ [T "aa"]
-      , [T "aa"]
-      ]
+    [ testGroup "vanilla"
+        [ "a\n\
+          \b\n"
+          ==>
+          [ [T "a"]
+          , [T "b"]
+          ]
+        , "a\n\
+          \ a\n\
+          \b\n"
+          ==>
+          [ [T "a", Newline 1, T "a"]
+          , [T "b"]
+          ]
+        , "a\n\
+          \ a\n\
+          \ a\n\
+          \b\n"
+          ==>
+          [ [T "a", Newline 1, T "a", Newline 1, T "a"]
+          , [T "b"]
+          ]
+        -- intervening blank lines are ignored
+        , "a\n\
+          \ a\n\
+          \\n\
+          \ a\n\
+          \b\n"
+          ==>
+          [ [T "a", Newline 1, T "a", Newline 1, T "a"]
+          , [T "b"]
+          ]
+        , "a\n\
+          \\n\
+          \\n\
+          \ a\n\
+          \b\n"
+          ==>
+          [ [T "a", Newline 1, T "a"]
+          , [T "b"]
+          ]
+        , "a\n\
+          \ aa\n\
+          \ aa\n"
+          ==>
+          [[T "a", Newline 1, T "aa", Newline 1, T "aa"]]
+        , " aa\n\
+          \ aa\n"
+          ==>
+          [ [T "aa"]
+          , [T "aa"]
+          ]
 
-    , "one_hash, two_hash :: text_type\n\
-      \hash_prec :: Int -> Int\n\
-      \one_hash  = from_char '#'\n\
-      \two_hash  = from_string \"##\"\n\
-      \hash_prec = const 0"
-      ==>
-      [ [T "one_hash", Comma, T "two_hash", DoubleColon, T "text_type"]
-      , [T "hash_prec", DoubleColon, T "Int", Arrow, T "Int"]
-      , [T "one_hash", Equals, T "from_char", Character]
-      , [T "two_hash",  Equals, T "from_string", String]
-      , [T "hash_prec", Equals, T "const", Number]
-      ]
-    , "one_hash, two_hash :: text_type; \
-      \hash_prec :: Int -> Int; \
-      \one_hash  = from_char '#'; \
-      \two_hash  = from_string \"##\"; \
-      \hash_prec = const 0"
-      ==>
-      [ [T "one_hash", Comma, T "two_hash", DoubleColon, T "text_type"]
-      , [T "hash_prec", DoubleColon, T "Int", Arrow, T "Int"]
-      , [T "one_hash", Equals, T "from_char", Character]
-      , [T "two_hash",  Equals, T "from_string", String]
-      , [T "hash_prec", Equals, T "const", Number]
-      ]
-    , "{\n\
-      \  data F f :: * ; -- foo\n\
-      \                  -- bar\n\
-      \                  -- baz\n\
-      \  mkF  :: f -> F f ; getF :: F f -> f ;\n\
-      \} ;"
-      ==>
-      [ [ LBrace, Newline 2, KWData, T "F", T "f", DoubleColon
-        , T "*", Semicolon, Newline 2
-        , T "mkF", DoubleColon, T "f", Arrow, T "F", T "f", Semicolon
-        , T "getF", DoubleColon, T "F", T "f", Arrow, T "f", Semicolon
-        , Newline 0
-        , RBrace
+        , "one_hash, two_hash :: text_type\n\
+          \hash_prec :: Int -> Int\n\
+          \one_hash  = from_char '#'\n\
+          \two_hash  = from_string \"##\"\n\
+          \hash_prec = const 0"
+          ==>
+          [ [T "one_hash", Comma, T "two_hash", DoubleColon, T "text_type"]
+          , [T "hash_prec", DoubleColon, T "Int", Arrow, T "Int"]
+          , [T "one_hash", Equals, T "from_char", Character]
+          , [T "two_hash",  Equals, T "from_string", String]
+          , [T "hash_prec", Equals, T "const", Number]
+          ]
+        , "one_hash, two_hash :: text_type; \
+          \hash_prec :: Int -> Int; \
+          \one_hash  = from_char '#'; \
+          \two_hash  = from_string \"##\"; \
+          \hash_prec = const 0"
+          ==>
+          [ [T "one_hash", Comma, T "two_hash", DoubleColon, T "text_type"]
+          , [T "hash_prec", DoubleColon, T "Int", Arrow, T "Int"]
+          , [T "one_hash", Equals, T "from_char", Character]
+          , [T "two_hash",  Equals, T "from_string", String]
+          , [T "hash_prec", Equals, T "const", Number]
+          ]
+        , "{\n\
+          \  data F f :: * ; -- foo\n\
+          \                  -- bar\n\
+          \                  -- baz\n\
+          \  mkF  :: f -> F f ; getF :: F f -> f ;\n\
+          \} ;"
+          ==>
+          [ [ LBrace, Newline 2, KWData, T "F", T "f", DoubleColon
+            , T "*", Semicolon, Newline 2
+            , T "mkF", DoubleColon, T "f", Arrow, T "F", T "f", Semicolon
+            , T "getF", DoubleColon, T "F", T "f", Arrow, T "f", Semicolon
+            , Newline 0
+            , RBrace
+            ]
+          ]
         ]
+    , testGroup "literate"
+        [ "> a\n\
+          \>\n\
+          \>\n\
+          \>  a\n\
+          \> b\n"
+          |=>
+          [ [T "a", Newline 2, T "a"]
+          , [T "b"]
+          ]
+        , "> a\n\
+          \> \n\
+          \> \n\
+          \>  a\n\
+          \> b\n"
+          |=>
+          [ [T "a", Newline 2, T "a"]
+          , [T "b"]
+          ]
+        , "> a\n\
+          \>  aa\n\
+          \>  aa\n"
+          |=>
+          [[T "a", Newline 2, T "aa", Newline 2, T "aa"]]
+        , "> a\n\
+          \>  aa\n\
+          \>\n\
+          \>  aa\n"
+          |=>
+          [[T "a", Newline 2, T "aa", Newline 2, T "aa"]]
         ]
-      ]
-  , testGroup "literate"
-    [ "> a\n\
-      \>\n\
-      \>\n\
-      \>  a\n\
-      \> b\n"
-      |=>
-      [ [T "a", Newline 2, T "a"]
-      , [T "b"]
-      ]
-    , "> a\n\
-      \> \n\
-      \> \n\
-      \>  a\n\
-      \> b\n"
-      |=>
-      [ [T "a", Newline 2, T "a"]
-      , [T "b"]
-      ]
-    , "> a\n\
-      \>  aa\n\
-      \>  aa\n"
-      |=>
-      [[T "a", Newline 2, T "aa", Newline 2, T "aa"]]
-    , "> a\n\
-      \>  aa\n\
-      \>\n\
-      \>  aa\n"
-      |=>
-      [[T "a", Newline 2, T "aa", Newline 2, T "aa"]]
-   ]
     ]
     where
     (==>) = test (f LitVanilla)

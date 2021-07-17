@@ -35,8 +35,7 @@ module FastTags.Tag (
     , stripNewlines
     , breakBlocks
     , whereBlock
-    )
-where
+) where
 
 import Control.Arrow ((***))
 import Control.DeepSeq (rnf, NFData)
@@ -173,8 +172,7 @@ data ProcessMode
 
 -- | Read tags from one file.
 processFile :: FilePath -> Bool -> IO ([Pos TagVal], [String])
-processFile fn trackPrefixes =
-    process fn trackPrefixes <$> BS.readFile fn
+processFile fn trackPrefixes = process fn trackPrefixes <$> BS.readFile fn
 
 -- * qualify
 
@@ -218,16 +216,17 @@ process fn trackPrefixes input =
     where
     (procMode, litMode) = fromMaybe defaultModes $ determineModes fn
 
-tokenizeInput :: FilePath -> Bool -> LitMode Void -> BS.ByteString -> Either Text [Token]
+tokenizeInput :: FilePath -> Bool -> LitMode Void -> BS.ByteString
+    -> Either Text [Token]
 tokenizeInput fn trackPrefixes mode =
     Lexer.tokenize fn mode trackPrefixes
 
 processTokens :: ProcessMode -> [Token] -> ([Pos TagVal], [String])
 processTokens mode =
-    splitAndRemoveRepeats .
-    concatMap blockTags .
-    breakBlocks mode .
-    UnstrippedTokens
+    splitAndRemoveRepeats
+    .  concatMap blockTags
+    .  breakBlocks mode
+    .  UnstrippedTokens
     where
     splitAndRemoveRepeats :: [Tag] -> ([Pos TagVal], [String])
     splitAndRemoveRepeats tags =
@@ -306,7 +305,9 @@ breakBlocks mode
     . filter (not . null)
     . go
     . stripSemicolonsNotInBraces
-    . (case mode of { ProcessVanilla -> id; ProcessAlexHappy -> uncurry (++) . firstLastBracedBlock; })
+    . (case mode of
+        ProcessVanilla -> id
+        ProcessAlexHappy -> uncurry (++) . firstLastBracedBlock)
     . stripToplevelHscDirectives
     . filterBlank
     . unstrippedTokensOf
@@ -532,12 +533,15 @@ blockTags unstripped = case stripNewlines unstripped of
     Pos _ KWForeign : decl -> foreignTags decl
     -- newtype instance * = ...
     Pos prevPos KWNewtype : Pos _ KWInstance : toks ->
-        map (addParent familyNameTag) $ newtypeTags pos $ dropTokens 2 unstripped
+        map (addParent familyNameTag) $ newtypeTags pos $
+            dropTokens 2 unstripped
         where
-        (familyNameTag, pos) = extractFamilyName prevPos "newtype instance * =" toks
+        (familyNameTag, pos) =
+            extractFamilyName prevPos "newtype instance * =" toks
     -- newtype X * = X *
     Pos prevPos KWNewtype : toks ->
-        maybeToList tag ++ map (addParent tag) (newtypeTags pos (dropTokens 1 unstripped))
+        maybeToList tag
+            ++ map (addParent tag) (newtypeTags pos (dropTokens 1 unstripped))
         where
         (tag, pos, _) =
             recordVanillaOrInfixName isTypeName Type prevPos "newtype * =" toks
@@ -568,13 +572,17 @@ blockTags unstripped = case stripNewlines unstripped of
     -- data instance * = ...
     -- data instance * where ...
     Pos prevPos KWData : Pos _ KWInstance : toks ->
-        map (addParent familyNameTag) $ dataConstructorTags pos (dropTokens 2 unstripped)
+        map (addParent familyNameTag) $
+            dataConstructorTags pos (dropTokens 2 unstripped)
         where
-        (familyNameTag, pos) = extractFamilyName prevPos "data instance * =" toks
+        (familyNameTag, pos) =
+            extractFamilyName prevPos "data instance * =" toks
     -- data X * = X { X :: *, X :: * }
     -- data X * where ...
     Pos prevPos KWData : toks ->
-        maybeToList tag ++ map (addParent tag) (dataConstructorTags pos (dropTokens 1 unstripped))
+        maybeToList tag
+            ++ map (addParent tag)
+                (dataConstructorTags pos (dropTokens 1 unstripped))
         where
         (tag, pos, _) = recordVanillaOrInfixName isTypeName Type prevPos
             "data * =" toks
@@ -587,8 +595,7 @@ blockTags unstripped = case stripNewlines unstripped of
     -- Deriving introduces no new names, just ignore it
     Pos _ KWDeriving : _ -> []
     -- instance * where data * = X :: * ...
-    Pos pos KWInstance : _ ->
-        instanceTags pos (dropTokens 1 unstripped)
+    Pos pos KWInstance : _ -> instanceTags pos (dropTokens 1 unstripped)
     -- x, y, z :: *
     stripped -> toplevelFunctionTags stripped
 
@@ -686,7 +693,8 @@ hsc2hsEnum = \case
         Pos _ Comma : rest ->
             extractValues rest
         Pos p (T name) : Pos _ Equals : rest ->
-            mkTag p name valueTyp : extractValues (dropUntil Comma (stripBalancedParens rest))
+            mkTag p name valueTyp
+                : extractValues (dropUntil Comma (stripBalancedParens rest))
         Pos p (T name) : rest ->
             mkTag p (translateName name) valueTyp : extractValues rest
         _ -> []
@@ -747,8 +755,10 @@ functionTagsNoSig allToks
 
     go :: [Token] -> [Tag]
     go []                           = []
-    go (Pos _ LParen : Pos _ T{} : Pos _ Backtick : Pos pos' (T name') : Pos _ Backtick : Pos _ T{} : Pos _ RParen : _)
-        | functionName ExpectFunctions name' = [mkRepeatableTag pos' name' Function]
+    go (Pos _ LParen : Pos _ T{} : Pos _ Backtick : Pos pos' (T name')
+            : Pos _ Backtick : Pos _ T{} : Pos _ RParen : _)
+        | functionName ExpectFunctions name' =
+            [mkRepeatableTag pos' name' Function]
     go (Pos _ LParen : Pos _ T{} : Pos pos' tok : Pos _ T{} : Pos _ RParen : _)
         | Just name' <- tokToOpName ExpectFunctions tok
         = [mkRepeatableTag pos' name' Operator]
@@ -763,7 +773,8 @@ functionTagsNoSig allToks
     go (Pos _ Equals : _)           = functionOrOp allToks
     go (Pos _ Pipe : _)             = functionOrOp allToks
     go (Pos _ Backtick : Pos pos' (T name') : _)
-        | functionName ExpectFunctions name' = [mkRepeatableTag pos' name' Function]
+        | functionName ExpectFunctions name' =
+            [mkRepeatableTag pos' name' Function]
     go (Pos pos tok : _)
         | Just name <- tokToOpNameExcludingBangPatSyms ExpectFunctions tok
         = [mkRepeatableTag pos name Operator]
@@ -774,19 +785,21 @@ functionTagsNoSig allToks
     functionOrOp :: [Token] -> [Tag]
     functionOrOp toks = case stripOpeningParens toks of
          Pos pos (T name) : _
-             | functionName ExpectFunctions name -> [mkRepeatableTag pos name Function]
+             | functionName ExpectFunctions name ->
+                [mkRepeatableTag pos name Function]
          Pos pos tok : _ -> case tokToOpName ExpectFunctions tok of
              Just name -> [mkRepeatableTag pos name Operator]
              Nothing   -> []
          [] -> []
 
 tokToOpNameExcludingBangPatSyms :: ExpectedFuncName -> TokenVal -> Maybe Text
-tokToOpNameExcludingBangPatSyms expectation tok = case (expectation, tokToNameExcludingBangPatSyms tok) of
-    (ExpectFunctions, res@(Just name))
-        | isHaskellOp name -> res
-    (ExpectConstructors, res@(Just name))
-        | isHaskellConstructorOp name -> res
-    _ -> Nothing
+tokToOpNameExcludingBangPatSyms expectation tok =
+    case (expectation, tokToNameExcludingBangPatSyms tok) of
+        (ExpectFunctions, res@(Just name))
+            | isHaskellOp name -> res
+        (ExpectConstructors, res@(Just name))
+            | isHaskellConstructorOp name -> res
+        _ -> Nothing
 
 tokToNameExcludingBangPatSyms :: TokenVal -> Maybe Text
 tokToNameExcludingBangPatSyms (T "_")         = Nothing
@@ -856,15 +869,16 @@ newtypeTags _ unstripped
     | any (\case { Pos _ KWWhere -> True; _ -> False })
             (unstrippedTokensOf unstripped) =
         concatMap gadtTags (whereBlock unstripped)
-newtypeTags prevPos unstripped = case dropUntil Equals $ stripNewlines unstripped of
-    Pos pos (T name) : rest ->
-        let constructor = mkTag pos name Constructor
-        in  case rest of
-            Pos _ LBrace : Pos funcPos (T funcName) : _ ->
-                [constructor, mkTag funcPos funcName Function]
-            _ ->
-                [constructor]
-    rest -> [unexpected prevPos unstripped rest "newtype * ="]
+newtypeTags prevPos unstripped =
+    case dropUntil Equals $ stripNewlines unstripped of
+        Pos pos (T name) : rest ->
+            let constructor = mkTag pos name Constructor
+            in  case rest of
+                Pos _ LBrace : Pos funcPos (T funcName) : _ ->
+                    [constructor, mkTag funcPos funcName Function]
+                _ ->
+                    [constructor]
+        rest -> [unexpected prevPos unstripped rest "newtype * ="]
 
 -- | [] (empty data declaration)
 -- * = X { X :: *, X :: * }
@@ -896,7 +910,8 @@ dataConstructorTags prevPos unstripped
     collectRest tokens
         | (tags@(_:_), rest) <- functionTags ExpectFunctions tokens =
             tags ++ collectRest (dropUntilNextField rest)
-    collectRest toks@(Pos _ LParen : _) = collectRest $ stripBalancedParens toks -- dropUntilNextField rest
+    collectRest toks@(Pos _ LParen : _) =
+        collectRest $ stripBalancedParens toks -- dropUntilNextField rest
     collectRest (Pos pipePos Pipe : rest)
         | Just (Pos pos (T name), rest'') <- extractInfixConstructor rest' =
             mkTag pos name Constructor : collectRest rest''
@@ -910,7 +925,8 @@ dataConstructorTags prevPos unstripped
         , isHaskellConstructorOp name =
             mkTag pos name Constructor
                 : collectRest (dropUntilNextCaseOrRecordStart rest'')
-        | otherwise = [unexpected pipePos unstripped rest "| not followed by tokens"]
+        | otherwise =
+            [unexpected pipePos unstripped rest "| not followed by tokens"]
         where
         rest' = stripOptBang $ stripDatatypeContext rest
     collectRest (_ : rest) = collectRest rest
@@ -1017,7 +1033,8 @@ gadtTags unstripped = case dropDataContext rest of
     Pos _ LBrace : rest' -> constructorTag ++ collectFields rest'
     _                    -> constructorTag
     where
-    (constructorTag, rest) = functionTags ExpectConstructors $ stripNewlines unstripped
+    (constructorTag, rest) =
+        functionTags ExpectConstructors $ stripNewlines unstripped
     collectFields :: [Token] -> [Tag]
     collectFields (Pos _ Comma : rest) = collectFields rest
     collectFields (Pos _ RBrace : _)   = []
@@ -1032,24 +1049,24 @@ gadtTags unstripped = case dropDataContext rest of
 -- | * => X where X :: * ...
 classTags :: SrcPos -> UnstrippedTokens -> [Tag]
 classTags prevPos unstripped =
-    maybeToList classTag ++
-    map (addParent classTag) (concatMap classBodyTags (whereBlock wherePart))
+    maybeToList classTag
+        ++ map (addParent classTag)
+            (concatMap classBodyTags (whereBlock wherePart))
     where
     (classPart, wherePart) = spanUntil KWWhere unstripped
     (classTag, _, _) = recordVanillaOrInfixName isTypeName Class prevPos
         "class * =>" $ stripUntilImplies $ stripNewlines classPart
 
 stripUntilImplies :: [Token] -> [Token]
-stripUntilImplies xs =
-    case dropUntil Implies xs of
-        []  -> xs
-        xs' -> xs'
+stripUntilImplies xs = case dropUntil Implies xs of
+    []  -> xs
+    xs' -> xs'
 
 classBodyTags :: UnstrippedTokens -> [Tag]
 classBodyTags unstripped = case stripNewlines unstripped of
     Pos _ KWType : Pos pos (T name) : _ -> [mkTag pos name Family]
     Pos _ KWData : Pos pos (T name) : _ -> [mkTag pos name Family]
-    tokens                              -> fst $ functionTags ExpectFunctions tokens
+    tokens -> fst $ functionTags ExpectFunctions tokens
 
 -- | Skip to the where and split the indented block below it.
 whereBlock :: UnstrippedTokens -> [UnstrippedTokens]
@@ -1063,15 +1080,17 @@ instanceTags :: SrcPos -> UnstrippedTokens -> [Tag]
 instanceTags prevPos unstripped =
     -- instances can offer nothing but some fresh data constructors since
     -- the actual datatype is really declared in the class declaration
-    concatMap (\toks ->
-                   let (parent, pos) = extractFamilyName prevPos "newtype instance * =" (stripNewlines toks)
-                   in map (addParent parent) $ newtypeTags pos toks)
-        (map (dropTokens 1) (filter isNewtypeDecl block))
-    ++ concatMap (\toks ->
-                   let (parent, pos) = extractFamilyName prevPos "data instance * =" (stripNewlines toks)
-                   in map (addParent parent) $ dataConstructorTags pos toks)
-        (map (dropTokens 1) (filter isDataDecl block))
+    concatMap newtypeDecl (map (dropTokens 1) (filter isNewtypeDecl block))
+    ++ concatMap dataDecl (map (dropTokens 1) (filter isDataDecl block))
     where
+    newtypeDecl toks = map (addParent parent) $ newtypeTags pos toks
+        where
+        (parent, pos) = extractFamilyName prevPos "newtype instance * ="
+            (stripNewlines toks)
+    dataDecl toks = map (addParent parent) $ dataConstructorTags pos toks
+        where
+        (parent, pos) = extractFamilyName prevPos "data instance * ="
+            (stripNewlines toks)
     block = whereBlock unstripped
 
     isNewtypeDecl :: UnstrippedTokens -> Bool
@@ -1085,7 +1104,8 @@ instanceTags prevPos unstripped =
 extractFamilyName :: SrcPos -> String -> [Token] -> (Maybe Tag, SrcPos)
 extractFamilyName prevPos context toks = (tag, pos)
     where
-    (tag, pos, _) = recordVanillaOrInfixName isTypeFamilyName Family prevPos context toks
+    (tag, pos, _) = recordVanillaOrInfixName isTypeFamilyName Family prevPos
+        context toks
 
 -- * util
 
