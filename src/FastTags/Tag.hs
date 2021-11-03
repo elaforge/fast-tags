@@ -814,9 +814,9 @@ functionTags constructors = go []
 
     mkOpTag :: [Tag] -> Type -> Token -> [Tag]
     mkOpTag tags opTag' (Pos pos tok) =
-      case tokToOpName constructors tok of
-        Just name -> mkTag pos name opTag' : tags
-        Nothing   -> tags
+        case tokToOpName constructors tok of
+            Just name -> mkTag pos name opTag' : tags
+            Nothing   -> tags
 
 data ExpectedFuncName = ExpectFunctions | ExpectConstructors
 
