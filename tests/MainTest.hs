@@ -1583,6 +1583,27 @@ testFunctions = testGroup "functions"
       ==>
       ["FOO", "UnindentedImportList", "baz"]
 
+    , "\n\
+      \{-# LANGAUGE TemplateHaskell #-}\n\
+      \module Example where\n\
+      \\n\
+      \import Local.TH\n\
+      \concat <$> sequence [thFunc1, thFunc2]\n\
+      \\n\
+      \foo :: a -> a\n\
+      \foo x = x\n"
+      ==>
+      ["Example", "foo"]
+    , "\n\
+      \{-# LANGAUGE TemplateHaskell #-}\n\
+      \module Example where\n\
+      \\n\
+      \import Local.TH\n\
+      \concat <$> sequence [thFunc1, thFunc2]\n\
+      \\n"
+      ==>
+      ["Example"]
+
     , toplevelFunctionsWithoutSignatures
     ]
     where

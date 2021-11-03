@@ -715,7 +715,12 @@ toplevelFunctionTags toks = case tags of
     toRepeatableTag t       = t
 
 functionTagsNoSig :: [Token] -> [Tag]
-functionTagsNoSig allToks = go' allToks
+functionTagsNoSig allToks
+    -- If there’s no equals sign then this is definitely not a function/operator declaration.
+    | any (\case { Pos _ Equals -> True; _ -> False; }) allToks
+    = go' allToks
+    | otherwise
+    = []
     where
     go' :: [Token] -> [Tag]
     go' (Pos _ T{} : Pos pos tok : _)
@@ -945,7 +950,6 @@ stripParensKindsTypeVars (Pos _ (T name) : xs)
 stripParensKindsTypeVars xs = xs
 
 stripOptContext :: [Token] -> [Token]
-stripOptContext (stripBalancedParens -> Pos _ Implies : xs) = xs
 stripOptContext (stripBalancedParens -> Pos _ Implies : xs) = xs
 stripOptContext origToks = go origToks
     where
