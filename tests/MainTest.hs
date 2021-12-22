@@ -1974,6 +1974,22 @@ testPatterns = testGroup "patterns"
       \   (:>) x xs = Vec2 (x:unvec2 xs)"
       ==>
       [":>"]
+    , "\n\
+      \data Foo = Foo_ { _foo :: !(Last String) } deriving (Eq)\n\
+      \n\
+      \pattern Bar :: A -> B\n\
+      \pattern Bar { foo } = Foo_ (Last foo)\n\
+      \{-# COMPLETE Bar #-}\n"
+      ==>
+      ["Bar", "Foo", "Foo_", "_foo", "foo"]
+    , "\n\
+      \data Foo = Foo_ { _foo :: !(Last String), _bar :: !(Last String) } deriving (Eq)\n\
+      \n\
+      \pattern Bar :: A -> B\n\
+      \pattern Bar { foo, bar } = Foo_ (Last foo) (Last bar)\n\
+      \{-# COMPLETE Bar #-}\n"
+      ==>
+      ["Bar", "Foo", "Foo_", "_bar", "_foo", "bar", "foo"]
     ]
     where
     (==>) = testTagNames filename
