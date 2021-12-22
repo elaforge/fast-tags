@@ -495,6 +495,15 @@ explodeToplevelBracedBlocks toks =
 
 -- * extract tags
 
+patternRecordFieldNames :: [Token] -> ([Tag], [Token])
+patternRecordFieldNames = go []
+  where
+    go acc ts =
+        case ts of
+            Pos pos (T name) : rest -> go (mkTag pos name Pattern : acc) rest
+            Pos _ Comma      : rest -> go acc rest
+            _                       -> (acc, ts)
+
 -- | Get all the tags in one indented block.
 -- TODO clean this up to require less nesting, and dropDataContext duplication
 blockTags :: UnstrippedTokens -> [Tag]
@@ -510,6 +519,9 @@ blockTags unstripped = case stripNewlines unstripped of
         [mkTag pos (snd (T.breakOnEnd "." name)) Module]
     stripped@(Pos _       (T "pattern") : Pos _ DoubleColon : _) ->
         toplevelFunctionTags stripped
+    (Pos _ (T "pattern") : Pos pos (T name) : Pos _ LBrace : rest)
+        | (fieldNames, Pos _ RBrace : Pos _ Equals : _) <- patternRecordFieldNames rest ->
+        mkTag pos name Pattern : fieldNames
     stripped@(Pos prevPos (T "pattern") : toks) ->
         case tag of
             Nothing -> toplevelFunctionTags stripped
