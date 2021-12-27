@@ -1281,6 +1281,9 @@ testGADT = testGroup "gadt"
     , "data Foo a where\n\
       \  Bar :: Baz a => { foo :: Int, bar :: a } -> Foo a"
       ==> ["Bar", "Foo", "bar", "foo"]
+
+    , "type role Map nominal representational"
+      ==> []
     ]
     where
     (==>) = testTagNames filename

@@ -550,7 +550,12 @@ blockTags unstripped = case stripNewlines unstripped of
     -- No tags in type family instances
     Pos _ KWType : Pos _ KWInstance : _ -> []
     -- type X * = ...
-    Pos prevPos KWType : toks -> maybeToList tag
+    Pos prevPos KWType : toks
+        -- If there’s no equals sign then this is definitely not a type synonym declaration.
+        | containsEquals toks
+        -> maybeToList tag
+        | otherwise
+        -> []
         where
         (tag, _, _) = recordVanillaOrInfixName isTypeName Type prevPos
             "type * =" toks
@@ -729,7 +734,7 @@ toplevelFunctionTags toks = case tags of
 functionTagsNoSig :: [Token] -> [Tag]
 functionTagsNoSig allToks
     -- If there’s no equals sign then this is definitely not a function/operator declaration.
-    | any (\case { Pos _ Equals -> True; _ -> False; }) allToks
+    | containsEquals allToks
     = go' allToks
     | otherwise
     = []
@@ -1119,6 +1124,9 @@ unexpected prevPos (UnstrippedTokens tokensBefore) tokensHere declaration =
 isNewline :: Token -> Bool
 isNewline (Pos _ (Newline _)) = True
 isNewline _                   = False
+
+containsEquals :: [Token] -> Bool
+containsEquals = any (\case { Pos _ Equals -> True; _ -> False; })
 
 dropUntil :: TokenVal -> [Token] -> [Token]
 dropUntil token = drop 1 . dropWhile (not . (== token) . valOf)
