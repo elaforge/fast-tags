@@ -1,3 +1,9 @@
+* Add support to qualified_tags.py for tag preview.
+
+* support record pattern synonyms
+
+* Reduce false positives from Template Haskell
+
 2.0.0
 
 * Added example git hooks in tools/ to incrementally update tags across

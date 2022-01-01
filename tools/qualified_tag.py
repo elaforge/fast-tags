@@ -22,9 +22,13 @@
 # if has('python')
 #     py import qualified_tag
 #     nnoremap <buffer> <silent> <c-]> :py qualified_tag.tag_word(vim)<cr>
+#     nnoremap <buffer> <silent> <c-Bslash> :py qualified_tag.tag_preview(vim)<cr>
 # endif
 #
-# Or python3 and py3 if you have those.
+# Substitute has('python3') and 'py3' if your vim uses python3.
+#
+# This also adds ^\ to preview a tag in a quickfix window.  I use this to get
+# type signatures, haddocks, and parameter names, or data declarations.
 #
 # If you use 'filetype', you can do:
 #
@@ -33,25 +37,134 @@
 from __future__ import print_function
 import sys, re
 
+
+### preview tag
+
+
+def tag_preview(vim):
+    """This abuses vim's quickfix window to show a preview of where the
+        tag will go.
+    """
+    matches, _word = get_tag(vim)
+    if not matches:
+        return
+    match = matches[0]
+    linenumber = int(match['cmd'])
+    i, lines = get_preview(match['kind'], match['filename'], linenumber)
+    # This is sketchy, since it only works if python repr is valid viml, but
+    # "sketchy" is normal for vim.  Speaking of which, for some unknown
+    # reason, | is a special character when appearing in expressions, but
+    # only for :cgetexpr, not for e.g. :echo.
+    vim.command('cgetexpr ' + repr(lines).replace('|', '\\|'))
+    vim.command('copen ' + repr(len(lines)))
+    vim.command('cc ' + str(i+1))
+    # TODO Set title to file:linenumber, or file.match['name']
+    # Go to previous window, to get out of the qf window.
+    vim.command('wincmd p')
+
+def get_preview(kind, fname, linenumber):
+    fp = open(fname)
+    lines = fp.readlines()
+    fp.close()
+    before, after = kind_context.get(kind, context_generic)(
+        lines, linenumber-1)
+    return len(before), list(map(str.rstrip, before + after))
+
+def context_type(lines, i):
+    before = back_until_haddock(lines, i)
+    after = forward_until(lines, i, 5, ['}', 'deriving'], dedent=True)
+    return before, after
+
+def context_function(lines, i):
+    # The tag should be on the line with ::, but maybe not.
+    before = back_until_haddock(lines, i)
+    after = forward_until(lines, i, 3, ['='])
+    return before, after
+
+def context_generic(lines, i):
+    return lines[i-1 : i], forward_until(lines, i, 3, [], dedent=True)
+
+def truncate(maxlen, xs):
+    if len(xs) > maxlen:
+        return xs[:maxlen] + ['...']
+    else:
+        return xs
+
+def back_until_haddock(lines, start):
+    maxlines = 5
+    i = start
+    while i > 0:
+        if not lines[i].strip():
+            i += 1
+            break
+        elif lines[i].startswith(('-- |', '{- |')):
+            break
+        else:
+            i -= 1
+    return truncate(maxlines, lines[i : start])
+
+def forward_until(lines, start, maxlines, infixes, dedent=False):
+    i = start
+    indented = False
+    while i < len(lines) and i - start < maxlines:
+        if not lines[i].strip():
+            i -= 1
+            break
+        elif dedent and indented and not lines[i][0].isspace():
+            # A dedented after an indent must be the next definition.
+            i -= 1
+            break
+        else:
+            ws = lines[i].split()
+            if any(infix in ws for infix in infixes):
+                break
+            else:
+                if lines[i][0].isspace():
+                    indented = True
+                i += 1
+    return lines[start : i+1]
+
+kind_context = {
+    'm': context_generic, # module
+    'f': context_function, # function
+    'c': context_type, # class
+    't': context_type, # type
+    'C': context_type, # constructor
+    'o': context_function, # function
+    'p': context_generic, # pattern * = ...
+    'F': context_generic, # type family * = ...
+    'D': context_generic, # define
+}
+
+### follow tag
+
 def tag_word(vim):
+    matches, word = get_tag(vim)
+    if not matches:
+        # I'd use echoerr, but that causes a big messy python traceback.
+        vim.command('echohl ErrorMsg | echo %r | echohl None'
+            % ('tag not found: ' + word,))
+    else:
+        vim.command('tag ' + word)
+
+def get_tag(vim):
+    """Get the word under the cursor, return
+        [str] - Exact names for tags matching the word.
+        str - Word from the cursor.
+    """
     word = get_word(vim)
     qual_to_module = get_qualified_imports(vim.current.buffer)
     tag = guess_tag(qual_to_module, word)
     # If I can't find a qualified target, try it without the qualification.
     # It might be a re-export from another module.
-    found = has_target(vim, tag)
-    if not found and '.' in tag:
+    matches = has_target(vim, tag)
+    if not matches and '.' in tag:
         tag = tag.split('.')[-1]
-        found = has_target(vim, tag)
-    if found:
-        vim.command('tag ' + tag)
-    else:
-        # I'd use echoerr, but that causes a big messy python traceback.
-        vim.command('echohl ErrorMsg | echo %r | echohl None' %
-            ('tag not found: ' + tag,))
+        matches = has_target(vim, tag)
+    return matches, tag
 
 def has_target(vim, tag):
-    return bool(vim.eval('taglist(%r)' % ('^' + tag + '$',)))
+    return vim.eval('taglist(%r)' % ('^' + tag + '$',))
 
 def get_word(vim):
     (row, col) = vim.current.window.cursor
@@ -113,9 +226,11 @@ def get_imports(lines):
 
 def finished_imports(line):
     # Hacky heuristic to see if I'm past the import block.
-    # If it starts with non-space but not 'import', then it's probably
-    # not an import or import continuation.
-    return line and not line.startswith('import') and not line[0].isspace() and not line.startswith('--')
+    # If column 0 isn't 'import' or a space or a comment.
+    return line and not (
+        line.startswith('import') or line[0].isspace()
+        or line.startswith('--')
+    )
 
 def test():
     fn, tag = sys.argv[1:]
