@@ -1,3 +1,5 @@
+2.0.1
+
 * Add support to qualified_tags.py for tag preview.
 
 * support record pattern synonyms

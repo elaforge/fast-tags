@@ -1,6 +1,6 @@
 name: fast-tags
-version: 2.0.0
-cabal-version: >= 1.8
+version: 2.0.1
+cabal-version: >= 1.10
 build-type: Simple
 synopsis: Fast incremental vi and emacs tags.
 description:
@@ -89,6 +89,7 @@ library
     ghc-options: -Wall -fno-warn-name-shadowing -O2
     if flag(profile)
         ghc-prof-options: -Wall -fno-warn-name-shadowing -auto-all
+    default-language: Haskell2010
 
 executable fast-tags
     main-is: src/FastTags/Main.hs
@@ -115,6 +116,7 @@ executable fast-tags
     if flag(profile)
         ghc-prof-options:
             -auto-all -Wall -fno-warn-name-shadowing -threaded
+    default-language: Haskell2010
 
 test-suite test-fast-tags
     type: exitcode-stdio-1.0
@@ -134,3 +136,4 @@ test-suite test-fast-tags
         text (> 0.11.1.12 || < 0.11.1.12),
         void,
         fast-tags
+    default-language: Haskell2010
