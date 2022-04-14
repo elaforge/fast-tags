@@ -80,7 +80,14 @@ library
         transformers,
         vector,
         void
+    if impl(ghc >= 9.2)
+        hs-source-dirs: src-9.2
+    else
+        if impl(ghc >= 8.10)
+            hs-source-dirs: src-8.10
     build-tools: alex
+    other-modules:
+        Compat
     exposed-modules:
         FastTags.Cabal
         FastTags.Emacs
