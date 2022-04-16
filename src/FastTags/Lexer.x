@@ -357,7 +357,7 @@ scanTokens :: AlexM (Maybe Text)
 scanTokens = go
     where
     go = do
-        nextTok <- continueScanning
+        !nextTok <- continueScanning
         case nextTok of
             EOF       -> pure Nothing
             Error err -> pure $ Just err

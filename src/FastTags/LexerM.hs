@@ -78,6 +78,7 @@ module FastTags.LexerM
 
 import Control.Applicative as A
 import Control.DeepSeq
+import Control.Exception
 import Control.Monad.ST
 import Control.Monad.State.Strict
 import Control.Monad.Writer.Strict
@@ -273,19 +274,28 @@ runAlexM
   -> AlexM a
   -> (a, [Token])
 runAlexM filepath trackPrefixesAndOffsets litLoc startCode input action =
-    withAlexInput input $ \input' inputSize ->
+    performIO $
+    withAlexInput input $ \input' inputSize -> do
         let (a, xs) = evalState (runWriterT action)
                     $ mkAlexState litLoc startCode input'
-        in if trackPrefixesAndOffsets
-        then
+        if trackPrefixesAndOffsets
+        then do
             let !ptr  = aiPtr input' `plusPtr` 1 -- Drop first newline
                 !size = inputSize - 1
                 !idx  = positionsIndex ptr size
                 res   =
                     map (\(x, y) -> Pos (mkSrcPos filepath idx ptr x) y) xs
-            in res `deepseq` (a, res)
-        else
-            (a, map (\(x, y) -> Pos (mkSrcPosNoPrefix filepath x) y) xs)
+            pure $! res `deepseq` (a, res)
+        else do
+            -- Contents of 'xs' has been seq'ed so TokenVals in there should
+            -- have been forced and thus should not contain any references to the
+            -- original input bytestring. However, in GHC 9.0 it seems that
+            -- GHC does some transformation which results in some entries within 'xs'
+            -- being not fully evaluated and thus lead to an error since they get
+            -- forced outside of 'withForeignPtr' bounds. The call to 'evaluate' below
+            -- is intended to prevent such transformation from occuring.
+            _ <- evaluate xs
+            pure (a, map (\(x, y) -> Pos (mkSrcPosNoPrefix filepath x) y) xs)
 
 mkSrcPosNoPrefix :: FilePath -> AlexInput -> SrcPos
 mkSrcPosNoPrefix filename input =
@@ -370,7 +380,7 @@ aiLineLengthL = aiIntStoreL . int32L 32 . int2Int32L
 {-# INLINE takeText #-}
 takeText :: AlexInput -> Int -> T.Text
 takeText AlexInput{aiPtr} len =
-    TE.decodeUtf8 $ utf8BS len aiPtr
+    TE.decodeUtf8 $! utf8BS len aiPtr
 
 countInputSpace :: AlexInput -> Int -> Int
 countInputSpace AlexInput{aiPtr} len =
@@ -382,22 +392,23 @@ countInputSpace AlexInput{aiPtr} len =
         1## -> acc + 1
         _   -> acc
 
+{-# INLINE performIO #-}
+performIO :: IO a -> a
+performIO = BSI.accursedUnutterablePerformIO
 
 {-# INLINE withAlexInput #-}
-withAlexInput :: C8.ByteString -> (AlexInput -> Int -> a) -> a
+withAlexInput :: C8.ByteString -> (AlexInput -> Int -> IO a) -> IO a
 withAlexInput s f =
     case s' of
         BSI.PS ptr offset len ->
-            BSI.accursedUnutterablePerformIO $ withForeignPtr ptr $ \ptr' -> do
+            withForeignPtr ptr $ \ptr' -> do
                 let !input =
                         set aiLineL initLine $
                         AlexInput
                             { aiPtr      = ptr' `plusPtr` offset
                             , aiIntStore = 0
                             }
-                    !res = f input $ len - offset
-                touchForeignPtr ptr
-                pure res
+                f input $! len - offset
     where
     -- Line numbering starts from 0 because we're adding additional newline
     -- at the beginning to simplify processing. Thus, line numbers in the
@@ -678,7 +689,7 @@ utf8FoldlBounded (I# len#) f x0 (Ptr ptr#) =
 {-# INLINE utf8BS #-}
 utf8BS :: Int -> Ptr Word8 -> BS.ByteString
 utf8BS (I# nChars#) (Ptr start#) =
-    BSI.PS (BSI.accursedUnutterablePerformIO (newForeignPtr_ (Ptr start#))) 0 (I# (go nChars# 0#))
+    BSI.PS (performIO (newForeignPtr_ (Ptr start#))) 0 (I# (go nChars# 0#))
     where
     go :: Int# -> Int# -> Int#
     go 0# bytes# = bytes#
@@ -690,12 +701,12 @@ utf8BS (I# nChars#) (Ptr start#) =
 {-# INLINE bytesToUtf8BS #-}
 bytesToUtf8BS :: Int -> Ptr Word8 -> BS.ByteString
 bytesToUtf8BS (I# nbytes#) (Ptr start#) =
-    BSI.PS (BSI.accursedUnutterablePerformIO (newForeignPtr_ (Ptr start#))) 0 (I# nbytes#)
+    BSI.PS (performIO (newForeignPtr_ (Ptr start#))) 0 (I# nbytes#)
 
 {-# INLINE regionToUtf8BS #-}
 regionToUtf8BS :: Ptr Word8 -> Ptr Word8 -> BS.ByteString
 regionToUtf8BS start end =
-    BSI.PS (BSI.accursedUnutterablePerformIO (newForeignPtr_ start)) 0 (minusPtr end start)
+    BSI.PS (performIO (newForeignPtr_ start)) 0 (minusPtr end start)
 
 {-# INLINE utf8DecodeChar# #-}
 utf8DecodeChar# :: Addr# -> (# Char#, Int# #)
