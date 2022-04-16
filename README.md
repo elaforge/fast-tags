@@ -1,10 +1,10 @@
 # fast-tags - fast and robust tag generator for Haskell #
 
-[![Build Status][badge-travis]](https://travis-ci.org/elaforge/fast-tags)
+[![Build Status](https://github.com/elaforge/fast-tags/workflows/ci/badge.svg)](https://github.com/elaforge/fast-tags/actions?query=workflow%3Aci)
 
 # Supported GHC versions #
 
-Tested with GHC `7.8.4`, `7.10.3`, `8.0.2`, `8.2.2`, `8.4.1`.
+Tested with GHC `7.10`, `8.0`, `8.2`, `8.4`, `8.4`, `8.6`, `8.8`, `8.10`, `9.0`.
 
 # Installation #
 
