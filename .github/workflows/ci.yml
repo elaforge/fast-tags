@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - master
+      - gh-actions
   pull_request: {} # Validate all PRs
 
 defaults:
@@ -35,8 +36,8 @@ jobs:
         - os: windows-latest
           ghc: '9.10'
     steps:
-    - uses: actions/checkout@v2
-    - uses: haskell/actions/setup@v1
+    - uses: actions/checkout@v4
+    - uses: haskell-actions/setup@v2
       id: setup-haskell-cabal
       with:
         ghc-version: ${{ matrix.ghc }}
