@@ -57,10 +57,16 @@ jobs:
         cd fast-tags-*/
         cabal build fast-tags:exe:fast-tags fast-tags:tests --enable-tests
         cabal test --enable-tests --test-show-details=direct fast-tags:tests
+
     - name: Haddock
+      # Haddock forces a rebuild of everything, since it thinks all the deps
+      # now need haddock too and cabal can't build haddock separately.  And
+      # haddock is broken for 8.0, 8.2, 8.4.
+      if: ${{ matrix.ghc == '9.10' }}
       run: |
         cd fast-tags-*/
         cabal haddock all
+
     # Disabled, see comment in .cabal.
     # - name: Cabal check
     #   run: |
