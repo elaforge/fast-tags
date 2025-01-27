@@ -1,3 +1,7 @@
+2.0.3
+
+* fixes for newer Cabal
+
 2.0.2
 
 * fixes for ghc 9.0 and 9.2, thanks to @sergv and @ozkutuk
