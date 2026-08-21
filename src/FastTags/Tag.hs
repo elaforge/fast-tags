@@ -901,6 +901,10 @@ dataConstructorTags prevPos unstripped
             mkTag pos name Constructor : collectRest rest
         Pos _ LParen : Pos pos (T name) : Pos _ RParen : rest ->
             mkTag pos name Constructor : collectRest rest
+        -- Unboxed sum/tuple constructors, e.g. data Sum2# a b = (# a | #) |
+        -- (# | b #), have no name to tag; skip them.
+        rest@(Pos _ LParen : Pos _ (T "#") : _) ->
+            collectRest $ stripBalancedParens rest
         rest -> [unexpected prevPos unstripped rest "data * = *"]
     where
     strip :: UnstrippedTokens -> [Token]
@@ -925,6 +929,8 @@ dataConstructorTags prevPos unstripped
         , isHaskellConstructorOp name =
             mkTag pos name Constructor
                 : collectRest (dropUntilNextCaseOrRecordStart rest'')
+        | Pos _ LParen : Pos _ (T "#") : _ <- rest' =
+            collectRest $ stripBalancedParens rest'
         | otherwise =
             [unexpected pipePos unstripped rest "| not followed by tokens"]
         where
