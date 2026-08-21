@@ -941,6 +941,10 @@ testData = testGroup "data"
     , "data X = Y :+: !Z | !X `Mult` X"            ==> [":+:", "Mult", "X"]
     , "data X = !Y `Add` !Z"                       ==> ["Add", "X"]
 
+    -- Unboxed sums have no constructor names to tag.
+    , "data Sum2# a b = (# a | #) | (# | b #)"     ==> ["Sum2#"]
+    , "data Tuple2# a b = (# a, b #)"              ==> ["Tuple2#"]
+
     , "data X = forall a. Y a"                     ==> ["X", "Y"]
     , "data X = forall a . Y a"                    ==> ["X", "Y"]
     , "data X = forall a .Y a"                     ==> ["X", "Y"]
