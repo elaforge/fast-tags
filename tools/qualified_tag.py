@@ -153,8 +153,8 @@ def get_tag(vim):
         str - Word from the cursor.
     """
     word = get_word(vim)
-    qual_to_module = get_qualified_imports(vim.current.buffer)
-    tag = guess_tag(qual_to_module, word)
+    qual_to_modules = get_qualified_imports(vim.current.buffer)
+    tag = guess_tag(qual_to_modules, word)
     # If I can't find a qualified target, try it without the qualification.
     # It might be a re-export from another module.
     matches = has_target(vim, tag)
@@ -194,35 +194,36 @@ def expand_word(line, col):
 def is_keyword(c):
     return c.isalnum() or c in "'._"
 
-def guess_tag(qual_to_module, word):
+def guess_tag(qual_to_modules, word):
     if '.' not in word:
         return word
     components = word.split('.')
     qual = '.'.join(components[:-1])
-    if qual in qual_to_module:
-        return qual_to_module[qual] + '.' + components[-1]
+    if qual in qual_to_modules:
+        # TODO Multiple modules can have the same qualification, I
+        # should return and search for them all.
+        return qual_to_modules[qual][0] + '.' + components[-1]
     else:
         return word
 
-def get_qualified_imports(lines):
-    imports = get_imports(lines)
-    qual_to_module = {}
-    for m in re.finditer(r'\b([A-Za-z0-9.]+)\s+as\s+([A-Za-z00-9.]+)$',
-            imports, re.MULTILINE):
-        qual_to_module[m.group(2)] = m.group(1)
-    return qual_to_module
+# import A.B.C qualified as C
+# import qualified A.B.C as C
+module_re = '[A-Za-z0-9_.]+'
+import_re1 = fr'^import +qualified +({module_re}) +as +({module_re})$'
+import_re2 = fr'^import +({module_re}) +qualified +as +({module_re})$'
 
-def get_imports(lines):
-    imports = []
+def get_qualified_imports(lines) -> dict[str, list[str]]:
+    qual_to_modules = {}
     in_imports = False
     for line in lines:
-        if line.startswith('import'):
+        m = re.match(import_re1, line) or re.match(import_re2, line)
+        if m:
             in_imports = True
-        if in_imports:
-            if finished_imports(line):
-                break
-            imports.append(line)
-    return '\n'.join(imports)
+        if in_imports and finished_imports(line):
+            break
+        if m:
+            qual_to_modules.setdefault(m.group(2), []).append(m.group(1))
+    return qual_to_modules
 
 def finished_imports(line):
     # Hacky heuristic to see if I'm past the import block.
